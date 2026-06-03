@@ -1,3 +1,17 @@
+> This repository is a fork of [TruffleHog](https://github.com/trufflesecurity/trufflehog) by
+> **Truffle Security**, maintained by **Unbound (websentry-ai)**. We're deeply grateful to Truffle
+> Security and the TruffleHog community for building and open-sourcing such a capable
+> secret-detection engine.
+>
+> TruffleHog is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. This fork —
+> including the `cmd/analyzer/` HTTP service that links the TruffleHog library and is therefore a
+> **derivative work** — is likewise distributed under **AGPL-3.0**. The complete corresponding source
+> is openly available in this public repository, and the upstream project source lives at
+> <https://github.com/trufflesecurity/trufflehog>. See [`LICENSE`](/LICENSE) for full terms and
+> [`cmd/analyzer/README.md`](/cmd/analyzer/README.md) for the wrapper service.
+
+<!-- ───────────────────────────────────────────────────────────────────────── -->
+
 <p align="center">
   <img alt="GoReleaser Logo" src="https://storage.googleapis.com/trufflehog-static-sources/pixel_pig.png" height="140" />
   <h2 align="center">TruffleHog</h2>
