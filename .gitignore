@@ -5,6 +5,7 @@ dist
 
 # binary
 trufflehog
+/analyzer
 tmp/go-test.json
 .captain/detectors/timings.yaml
 .captain/detectors/quarantines.yaml
