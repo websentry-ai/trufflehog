@@ -1,0 +1,22 @@
+# Dev overlay for the trufflehog-analyzer.
+# Single pod, no autoscaling, scaled-down resources. Secrets: dev/trufflehog.
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+image:
+  repository: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
+  tag: dev
+
+externalSecret:
+  remoteKey: dev/trufflehog
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

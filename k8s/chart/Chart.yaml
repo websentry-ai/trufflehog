@@ -1,0 +1,6 @@
+apiVersion: v2
+name: trufflehog
+description: TruffleHog analyzer HTTP service (cmd/analyzer) for the Unbound EKS DLP pipeline
+type: application
+version: 0.1.0
+appVersion: "dev"
