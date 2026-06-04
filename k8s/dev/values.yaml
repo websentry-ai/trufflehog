@@ -13,6 +13,14 @@ image:
 externalSecret:
   remoteKey: dev/trufflehog
 
+# Public ingress. /analyze is gated by the TRUFFLEHOG_API_KEY bearer token; only
+# /health is reachable unauthenticated. className/tls/cluster-issuer are
+# inherited from the base values. Requires a Cloudflare DNS record for this host
+# pointing at the nginx ingress LB before cert-manager can issue the TLS cert.
+ingress:
+  enabled: true
+  host: trufflehog.unboundsec.dev
+
 resources:
   requests:
     cpu: 100m

@@ -1,11 +1,18 @@
-# Staging overlay for the trufflehog-analyzer.
-# Internal-only (ClusterIP, no ingress — inherited from base). Secrets: staging/trufflehog.
+# Staging overlay for the trufflehog-analyzer. Secrets: staging/trufflehog.
 
 image:
   tag: staging
 
 externalSecret:
   remoteKey: staging/trufflehog
+
+# Public ingress. /analyze is gated by the TRUFFLEHOG_API_KEY bearer token; only
+# /health is reachable unauthenticated. className/tls/cluster-issuer are
+# inherited from the base values. Requires a Cloudflare DNS record for this host
+# pointing at the nginx ingress LB before cert-manager can issue the TLS cert.
+ingress:
+  enabled: true
+  host: trufflehog-staging.getunbound.ai
 
 autoscaling:
   enabled: true
