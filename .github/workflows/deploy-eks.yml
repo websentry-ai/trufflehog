@@ -191,5 +191,10 @@ jobs:
           {
             echo "### trufflehog-analyzer (${ENV})"
             echo "- push: ${PUSH}, rollout: ${ROLLOUT}"
-            [ "${PUSH}" = "true" ] && echo "- tags: \`${ECR_REPO}:${GIT_SHA}\`, \`${ECR_REPO}:${ENV}\`"
+            # `[ ] && echo` would make this brace group exit non-zero when
+            # PUSH != true, and `bash -e` would fail the step. Use an if-block
+            # so the group's final status is always 0.
+            if [ "${PUSH}" = "true" ]; then
+              echo "- tags: \`${ECR_REPO}:${GIT_SHA}\`, \`${ECR_REPO}:${ENV}\`"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
