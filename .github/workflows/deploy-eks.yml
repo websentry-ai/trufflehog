@@ -1,0 +1,195 @@
+name: Build and Deploy EKS
+
+# Builds the cmd/analyzer HTTP service image and pushes it to ECR (k8s/trufflehog),
+# mirroring the websentry-ai/dlp-detector deploy-eks.yml pattern.
+#
+#   PR                → build-only (no push, no rollout)
+#   push to main      → build + push :sha + :dev + rollout dev
+#   workflow_dispatch → build + push :sha + :<env> + optional rollout
+#
+# Auth: GitHub OIDC -> AWS IAM role unbound-dev-gha-ci (shared per-env CI role).
+# Image tags follow Pattern C: :sha always (rollback handle), mutable :<env> tag
+# drives the cluster. selfHeal/values.yaml are NOT mutated by CI — the env tag
+# is repointed and a rollout restart pulls it. Operator-driven rollout is the
+# canonical path (see user runbook); CI rollout below is best-effort.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['k8s/**', 'docs/**', '**.md']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['k8s/**', 'docs/**', '**.md']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        required: true
+        default: dev
+        options: [dev, staging, prod]
+      rollout:
+        description: Run kubectl rollout restart after push
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-trufflehog-${{ github.event.inputs.environment || 'dev' }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPO: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
+  DEPLOYMENT: trufflehog
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # All user-influenced expressions piped through env: instead of inlined
+      # into run: shell blocks — defense in depth against template injection.
+      - name: Resolve env + tags
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+          INPUT_ROLLOUT: ${{ inputs.rollout }}
+          ECR_REPO: ${{ env.ECR_REPO }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$INPUT_ENV"
+            ROLLOUT="$INPUT_ROLLOUT"
+          else
+            ENV="dev"
+            ROLLOUT="true"
+          fi
+          PUSH="true"
+          [ "$EVENT_NAME" = "pull_request" ] && PUSH="false"
+          TAGS=""
+          [ "$PUSH" = "true" ] && TAGS="${ECR_REPO}:${GIT_SHA},${ECR_REPO}:${ENV}"
+          {
+            echo "env=$ENV"
+            echo "push=$PUSH"
+            echo "rollout=$ROLLOUT"
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "env=$ENV push=$PUSH rollout=$ROLLOUT"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.meta.outputs.push == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: steps.meta.outputs.push == 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build context is the repo ROOT — cmd/analyzer/Dockerfile does
+      # `COPY go.mod go.sum` and `go build ./cmd/analyzer`, so it needs the
+      # whole module tree, not the cmd/analyzer subdir.
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: cmd/analyzer/Dockerfile
+          push: ${{ steps.meta.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=trufflehog-analyzer
+          cache-to: type=gha,scope=trufflehog-analyzer,mode=max
+          provenance: false
+
+      - name: Wait for ECR image manifest
+        if: steps.meta.outputs.push == 'true' && steps.meta.outputs.rollout == 'true'
+        env:
+          ECR_REPO: ${{ env.ECR_REPO }}
+          GIT_SHA: ${{ github.sha }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          NAME="${ECR_REPO#*/}"   # strip registry host -> k8s/trufflehog
+          for i in $(seq 1 12); do
+            if aws ecr describe-images --repository-name "$NAME" \
+                --image-ids imageTag="$GIT_SHA" --region "$AWS_REGION" \
+                >/dev/null 2>&1; then
+              echo "Image manifest visible ($NAME)"; exit 0
+            fi
+            echo "Waiting for ECR manifest (attempt $i/12)..."; sleep 5
+          done
+          echo "::warning::ECR manifest not visible after 60s — proceeding anyway"
+
+      # Rollout only on dev + staging — prod is print-only (operator runs it).
+      - name: Rollout (dev + staging)
+        if: steps.meta.outputs.push == 'true' && steps.meta.outputs.rollout == 'true' && steps.meta.outputs.env != 'prod'
+        env:
+          ENV: ${{ steps.meta.outputs.env }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          DEPLOYMENT: ${{ env.DEPLOYMENT }}
+        run: |
+          aws eks update-kubeconfig --name "unbound-${ENV}" --region "${AWS_REGION}"
+
+          # `rollout restart` is the mutation; re-issuing it abandons the
+          # in-flight ReplicaSet. Never retry. A failure HERE is real
+          # (auth / RBAC / deployment-not-found), not a timeout.
+          if ! kubectl rollout restart "deployment/${DEPLOYMENT}-${ENV}" -n "${ENV}"; then
+            echo "::error::kubectl rollout restart failed for ${DEPLOYMENT}-${ENV} (auth/RBAC/not-found — NOT a timeout)"
+            kubectl get events -n "${ENV}" --sort-by=.lastTimestamp | tail -20 || true
+            exit 1
+          fi
+
+          # A timeout here is NOT a reason to restart: the rollout is still
+          # progressing server-side and usually self-heals. Mark failed for
+          # visibility, dump diagnostics, do NOT touch the deployment again.
+          if ! kubectl rollout status "deployment/${DEPLOYMENT}-${ENV}" -n "${ENV}" --timeout=10m; then
+            echo "::warning::rollout status did not converge within 10m for ${DEPLOYMENT}-${ENV}. Still progressing in-cluster and typically self-heals — marking failed for visibility only; NOT restarting."
+            kubectl describe "deployment/${DEPLOYMENT}-${ENV}" -n "${ENV}" | tail -30 || true
+            kubectl get events -n "${ENV}" --sort-by=.lastTimestamp | tail -20 || true
+            POD=$(kubectl get pods -n "${ENV}" -l app="${DEPLOYMENT}-${ENV}" \
+              --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || true)
+            [ -n "$POD" ] && kubectl logs "$POD" -n "${ENV}" --tail=50 || true
+            POST_FAIL=1
+          fi
+
+          echo ""
+          echo "=== Final pod state (${DEPLOYMENT}-${ENV}) ==="
+          kubectl get pods -n "${ENV}" -l app="${DEPLOYMENT}-${ENV}" -o wide || true
+          [ "${POST_FAIL:-0}" = "1" ] && exit 1 || true
+
+      - name: Prod rollout (manual — print only)
+        if: steps.meta.outputs.push == 'true' && steps.meta.outputs.env == 'prod'
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          echo "::notice::Prod image pushed. Run rollout from your laptop:"
+          echo ""
+          echo "  kubectl --context unbound-prod rollout restart deployment/trufflehog-prod -n prod"
+          echo ""
+          echo "Image SHA: $GIT_SHA"
+
+      - name: Summary
+        if: always()
+        env:
+          ENV: ${{ steps.meta.outputs.env }}
+          PUSH: ${{ steps.meta.outputs.push }}
+          ROLLOUT: ${{ steps.meta.outputs.rollout }}
+          ECR_REPO: ${{ env.ECR_REPO }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "### trufflehog-analyzer (${ENV})"
+            echo "- push: ${PUSH}, rollout: ${ROLLOUT}"
+            [ "${PUSH}" = "true" ] && echo "- tags: \`${ECR_REPO}:${GIT_SHA}\`, \`${ECR_REPO}:${ENV}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
