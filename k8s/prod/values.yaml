@@ -1,0 +1,27 @@
+# Production overlay for the trufflehog-analyzer.
+# Internal-only (ClusterIP, no ingress — inherited from base). Secrets: prod/trufflehog.
+
+image:
+  tag: prod
+
+externalSecret:
+  enabled: true
+  remoteKey: prod/trufflehog
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 75
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

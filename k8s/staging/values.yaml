@@ -1,0 +1,23 @@
+# Staging overlay for the trufflehog-analyzer.
+# Internal-only (ClusterIP, no ingress — inherited from base). Secrets: staging/trufflehog.
+
+image:
+  tag: staging
+
+externalSecret:
+  remoteKey: staging/trufflehog
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 75
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

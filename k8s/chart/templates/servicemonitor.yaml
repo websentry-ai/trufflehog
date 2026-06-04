@@ -1,0 +1,27 @@
+{{- if .Values.serviceMonitor.enabled -}}
+# ServiceMonitor — tells the Prometheus Operator to scrape this service.
+# Disabled by default: cmd/analyzer exposes only /analyze and /health, no
+# /metrics endpoint. Kept as a gated template so a future metrics endpoint can
+# be scraped without re-adding this file. The cluster's kube-prometheus-stack
+# runs with serviceMonitorSelectorNilUsesHelmValues=false, so any ServiceMonitor
+# in any namespace is picked up automatically; set releaseLabel only when
+# targeting a cluster that uses the default `release: <stack>` selector.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+    {{- with .Values.serviceMonitor.releaseLabel }}
+    release: {{ . }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  endpoints:
+    - port: http
+      path: {{ .Values.serviceMonitor.path | default "/metrics" }}
+      interval: {{ .Values.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout | default "10s" }}
+{{- end }}
