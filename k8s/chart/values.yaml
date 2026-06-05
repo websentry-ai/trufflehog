@@ -4,6 +4,7 @@
 # The deployed workload is the cmd/analyzer HTTP service (see cmd/analyzer/main.go):
 #   POST /analyze  — Bearer-auth (TRUFFLEHOG_API_KEY), scans request body for secrets
 #   GET  /health   — unauthenticated liveness/readiness probe, returns {"status":"ok"}
+#   GET  /metrics  — unauthenticated Prometheus metrics (counts only, no secrets)
 # Listens on :8080 (Dockerfile sets ENV PORT=8080; service defaults to 8080 if unset).
 # Stateless, internal-only — consumed over cluster DNS by the DLP pipeline.
 
@@ -32,15 +33,24 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 
-# The analyzer's single secret (TRUFFLEHOG_API_KEY, the /analyze Bearer token)
-# is pulled from AWS Secrets Manager by ESO. The Deployment injects the whole
-# map via envFrom: secretRef. Per-env overlay sets remoteKey.
+# The analyzer's Bearer token is pulled from AWS Secrets Manager by ESO. The
+# Deployment injects the whole map via envFrom: secretRef. Per-env overlay sets
+# remoteKey.
 #
 # IMPORTANT: the SM value MUST be a JSON object, not a plaintext string —
-# dataFrom.extract parses it as a map and emits one env var per key:
-#   { "TRUFFLEHOG_API_KEY": "<random-bearer-token>" }
+# dataFrom.extract parses it as a map and emits one env var per key. The SM
+# object only needs to carry the bearer token:
+#   {
+#     "TRUFFLEHOG_API_KEY": "<random-bearer-token>"
+#   }
 # A plaintext secret yields no TRUFFLEHOG_API_KEY env var and the process
 # exits with `log.Fatal("TRUFFLEHOG_API_KEY is required")` (CrashLoopBackOff).
+#
+# The non-sensitive detection-tuning flags (ENABLE_GENERIC_SECRETS,
+# ENABLE_ENTROPY_PROXIMITY, GENERIC_SECRET_SCORE, ENTROPY_THRESHOLD) are NOT in
+# SM — they live in the per-overlay `env:` block (staging/ + prod/values.yaml)
+# so they're version-controlled and reviewable. On key collision env: wins over
+# envFrom: secretRef, so an overlay `env:` value always takes precedence.
 externalSecret:
   enabled: true
   remoteKey: dev/trufflehog   # env overlays override (staging/trufflehog | prod/trufflehog)
@@ -110,11 +120,11 @@ livenessProbe:
 # The secret (TRUFFLEHOG_API_KEY) comes from AWS Secrets Manager, NOT from here.
 env: []
 
-# ServiceMonitor for Prometheus scraping. Disabled by default — the cmd/analyzer
-# service exposes no /metrics endpoint (only /analyze and /health). Kept as a
-# gated template so metrics can be wired in later without re-adding the file.
+# ServiceMonitor for Prometheus scraping. The cmd/analyzer service exposes
+# /metrics (trufflehog_* series — request/scan/detection counts and latencies,
+# no secret material). Scrapes the `http` port at /metrics.
 serviceMonitor:
-  enabled: false
+  enabled: true
   path: /metrics
   interval: 30s
   scrapeTimeout: 10s

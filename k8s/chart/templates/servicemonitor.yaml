@@ -1,8 +1,7 @@
 {{- if .Values.serviceMonitor.enabled -}}
 # ServiceMonitor — tells the Prometheus Operator to scrape this service.
-# Disabled by default: cmd/analyzer exposes only /analyze and /health, no
-# /metrics endpoint. Kept as a gated template so a future metrics endpoint can
-# be scraped without re-adding this file. The cluster's kube-prometheus-stack
+# cmd/analyzer exposes /metrics (trufflehog_* series, counts only, no secrets).
+# Gated on serviceMonitor.enabled. The cluster's kube-prometheus-stack
 # runs with serviceMonitorSelectorNilUsesHelmValues=false, so any ServiceMonitor
 # in any namespace is picked up automatically; set releaseLabel only when
 # targeting a cluster that uses the default `release: <stack>` selector.

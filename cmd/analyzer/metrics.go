@@ -1,0 +1,50 @@
+package main
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+const metricsNamespace = "trufflehog"
+
+var (
+	analyzeRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "analyze_requests_total",
+		Help:      "Total /analyze requests, labelled by HTTP status code.",
+	}, []string{"status"})
+
+	analyzeRequestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Name:      "analyze_request_duration_seconds",
+		Help:      "Latency of the full /analyze handler.",
+		Buckets:   prometheus.DefBuckets,
+	})
+
+	scanDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Name:      "scan_duration_seconds",
+		Help:      "Latency of the scan() call alone.",
+		Buckets:   prometheus.DefBuckets,
+	})
+
+	// Labelled by detector/entity type only, never the secret value.
+	detectionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "detections_total",
+		Help:      "Total emitted findings, labelled by entity type.",
+	}, []string{"entity_type"})
+
+	detectorErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "detector_errors_total",
+		Help:      "Total detector FromData errors, labelled by detector.",
+	}, []string{"detector"})
+
+	scannedBytes = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Name:      "scanned_bytes",
+		Help:      "Size of scanned request bodies in bytes.",
+		Buckets:   prometheus.ExponentialBuckets(256, 2, 13),
+	})
+)
