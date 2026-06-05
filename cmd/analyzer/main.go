@@ -28,7 +28,16 @@ const (
 	scanTimeout               = 3 * time.Second
 )
 
-var genericSecretScore = defaultGenericSecretScore
+type ctxKey string
+
+const reqIDKey ctxKey = "reqID"
+
+func reqIDFrom(ctx context.Context) string {
+	if v, ok := ctx.Value(reqIDKey).(string); ok && v != "" {
+		return v
+	}
+	return "-"
+}
 
 func parseGenericSecretScore(raw string) (float64, error) {
 	if raw == "" {
@@ -58,8 +67,9 @@ type analyzeResult struct {
 }
 
 type scanner struct {
-	core      *ahocorasick.Core
-	detectors int
+	core               *ahocorasick.Core
+	detectors          int
+	genericSecretScore float64
 }
 
 func liveness(w http.ResponseWriter, _ *http.Request) {
@@ -92,25 +102,26 @@ func main() {
 	}
 
 	dets := defaults.DefaultDetectors()
+	genericScore := defaultGenericSecretScore
 	if genericSecretsEnabled() {
 		score, err := parseGenericSecretScore(os.Getenv("GENERIC_SECRET_SCORE"))
 		if err != nil {
 			log.Fatalf("invalid GENERIC_SECRET_SCORE: %v", err)
 		}
-		genericSecretScore = score
+		genericScore = score
 		d, err := customdetectors.NewGenericSecret()
 		if err != nil {
 			log.Fatalf("generic-secret detector init failed: %v", err)
 		}
 		dets = append(dets, d)
-		log.Printf("generic-secret detector ENABLED (score=%.2f)", genericSecretScore)
+		log.Printf("generic-secret detector ENABLED (score=%.2f)", genericScore)
 
 		dbURI, err := customdetectors.NewDBConnectionURI()
 		if err != nil {
 			log.Fatalf("db-connection-uri detector init failed: %v", err)
 		}
 		dets = append(dets, dbURI)
-		log.Printf("db-connection-uri detector ENABLED (score=%.2f)", genericSecretScore)
+		log.Printf("db-connection-uri detector ENABLED (score=%.2f)", genericScore)
 
 		privKey, err := customdetectors.NewPrivateKey()
 		if err != nil {
@@ -127,7 +138,7 @@ func main() {
 		dets = append(dets, customdetectors.NewEntropyProximity(threshold))
 		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f)", threshold)
 	}
-	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets)}
+	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore}
 	log.Printf("trufflehog-analyzer ready: %d detectors", s.detectors)
 
 	mux := http.NewServeMux()
@@ -180,10 +191,12 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 		}
 		scannedBytes.Observe(float64(len(req.Text)))
 
+		reqID := r.Header.Get("X-Request-Id")
 		ctx, cancel := context.WithTimeout(r.Context(), scanTimeout)
 		defer cancel()
+		ctx = context.WithValue(ctx, reqIDKey, reqID)
 		results := s.scan(ctx, []byte(req.Text), req.ScoreThreshold)
-		log.Printf("/analyze: scanned %d bytes, %d secret(s)", len(req.Text), len(results))
+		log.Printf("scan complete req=%s bytes=%d findings=%d", reqIDFrom(ctx), len(req.Text), len(results))
 		writeJSON(w, results)
 	}
 }
@@ -192,19 +205,20 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	start := time.Now()
 	defer func() { scanDuration.Observe(time.Since(start).Seconds()) }()
 
+	reqID := reqIDFrom(ctx)
 	out := []analyzeResult{}
 	for _, match := range s.core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
 			detectorErrorsTotal.WithLabelValues(match.Key.Type().String()).Inc()
-			log.Printf("detector %s error: %v", match.Key.Type().String(), err)
+			log.Printf("scan detector_error req=%s detector=%s bytes=%d err=%v", reqID, match.Key.Type().String(), len(data), err)
 			continue
 		}
 		for _, res := range found {
 			score := unverifiedScore
 			entity := res.DetectorType.String()
 			if isGenericDetectorName(res.DetectorName) {
-				score = genericSecretScore
+				score = s.genericSecretScore
 			}
 			if res.DetectorName != "" {
 				entity = res.DetectorName
@@ -214,7 +228,7 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 			}
 			start, end, ok := offsets(data, res.Raw)
 			if !ok {
-				log.Printf("could not locate %s match, skipping", entity)
+				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
 			}
 			out = append(out, analyzeResult{
