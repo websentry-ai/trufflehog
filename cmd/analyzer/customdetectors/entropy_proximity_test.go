@@ -42,7 +42,7 @@ func filterByName(results []detectors.Result, name string) []detectors.Result {
 }
 
 func TestEntropyProximityDetector_ImplementsDetectorInterface(t *testing.T) {
-	var d detectors.Detector = NewEntropyProximity(defaultEntropyThreshold)
+	d := NewEntropyProximity(defaultEntropyThreshold)
 	require.NotEmpty(t, d.Keywords(), "Keywords() must return a non-empty slice")
 }
 

@@ -32,3 +32,16 @@ resources:
   limits:
     cpu: "1"
     memory: 1Gi
+
+# Non-secret detection-tuning flags, version-controlled here (not in SM).
+# The Deployment renders both envFrom: secretRef (SM, supplies TRUFFLEHOG_API_KEY)
+# and this env: list; on key collision env: wins, which is what we want for these.
+env:
+  - name: GENERIC_SECRET_SCORE
+    value: "0.8"
+  - name: ENTROPY_THRESHOLD
+    value: "0.7"
+  - name: ENABLE_GENERIC_SECRETS
+    value: "true"
+  - name: ENABLE_ENTROPY_PROXIMITY
+    value: "true"

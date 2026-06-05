@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
@@ -131,8 +132,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
-	mux.HandleFunc("/healthz", liveness)
+	mux.HandleFunc("/health", liveness)
 	mux.HandleFunc("/readyz", s.readiness)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	addr := ":" + strconv.Itoa(port)
 	srv := &http.Server{
@@ -151,21 +153,32 @@ func main() {
 
 func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		status := http.StatusOK
+		defer func() {
+			analyzeRequestDuration.Observe(time.Since(start).Seconds())
+			analyzeRequestsTotal.WithLabelValues(strconv.Itoa(status)).Inc()
+		}()
+
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			status = http.StatusMethodNotAllowed
+			http.Error(w, "method not allowed", status)
 			return
 		}
 		if !authorized(r, apiKey) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			status = http.StatusUnauthorized
+			http.Error(w, "unauthorized", status)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 		var req analyzeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+			status = http.StatusBadRequest
 			writeJSON(w, []analyzeResult{})
 			return
 		}
+		scannedBytes.Observe(float64(len(req.Text)))
 
 		ctx, cancel := context.WithTimeout(r.Context(), scanTimeout)
 		defer cancel()
@@ -176,10 +189,14 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 }
 
 func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []analyzeResult {
+	start := time.Now()
+	defer func() { scanDuration.Observe(time.Since(start).Seconds()) }()
+
 	out := []analyzeResult{}
 	for _, match := range s.core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
+			detectorErrorsTotal.WithLabelValues(match.Key.Type().String()).Inc()
 			log.Printf("detector %s error: %v", match.Key.Type().String(), err)
 			continue
 		}
@@ -209,7 +226,11 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 			})
 		}
 	}
-	return dedupeOverlapping(out)
+	deduped := dedupeOverlapping(out)
+	for _, res := range deduped {
+		detectionsTotal.WithLabelValues(res.EntityType).Inc()
+	}
+	return deduped
 }
 
 func dedupeOverlapping(in []analyzeResult) []analyzeResult {
