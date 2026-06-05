@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 )
@@ -71,6 +75,38 @@ func TestScanResultNeverContainsRawSecret(t *testing.T) {
 	}
 }
 
+func TestLivenessAlwaysOK(t *testing.T) {
+	rec := httptest.NewRecorder()
+	liveness(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("liveness: want 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("liveness body unexpected: %s", rec.Body.String())
+	}
+}
+
+func TestReadinessReadyWhenDetectorsLoaded(t *testing.T) {
+	s := &scanner{core: ahocorasick.NewAhoCorasickCore(defaults.DefaultDetectors()), detectors: 1}
+	rec := httptest.NewRecorder()
+	s.readiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness: want 200, got %d", rec.Code)
+	}
+}
+
+func TestReadinessNotReadyWithoutDetectors(t *testing.T) {
+	s := &scanner{} // no core, zero detectors
+	rec := httptest.NewRecorder()
+	s.readiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readiness: want 503, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "not ready") {
+		t.Fatalf("readiness body unexpected: %s", rec.Body.String())
+	}
+}
+
 func TestOffsets(t *testing.T) {
 	data := []byte("token " + fakeGithubPAT + " end")
 
@@ -83,5 +119,36 @@ func TestOffsets(t *testing.T) {
 	}
 	if _, _, ok := offsets(data, nil); ok {
 		t.Error("expected ok=false for empty raw")
+	}
+}
+
+func TestParseGenericSecretScore(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    float64
+		wantErr bool
+	}{
+		{name: "valid", raw: "0.85", want: 0.85},
+		{name: "boundary low", raw: "0", want: 0.0},
+		{name: "boundary high", raw: "1", want: 1.0},
+		{name: "empty defaults", raw: "", want: defaultGenericSecretScore},
+		{name: "not a number", raw: "abc", wantErr: true},
+		{name: "nan", raw: "NaN", wantErr: true},
+		{name: "inf", raw: "Inf", wantErr: true},
+		{name: "above range", raw: "2", wantErr: true},
+		{name: "below range", raw: "-0.1", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseGenericSecretScore(tc.raw)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.False(t, math.IsNaN(got) || math.IsInf(got, 0))
+			require.Equal(t, tc.want, got)
+		})
 	}
 }

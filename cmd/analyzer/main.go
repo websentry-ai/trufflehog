@@ -5,21 +5,43 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 )
 
 const (
-	unverifiedScore = 0.9
-	maxBodyBytes    = 1 << 20
-	scanTimeout     = 3 * time.Second
+	unverifiedScore           = 0.9
+	defaultGenericSecretScore = 0.8
+	maxBodyBytes              = 1 << 20
+	scanTimeout               = 3 * time.Second
 )
+
+var genericSecretScore = defaultGenericSecretScore
+
+func parseGenericSecretScore(raw string) (float64, error) {
+	if raw == "" {
+		return defaultGenericSecretScore, nil
+	}
+	score, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(score) || math.IsInf(score, 0) || score < 0.0 || score > 1.0 {
+		return 0, fmt.Errorf("score %q out of range [0.0, 1.0]", raw)
+	}
+	return score, nil
+}
 
 type analyzeRequest struct {
 	Text           string  `json:"text"`
@@ -35,7 +57,21 @@ type analyzeResult struct {
 }
 
 type scanner struct {
-	core *ahocorasick.Core
+	core      *ahocorasick.Core
+	detectors int
+}
+
+func liveness(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *scanner) readiness(w http.ResponseWriter, _ *http.Request) {
+	if s.core == nil || s.detectors == 0 {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		writeJSON(w, map[string]string{"status": "not ready"})
+		return
+	}
+	writeJSON(w, map[string]any{"status": "ok", "detectors": s.detectors})
 }
 
 func main() {
@@ -44,30 +80,70 @@ func main() {
 	if apiKey == "" {
 		log.Fatal("TRUFFLEHOG_API_KEY is required")
 	}
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+
+	port := 8080
+	if raw := os.Getenv("PORT"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 65535 {
+			log.Fatal("invalid PORT: must be an integer in 1-65535")
+		}
+		port = n
 	}
 
 	dets := defaults.DefaultDetectors()
-	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets)}
-	log.Printf("trufflehog-analyzer ready: %d detectors", len(dets))
+	if genericSecretsEnabled() {
+		score, err := parseGenericSecretScore(os.Getenv("GENERIC_SECRET_SCORE"))
+		if err != nil {
+			log.Fatalf("invalid GENERIC_SECRET_SCORE: %v", err)
+		}
+		genericSecretScore = score
+		d, err := customdetectors.NewGenericSecret()
+		if err != nil {
+			log.Fatalf("generic-secret detector init failed: %v", err)
+		}
+		dets = append(dets, d)
+		log.Printf("generic-secret detector ENABLED (score=%.2f)", genericSecretScore)
+
+		dbURI, err := customdetectors.NewDBConnectionURI()
+		if err != nil {
+			log.Fatalf("db-connection-uri detector init failed: %v", err)
+		}
+		dets = append(dets, dbURI)
+		log.Printf("db-connection-uri detector ENABLED (score=%.2f)", genericSecretScore)
+
+		privKey, err := customdetectors.NewPrivateKey()
+		if err != nil {
+			log.Fatalf("private-key detector init failed: %v", err)
+		}
+		dets = append(dets, privKey)
+		log.Printf("private-key detector ENABLED (score=%.2f)", unverifiedScore)
+	}
+	if entropyProximityEnabled() {
+		threshold, err := customdetectors.ParseEntropyThreshold(os.Getenv("ENTROPY_THRESHOLD"))
+		if err != nil {
+			log.Fatalf("invalid ENTROPY_THRESHOLD: %v", err)
+		}
+		dets = append(dets, customdetectors.NewEntropyProximity(threshold))
+		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f)", threshold)
+	}
+	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets)}
+	log.Printf("trufflehog-analyzer ready: %d detectors", s.detectors)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]string{"status": "ok"})
-	})
+	mux.HandleFunc("/healthz", liveness)
+	mux.HandleFunc("/readyz", s.readiness)
 
+	addr := ":" + strconv.Itoa(port)
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	log.Printf("listening on :%s", port)
+	log.Printf("listening on %s", addr)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
@@ -107,25 +183,105 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 			log.Printf("detector %s error: %v", match.Key.Type().String(), err)
 			continue
 		}
-		if unverifiedScore < threshold {
-			continue
-		}
 		for _, res := range found {
+			score := unverifiedScore
+			entity := res.DetectorType.String()
+			if isGenericDetectorName(res.DetectorName) {
+				score = genericSecretScore
+			}
+			if res.DetectorName != "" {
+				entity = res.DetectorName
+			}
+			if score < threshold {
+				continue
+			}
 			start, end, ok := offsets(data, res.Raw)
 			if !ok {
-				log.Printf("could not locate %s match, skipping", match.Key.Type().String())
+				log.Printf("could not locate %s match, skipping", entity)
 				continue
 			}
 			out = append(out, analyzeResult{
-				EntityType: res.DetectorType.String(),
+				EntityType: entity,
 				Start:      start,
 				End:        end,
-				Score:      unverifiedScore,
+				Score:      score,
 				Source:     "trufflehog",
 			})
 		}
 	}
-	return out
+	return dedupeOverlapping(out)
+}
+
+func dedupeOverlapping(in []analyzeResult) []analyzeResult {
+	if len(in) <= 1 {
+		return in
+	}
+	ranked := make([]analyzeResult, len(in))
+	copy(ranked, in)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		a, b := ranked[i], ranked[j]
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		if ra, rb := entityRank(a.EntityType), entityRank(b.EntityType); ra != rb {
+			return ra < rb
+		}
+		if wa, wb := a.End-a.Start, b.End-b.Start; wa != wb {
+			return wa > wb
+		}
+		return a.Start < b.Start
+	})
+
+	kept := make([]analyzeResult, 0, len(ranked))
+	for _, f := range ranked {
+		overlaps := false
+		for _, k := range kept {
+			if f.Start < k.End && k.Start < f.End {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			kept = append(kept, f)
+		}
+	}
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
+	return kept
+}
+
+func entityRank(name string) int {
+	switch name {
+	case customdetectors.EntropyName:
+		return 2
+	case customdetectors.GenericSecretName:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func isGenericDetectorName(name string) bool {
+	return name == customdetectors.GenericSecretName ||
+		name == customdetectors.DBConnectionURIName ||
+		name == customdetectors.EntropyName
+}
+
+func genericSecretsEnabled() bool {
+	switch os.Getenv("ENABLE_GENERIC_SECRETS") {
+	case "true", "1":
+		return true
+	default:
+		return false
+	}
+}
+
+func entropyProximityEnabled() bool {
+	switch os.Getenv("ENABLE_ENTROPY_PROXIMITY") {
+	case "true", "1":
+		return true
+	default:
+		return false
+	}
 }
 
 func offsets(data, raw []byte) (int, int, bool) {
