@@ -141,6 +141,14 @@ func TestEntropyProximity_Negative_UUIDNearSecret(t *testing.T) {
 		"UUID near 'secret' must not produce a finding; got: %v", entropyRawStrings(results))
 }
 
+func TestEntropyProximity_Negative_URLPathNearAuthHeader(t *testing.T) {
+	input := "GET /api/v1/account/profile HTTP/1.1\nAuthorization: Bearer abc"
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+
+	require.Empty(t, results,
+		"URL path near 'Authorization' must not produce a finding; got: %v", entropyRawStrings(results))
+}
+
 func TestEntropyProximity_Positive_IdentPrefixSelfKeyword(t *testing.T) {
 	input := `API_KEY=aB3xKp9Qm2Lr7TzWqDv`
 	data := []byte(input)

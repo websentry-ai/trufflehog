@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
@@ -119,6 +120,27 @@ func TestOffsets(t *testing.T) {
 	}
 	if _, _, ok := offsets(data, nil); ok {
 		t.Error("expected ok=false for empty raw")
+	}
+}
+
+func TestOffsetsAreRuneOffsetsNotByteOffsets(t *testing.T) {
+	prefix := "note — context — "
+	data := []byte(prefix + fakeGithubPAT + " end")
+
+	start, end, ok := offsets(data, []byte(fakeGithubPAT))
+	if !ok {
+		t.Fatal("expected match")
+	}
+
+	wantStart := utf8.RuneCountInString(prefix)
+	if start != wantStart || end != wantStart+utf8.RuneCountInString(fakeGithubPAT) {
+		t.Fatalf("got rune span %d:%d, want %d:%d", start, end, wantStart, wantStart+utf8.RuneCountInString(fakeGithubPAT))
+	}
+
+	// Slicing the decoded runes at the returned offsets must recover the secret.
+	runes := []rune(string(data))
+	if got := string(runes[start:end]); got != fakeGithubPAT {
+		t.Fatalf("rune slice = %q, want %q", got, fakeGithubPAT)
 	}
 }
 

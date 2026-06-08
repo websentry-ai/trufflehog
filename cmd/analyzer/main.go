@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -325,10 +326,13 @@ func offsets(data, raw []byte) (int, int, bool) {
 	if len(raw) == 0 {
 		return 0, 0, false
 	}
-	if i := bytes.Index(data, raw); i >= 0 {
-		return i, i + len(raw), true
+	i := bytes.Index(data, raw)
+	if i < 0 {
+		return 0, 0, false
 	}
-	return 0, 0, false
+	start := utf8.RuneCount(data[:i])
+	end := start + utf8.RuneCount(raw)
+	return start, end, true
 }
 
 func authorized(r *http.Request, apiKey string) bool {
