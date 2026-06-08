@@ -43,6 +43,7 @@ var (
 	hexHashPat  = regexp.MustCompile(`^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
 	decimalPat  = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
 	hostPathPat = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
+	urlPathPat  = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
 	datetimePat = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}`)
 	schemePat   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 	maskPat     = regexp.MustCompile(strings.Join(maskPatterns, "|"))
@@ -195,6 +196,7 @@ func isExcludedEntropyValue(v string) bool {
 		hexHashPat.MatchString(v) ||
 		decimalPat.MatchString(v) ||
 		hostPathPat.MatchString(v) ||
+		urlPathPat.MatchString(v) ||
 		datetimePat.MatchString(v) ||
 		schemePat.MatchString(v) ||
 		maskPat.MatchString(v)
