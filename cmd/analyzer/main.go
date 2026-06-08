@@ -302,6 +302,7 @@ func isGenericDetectorName(name string) bool {
 }
 
 func genericSecretsEnabled() bool {
+	log.Printf("ENABLE_GENERIC_SECRETS: %s", os.Getenv("ENABLE_GENERIC_SECRETS"))
 	switch os.Getenv("ENABLE_GENERIC_SECRETS") {
 	case "true", "1":
 		return true
@@ -311,6 +312,7 @@ func genericSecretsEnabled() bool {
 }
 
 func entropyProximityEnabled() bool {
+	log.Printf("Entropy proximity enabled: %s", os.Getenv("ENABLE_ENTROPY_PROXIMITY"))
 	switch os.Getenv("ENABLE_ENTROPY_PROXIMITY") {
 	case "true", "1":
 		return true
