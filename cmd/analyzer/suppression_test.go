@@ -5,29 +5,20 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 )
 
 func heuristicScanner(t *testing.T, mode suppressionMode) *scanner {
 	t.Helper()
-	dets := defaults.DefaultDetectors()
-	gs, err := customdetectors.NewGenericSecret()
+	cfg := defaultScannerConfig()
+	cfg.entropyThreshold = 0.7
+	cfg.mode = mode
+	s, err := buildScanner(cfg)
 	require.NoError(t, err)
-	dbu, err := customdetectors.NewDBConnectionURI()
-	require.NoError(t, err)
-	pk, err := customdetectors.NewPrivateKey()
-	require.NoError(t, err)
-	dets = append(dets, gs, dbu, pk, customdetectors.NewEntropyProximity(0.7))
-	return &scanner{
-		core:               ahocorasick.NewAhoCorasickCore(dets),
-		detectors:          len(dets),
-		genericSecretScore: defaultGenericSecretScore,
-		mode:               mode,
-	}
+	return s
 }
 
 func sameShapeToken(i int) string {
@@ -87,25 +78,40 @@ func TestDecideSuppression(t *testing.T) {
 	bulkShapes := map[string]int{"1w": bulkListMinCount}
 	belowShapes := map[string]int{"1w": bulkListMinCount - 1}
 
+	hex32 := "9e107d9d372bb6826bd81d3542a419d6"
 	cases := []struct {
 		name       string
 		entity     string
 		raw        string
+		doc        string
 		shapes     map[string]int
 		wantSup    bool
 		wantReason string
 	}{
-		{"vendor bypass", "Github", "ghp_0123456789abcdefghijklmnopqrstuvwxyz", bulkShapes, false, ""},
-		{"private key bypass", customdetectors.PrivateKeyName, "private-key-material-test", bulkShapes, false, ""},
-		{"stripe object id", customdetectors.EntropyName, "du_1TIUcBBrSQGfJTjiR3r4WQh4", nil, true, reasonStripeObjID},
-		{"bulk list at threshold", customdetectors.EntropyName, "n27p22cchdt2k3kx", bulkShapes, true, reasonBulkList},
-		{"bulk list below threshold", customdetectors.EntropyName, "n27p22cchdt2k3kx", belowShapes, false, ""},
-		{"lone generic secret", customdetectors.GenericSecretName, "aB3xKp9Qm2Lr7TzWqDvNcEdF", map[string]int{}, false, ""},
-		{"short secret not bulk-suppressed", customdetectors.GenericSecretName, "aB3x9", map[string]int{shapeKey("aB3x9"): bulkListMinCount}, false, ""},
+		{"vendor bypass", "Github", "ghp_0123456789abcdefghijklmnopqrstuvwxyz", "", bulkShapes, false, ""},
+		{"private key bypass", customdetectors.PrivateKeyName, "private-key-material-test", "", bulkShapes, false, ""},
+		{"stripe object id", customdetectors.EntropyName, "du_1TIUcBBrSQGfJTjiR3r4WQh4", "", nil, true, reasonStripeObjID},
+		{"bulk list at threshold", customdetectors.EntropyName, "n27p22cchdt2k3kx", "", bulkShapes, true, reasonBulkList},
+		{"bulk list below threshold", customdetectors.EntropyName, "n27p22cchdt2k3kx", "", belowShapes, false, ""},
+		{"lone generic secret", customdetectors.GenericSecretName, "aB3xKp9Qm2Lr7TzWqDvNcEdF", "", map[string]int{}, false, ""},
+		{"short secret not bulk-suppressed", customdetectors.GenericSecretName, "aB3x9", "", map[string]int{shapeKey("aB3x9"): bulkListMinCount}, false, ""},
+		{"hex32 checksum row suppressed", customdetectors.EntropyName, hex32, hex32 + "  vendor/lib.js", map[string]int{}, true, reasonHexHash},
+		{"hex32 value of api_key kept", customdetectors.GenericSecretName, hex32, "api_key = " + hex32, map[string]int{}, false, ""},
+		{"hex32 value of secret kept", customdetectors.EntropyName, hex32, "signing_secret: " + hex32, map[string]int{}, false, ""},
+		{"hex32 uri password kept", customdetectors.EntropyName, hex32, "mongodb://svc:" + hex32 + "@db.internal:27017/app", map[string]int{}, false, ""},
+		{"hex32 far from keyword kept", customdetectors.GenericSecretName, hex32, "the api token for the service is finally " + hex32, map[string]int{}, false, ""},
+		{"hex32 newline credential kept", customdetectors.GenericSecretName, hex32, "config:\n  password:\n    " + hex32, map[string]int{}, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup, reason := decideSuppression(tc.entity, tc.raw, tc.shapes)
+			data := []byte(tc.doc)
+			start, end := -1, -1
+			if byteStart := strings.Index(tc.doc, tc.raw); byteStart >= 0 {
+				start = utf8.RuneCountInString(tc.doc[:byteStart])
+				end = start + utf8.RuneCountInString(tc.raw)
+			}
+			f := analyzeResult{EntityType: tc.entity, raw: tc.raw, Start: start, End: end}
+			sup, reason := decideSuppression(f, tc.shapes, data)
 			require.Equal(t, tc.wantSup, sup)
 			require.Equal(t, tc.wantReason, reason)
 		})

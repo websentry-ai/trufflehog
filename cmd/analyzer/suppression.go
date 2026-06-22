@@ -1,13 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
-	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 )
 
 type suppressionMode int
@@ -26,6 +28,7 @@ const (
 const (
 	reasonBulkList    = "bulk_list"
 	reasonStripeObjID = "structural_stripe_object_id"
+	reasonHexHash     = "structural_hex_hash"
 )
 
 func parseSuppressionMode(raw string) suppressionMode {
@@ -135,17 +138,65 @@ func documentShapes(data []byte) map[string]int {
 	return shapes
 }
 
-func decideSuppression(entity, raw string, shapes map[string]int) (bool, string) {
-	if !isGenericDetectorName(entity) {
+func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (bool, string) {
+	if !isGenericDetectorName(f.EntityType) {
 		return false, ""
 	}
-	if customdetectors.IsStripeObjectID(raw) {
+	if classify.IsStripeObjectID(f.raw) {
 		return true, reasonStripeObjID
 	}
-	if len(raw) >= bulkShapeMinLen && shapes[shapeKey(raw)] >= bulkListMinCount {
+	if len(f.raw) >= bulkShapeMinLen && shapes[shapeKey(f.raw)] >= bulkListMinCount {
 		return true, reasonBulkList
 	}
+	if classify.IsHex32(f.raw) && looksLikeChecksumRow(data, f) {
+		return true, reasonHexHash
+	}
 	return false, ""
+}
+
+func looksLikeChecksumRow(data []byte, f analyzeResult) bool {
+	start := runeToByteOffset(data, f.Start)
+	if start < 0 {
+		return false
+	}
+	off := start + len(f.raw)
+	if off > len(data) {
+		return false
+	}
+	rest := data[off:]
+	spaces := 0
+	for spaces < len(rest) && (rest[spaces] == ' ' || rest[spaces] == '\t') {
+		spaces++
+	}
+	if spaces == 0 {
+		return false
+	}
+	rest = rest[spaces:]
+	if len(rest) > 0 && rest[0] == '*' {
+		rest = rest[1:]
+	}
+	end := 0
+	for end < len(rest) && rest[end] != ' ' && rest[end] != '\t' && rest[end] != '\n' && rest[end] != '\r' {
+		end++
+	}
+	token := rest[:end]
+	return len(token) > 0 && (bytes.IndexByte(token, '/') >= 0 || bytes.IndexByte(token, '.') >= 0)
+}
+
+func runeToByteOffset(data []byte, runeIdx int) int {
+	b, count := 0, 0
+	for b < len(data) {
+		if count == runeIdx {
+			return b
+		}
+		_, size := utf8.DecodeRune(data[b:])
+		b += size
+		count++
+	}
+	if count == runeIdx {
+		return len(data)
+	}
+	return -1
 }
 
 func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte) []analyzeResult {
@@ -166,7 +217,7 @@ func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data
 	kept := make([]analyzeResult, 0, len(in))
 	counts := map[string]int{}
 	for _, f := range in {
-		suppress, reason := decideSuppression(f.EntityType, f.raw, shapes)
+		suppress, reason := decideSuppression(f, shapes, data)
 		if !suppress {
 			kept = append(kept, f)
 			continue

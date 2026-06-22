@@ -14,7 +14,7 @@ import (
 
 func runEntropyDetector(t *testing.T, input string) []detectors.Result {
 	t.Helper()
-	d := NewEntropyProximity(defaultEntropyThreshold)
+	d := NewEntropyProximity(DefaultEntropyThreshold)
 	core := ahocorasick.NewAhoCorasickCore([]detectors.Detector{d})
 	data := []byte(input)
 
@@ -43,7 +43,7 @@ func filterByName(results []detectors.Result, name string) []detectors.Result {
 }
 
 func TestEntropyProximityDetector_ImplementsDetectorInterface(t *testing.T) {
-	d := NewEntropyProximity(defaultEntropyThreshold)
+	d := NewEntropyProximity(DefaultEntropyThreshold)
 	require.NotEmpty(t, d.Keywords(), "Keywords() must return a non-empty slice")
 }
 
@@ -285,7 +285,7 @@ func TestStringShannonEntropy_KnownValues(t *testing.T) {
 		{
 			name:    "above_entropy_threshold",
 			input:   "aB3xKp9Qm2Lr7TzWqDv",
-			wantMin: defaultEntropyThreshold,
+			wantMin: DefaultEntropyThreshold,
 			wantMax: math.MaxFloat64,
 		},
 	}
@@ -312,7 +312,7 @@ func TestParseEntropyThreshold(t *testing.T) {
 		want    float64
 		wantErr bool
 	}{
-		{name: "empty_defaults", raw: "", want: defaultEntropyThreshold},
+		{name: "empty_defaults", raw: "", want: DefaultEntropyThreshold},
 		{name: "explicit_value", raw: "3.5", want: 3.5},
 		{name: "boundary_high", raw: "8", want: 8.0},
 		{name: "zero", raw: "0", wantErr: true},
@@ -338,7 +338,7 @@ func TestParseEntropyThreshold(t *testing.T) {
 
 func runEntropyDetectorTok(t *testing.T, tok tokenizer.Tokenizer, input string) []detectors.Result {
 	t.Helper()
-	d := NewEntropyProximityWithTokenizer(defaultEntropyThreshold, tok)
+	d := NewEntropyProximityWithTokenizer(DefaultEntropyThreshold, tok)
 	core := ahocorasick.NewAhoCorasickCore([]detectors.Detector{d})
 	data := []byte(input)
 

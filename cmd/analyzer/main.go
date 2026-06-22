@@ -18,10 +18,9 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
-	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors/tokenizer"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 )
 
 const (
@@ -106,51 +105,22 @@ func main() {
 		port = n
 	}
 
-	dets := defaults.DefaultDetectors()
-	genericScore := defaultGenericSecretScore
-	if genericSecretsEnabled() {
-		score, err := parseGenericSecretScore(os.Getenv("GENERIC_SECRET_SCORE"))
-		if err != nil {
-			log.Fatalf("invalid GENERIC_SECRET_SCORE: %v", err)
-		}
-		genericScore = score
-		d, err := customdetectors.NewGenericSecret()
-		if err != nil {
-			log.Fatalf("generic-secret detector init failed: %v", err)
-		}
-		dets = append(dets, d)
-		log.Printf("generic-secret detector ENABLED (score=%.2f)", genericScore)
-
-		dbURI, err := customdetectors.NewDBConnectionURI()
-		if err != nil {
-			log.Fatalf("db-connection-uri detector init failed: %v", err)
-		}
-		dets = append(dets, dbURI)
-		log.Printf("db-connection-uri detector ENABLED (score=%.2f)", genericScore)
-
-		privKey, err := customdetectors.NewPrivateKey()
-		if err != nil {
-			log.Fatalf("private-key detector init failed: %v", err)
-		}
-		dets = append(dets, privKey)
+	cfg, err := scannerConfigFromEnv()
+	if err != nil {
+		log.Fatalf("invalid scanner config: %v", err)
+	}
+	s, err := buildScanner(cfg)
+	if err != nil {
+		log.Fatalf("scanner init failed: %v", err)
+	}
+	if cfg.genericSecretsEnabled {
+		log.Printf("generic-secret + db-connection-uri detectors ENABLED (score=%.2f)", cfg.genericSecretScore)
 		log.Printf("private-key detector ENABLED (score=%.2f)", unverifiedScore)
 	}
-	if entropyProximityEnabled() {
-		threshold, err := customdetectors.ParseEntropyThreshold(os.Getenv("ENTROPY_THRESHOLD"))
-		if err != nil {
-			log.Fatalf("invalid ENTROPY_THRESHOLD: %v", err)
-		}
-		tokenizerName := os.Getenv("ANALYZER_TOKENIZER")
-		tok, err := tokenizer.Select(tokenizerName)
-		if err != nil {
-			log.Fatalf("invalid ANALYZER_TOKENIZER: %v", err)
-		}
-		dets = append(dets, customdetectors.NewEntropyProximityWithTokenizer(threshold, tok))
-		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", threshold, tokenizerName)
+	if cfg.entropyProximityEnabled {
+		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", cfg.entropyThreshold, cfg.tokenizerName)
 	}
-	mode := parseSuppressionMode(os.Getenv("FP_SUPPRESSION_MODE"))
-	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore, mode: mode}
-	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s", s.detectors, mode)
+	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s", s.detectors, cfg.mode)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
@@ -317,31 +287,7 @@ func isGenericDetectorName(name string) bool {
 		name == customdetectors.EntropyName
 }
 
-func genericSecretsEnabled() bool {
-	log.Printf("ENABLE_GENERIC_SECRETS: %s", os.Getenv("ENABLE_GENERIC_SECRETS"))
-	switch os.Getenv("ENABLE_GENERIC_SECRETS") {
-	case "true", "1":
-		return true
-	default:
-		return false
-	}
-}
-
-func entropyProximityEnabled() bool {
-	log.Printf("Entropy proximity enabled: %s", os.Getenv("ENABLE_ENTROPY_PROXIMITY"))
-	switch os.Getenv("ENABLE_ENTROPY_PROXIMITY") {
-	case "true", "1":
-		return true
-	default:
-		return false
-	}
-}
-
-var placeholderMarkers = []string{
-	"example", "redacted", "placeholder", "changeme", "change-me",
-	"do-not-use", "do_not_use", "your_", "your-", "yourkey", "yourtoken", "dummy", "sample",
-	"replace", "xxxx",
-}
+var placeholderMarkers = classify.PlaceholderMarkers()
 
 func isObviousPlaceholder(raw string) bool {
 	lower := strings.ToLower(raw)
