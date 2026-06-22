@@ -277,6 +277,15 @@ func TestGenericSecretDetector_FP_GitURLMaskedCredential(t *testing.T) {
 		"masked git URL credential must not produce a finding; got: %v", rawStrings(results))
 }
 
+func TestGenericSecretDetector_FP_OAuthStrategyIdentifier(t *testing.T) {
+	d := buildGenericSecretDetector(t)
+	input := `"authId": "google-oauth2|user_01JC9WRVMWHDTHS8T58ZKHGAKY"`
+	results := runDetector(t, d, input)
+
+	require.Empty(t, results,
+		"oauth strategy identifier must not produce a finding; got: %v", rawStrings(results))
+}
+
 func TestGenericSecretDetector_FP_OsEnvironCodeFragment(t *testing.T) {
 	d := buildGenericSecretDetector(t)
 	input := `key = os.environ[`
