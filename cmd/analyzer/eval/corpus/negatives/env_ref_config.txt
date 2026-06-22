@@ -1,0 +1,10 @@
+why won't this deployment pick up secrets? everything is a reference:
+env:
+  - name: API_KEY
+    valueFrom: {secretKeyRef: {name: app-secrets, key: token}}
+  - name: DB_URL
+    value: ${DATABASE_URL}
+  - name: TOKEN
+    value: $(VAULT_TOKEN)
+terraform: password = var.db_password
+stripe: api_key = var.stripe_key

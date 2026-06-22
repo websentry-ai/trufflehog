@@ -1,0 +1,85 @@
+{
+  "hints": true,
+  "model": {
+    "aliases": [
+      "sonnet",
+      "sonnet-4"
+    ],
+    "maxMode": false,
+    "modelId": "claude-4-sonnet",
+    "displayName": "Sonnet 4",
+    "displayModelId": "claude-4-sonnet",
+    "displayNameShort": "Sonnet 4"
+  },
+  "scope": "user",
+  "editor": {
+    "vimMode": false
+  },
+  "rewind": false,
+  "maxMode": false,
+  "network": {
+    "useHttp1ForAgent": false
+  },
+  "sandbox": {
+    "mode": "disabled",
+    "networkAccess": "user_config_with_defaults"
+  },
+  "version": 1,
+  "authInfo": {
+    "email": "vis@unboundsecurity.ai",
+    "authId": "google-oauth2|user_01JC9WRVMWHDTHS8T58ZKHGAKY",
+    "teamId": 22471406,
+    "userId": 130838962,
+    "teamName": "Unbound",
+    "displayName": "Vignesh Subbiah"
+  },
+  "tool_name": "Cursor CLI",
+  "attribution": {
+    "attributePRsToAgent": true,
+    "attributeCommitsToAgent": true
+  },
+  "permissions": {
+    "deny": [],
+    "allow": [
+      "Shell(ls)"
+    ]
+  },
+  "approvalMode": "allowlist",
+  "privacyCache": {
+    "ghostMode": false,
+    "updatedAt": 1780369969817,
+    "privacyMode": 4
+  },
+  "notifications": true,
+  "selectedModel": {
+    "modelId": "composer-2.5",
+    "parameters": [
+      {
+        "id": "fast",
+        "value": "true"
+      }
+    ]
+  },
+  "modelParameters": {
+    "composer-2.5": [
+      {
+        "id": "fast",
+        "value": "true"
+      }
+    ]
+  },
+  "serverConfigCache": {
+    "teamId": 22471406,
+    "updatedAt": 1780369965327,
+    "backendUrl": "https://api2.cursor.sh",
+    "authCacheKey": "auth:google-oauth2|user_01JC9WRVMWHDTHS8T58ZKHGAKY",
+    "agentUrlConfig": {
+      "agentUrl": "https://agentn.global.api5.cursor.sh",
+      "agentnUrl": "https://agentn.global.api5.cursor.sh"
+    },
+    "serverHttp2Config": 0,
+    "cliSandboxDefaultEnabled": false
+  },
+  "suggestNextPrompt": false,
+  "hasChangedDefaultModel": true
+}

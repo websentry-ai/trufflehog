@@ -37,6 +37,9 @@ test-integration:
 test-race:
 	CGO_ENABLED=1 go test -timeout=5m -race $(shell go list ./... | grep -v /vendor/)
 
+eval:
+	CGO_ENABLED=0 go test -timeout=5m -v -run TestEvalCorpus ./cmd/analyzer/
+
 test-detectors:
 	CGO_ENABLED=0 go test -tags=detectors -timeout=5m $(shell go list ./... | grep pkg/detectors)
 
