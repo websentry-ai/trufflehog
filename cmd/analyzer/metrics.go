@@ -53,6 +53,12 @@ var (
 		Help:      "FP-gate suppression decisions, labelled by reason, detector, and mode (shadow counts would-be suppressions).",
 	}, []string{"reason", "detector", "mode"})
 
+	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "http_requests_total",
+		Help:      "Total HTTP requests, labelled by method, route (bounded), and status.",
+	}, []string{"method", "route", "status"})
+
 	scannedBytes = promauto.NewHistogram(prometheus.HistogramOpts{
 		Namespace: metricsNamespace,
 		Name:      "scanned_bytes",
