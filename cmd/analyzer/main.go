@@ -67,12 +67,14 @@ type analyzeResult struct {
 	End        int     `json:"end"`
 	Score      float64 `json:"score"`
 	Source     string  `json:"source"`
+	raw        string
 }
 
 type scanner struct {
 	core               *ahocorasick.Core
 	detectors          int
 	genericSecretScore float64
+	mode               suppressionMode
 }
 
 func liveness(w http.ResponseWriter, _ *http.Request) {
@@ -146,8 +148,9 @@ func main() {
 		dets = append(dets, customdetectors.NewEntropyProximityWithTokenizer(threshold, tok))
 		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", threshold, tokenizerName)
 	}
-	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore}
-	log.Printf("trufflehog-analyzer ready: %d detectors", s.detectors)
+	mode := parseSuppressionMode(os.Getenv("FP_SUPPRESSION_MODE"))
+	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore, mode: mode}
+	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s", s.detectors, mode)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
@@ -249,10 +252,11 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 				End:        end,
 				Score:      score,
 				Source:     "trufflehog",
+				raw:        string(res.Raw),
 			})
 		}
 	}
-	deduped := dedupeOverlapping(out)
+	deduped := s.applySuppression(ctx, dedupeOverlapping(out), data)
 	for _, res := range deduped {
 		detectionsTotal.WithLabelValues(res.EntityType).Inc()
 	}
@@ -335,7 +339,8 @@ func entropyProximityEnabled() bool {
 
 var placeholderMarkers = []string{
 	"example", "redacted", "placeholder", "changeme", "change-me",
-	"do-not-use", "do_not_use", "your_", "yourkey", "yourtoken", "dummy", "sample",
+	"do-not-use", "do_not_use", "your_", "your-", "yourkey", "yourtoken", "dummy", "sample",
+	"replace", "xxxx",
 }
 
 func isObviousPlaceholder(raw string) bool {

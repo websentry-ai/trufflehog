@@ -47,6 +47,12 @@ var (
 		Help:      "Total findings dropped as obvious placeholders, labelled by entity type.",
 	}, []string{"entity_type"})
 
+	findingsSuppressedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "findings_suppressed_total",
+		Help:      "FP-gate suppression decisions, labelled by reason, detector, and mode (shadow counts would-be suppressions).",
+	}, []string{"reason", "detector", "mode"})
+
 	scannedBytes = promauto.NewHistogram(prometheus.HistogramOpts{
 		Namespace: metricsNamespace,
 		Name:      "scanned_bytes",
