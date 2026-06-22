@@ -81,6 +81,7 @@ require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/repeale/fp-go v0.11.1
+	github.com/rivo/uniseg v0.4.7
 	github.com/sassoftware/go-rpmutils v0.4.0
 	github.com/schollz/progressbar/v3 v3.17.1
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible
@@ -267,7 +268,6 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1-0.20230530133925-c48e322e2a8f // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect

@@ -12,12 +12,14 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors/tokenizer"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 )
@@ -136,8 +138,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("invalid ENTROPY_THRESHOLD: %v", err)
 		}
-		dets = append(dets, customdetectors.NewEntropyProximity(threshold))
-		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f)", threshold)
+		tokenizerName := os.Getenv("ANALYZER_TOKENIZER")
+		tok, err := tokenizer.Select(tokenizerName)
+		if err != nil {
+			log.Fatalf("invalid ANALYZER_TOKENIZER: %v", err)
+		}
+		dets = append(dets, customdetectors.NewEntropyProximityWithTokenizer(threshold, tok))
+		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", threshold, tokenizerName)
 	}
 	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore}
 	log.Printf("trufflehog-analyzer ready: %d detectors", s.detectors)
@@ -225,6 +232,10 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 				entity = res.DetectorName
 			}
 			if score < threshold {
+				continue
+			}
+			if isObviousPlaceholder(string(res.Raw)) {
+				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}
 			start, end, ok := offsets(data, res.Raw)
@@ -320,6 +331,36 @@ func entropyProximityEnabled() bool {
 	default:
 		return false
 	}
+}
+
+var placeholderMarkers = []string{
+	"example", "redacted", "placeholder", "changeme", "change-me",
+	"do-not-use", "do_not_use", "your_", "yourkey", "yourtoken", "dummy", "sample",
+}
+
+func isObviousPlaceholder(raw string) bool {
+	lower := strings.ToLower(raw)
+	for _, m := range placeholderMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return hasLongRepeatRun(raw, 8)
+}
+
+func hasLongRepeatRun(s string, n int) bool {
+	run := 1
+	for i := 1; i < len(s); i++ {
+		if s[i] == s[i-1] {
+			run++
+			if run >= n {
+				return true
+			}
+			continue
+		}
+		run = 1
+	}
+	return false
 }
 
 func offsets(data, raw []byte) (int, int, bool) {

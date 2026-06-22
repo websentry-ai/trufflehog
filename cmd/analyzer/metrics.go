@@ -41,6 +41,12 @@ var (
 		Help:      "Total detector FromData errors, labelled by detector.",
 	}, []string{"detector"})
 
+	placeholdersSuppressedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "placeholders_suppressed_total",
+		Help:      "Total findings dropped as obvious placeholders, labelled by entity type.",
+	}, []string{"entity_type"})
+
 	scannedBytes = promauto.NewHistogram(prometheus.HistogramOpts{
 		Namespace: metricsNamespace,
 		Name:      "scanned_bytes",

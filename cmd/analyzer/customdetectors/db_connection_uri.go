@@ -15,7 +15,7 @@ func NewDBConnectionURI() (detectors.Detector, error) {
 			"mysql", "mariadb", "redis", "postgres", "postgresql", "mongodb", "amqp",
 		},
 		Regex: map[string]string{
-			"secret": `(?i)\b(?:mysql|mariadb|rediss?|postgres(?:ql)?|mongodb(?:\+srv)?|amqps?)://[^:@/\s]*:([^@/\s]{1,256})@`,
+			"secret": `(?i)\b(?:mysql|mariadb|rediss?|postgres(?:ql)?|mongodb(?:\+srv)?|amqps?)://[^:@/\s]*:([^@/\s]{6,256})@`,
 		},
 		ExcludeRegexesCapture: append([]string{
 			`^\$\{.*\}$`,
