@@ -191,5 +191,7 @@ jobs:
           {
             echo "### trufflehog-analyzer (${ENV})"
             echo "- push: ${PUSH}, rollout: ${ROLLOUT}"
-            [ "${PUSH}" = "true" ] && echo "- tags: \`${ECR_REPO}:${GIT_SHA}\`, \`${ECR_REPO}:${ENV}\`"
+            if [ "${PUSH}" = "true" ]; then
+              echo "- tags: \`${ECR_REPO}:${GIT_SHA}\`, \`${ECR_REPO}:${ENV}\`"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
