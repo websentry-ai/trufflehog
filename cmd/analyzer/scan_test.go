@@ -174,3 +174,25 @@ func TestParseGenericSecretScore(t *testing.T) {
 		})
 	}
 }
+
+func TestIsObviousPlaceholder(t *testing.T) {
+	placeholders := []string{
+		"slack-bot-token-example-placeholder",
+		"google-api-key-example-placeholder",
+		"tok-0000000000000000000000000000dead",
+		"your_api_key_here",
+		"REDACTED",
+	}
+	for _, p := range placeholders {
+		require.True(t, isObviousPlaceholder(p), "expected %q to be flagged as a placeholder", p)
+	}
+	realSecrets := []string{
+		"0TJ13irg9mdPi9XuKVvg3gyDXPcUiqk3cYAmZZ",
+		"233338fa7422c031c2a4c3f3ddcb39f2e16e13f21b97f7692e8dc384e12c1151",
+		"RDbajGXmoL5IIP2555FJIZk547Th5kHT4KZveG0+YWfO",
+		"aB3xKp9Qm2Lr7TzWqDvNcEdFgHiJk",
+	}
+	for _, s := range realSecrets {
+		require.False(t, isObviousPlaceholder(s), "expected %q NOT to be flagged as a placeholder", s)
+	}
+}

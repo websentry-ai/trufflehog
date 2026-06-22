@@ -9,6 +9,7 @@ import (
 
 	regexp "github.com/wasilibs/go-re2"
 
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors/tokenizer"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/detector_typepb"
 )
@@ -18,7 +19,7 @@ const EntropyName = "entropy-secret"
 const (
 	defaultEntropyThreshold = 3.0
 	entropyMinLen           = 16
-	entropyMaxLen           = 80
+	entropyMaxLen           = 128
 	entropyWindow           = 5
 	entropyCancelStride     = 64
 )
@@ -37,13 +38,13 @@ var maskPatterns = []string{
 }
 
 var (
-	entropyTrimCutset = "\"'`.,;:()[]{}<>"
-
 	uuidPat     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	hexHashPat  = regexp.MustCompile(`^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
+	hexHashPat  = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
 	decimalPat  = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
 	hostPathPat = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
 	urlPathPat  = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
+	urlishPat   = regexp.MustCompile(`^//|://`)
+	orgIDPat    = regexp.MustCompile(`^org-[A-Za-z0-9]+$`)
 	datetimePat = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}`)
 	schemePat   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 	maskPat     = regexp.MustCompile(strings.Join(maskPatterns, "|"))
@@ -72,18 +73,31 @@ func hasPlaceholderWord(lower string) bool {
 
 type entropyProximityDetector struct {
 	threshold float64
+	tok       tokenizer.Tokenizer
 }
 
 var _ detectors.Detector = (*entropyProximityDetector)(nil)
 
 func NewEntropyProximity(threshold float64) detectors.Detector {
-	return entropyProximityDetector{threshold: threshold}
+	return entropyProximityDetector{threshold: threshold, tok: whitespaceTokenizer()}
+}
+
+func NewEntropyProximityWithTokenizer(threshold float64, tok tokenizer.Tokenizer) detectors.Detector {
+	return entropyProximityDetector{threshold: threshold, tok: tok}
+}
+
+func whitespaceTokenizer() tokenizer.Tokenizer {
+	tok, err := tokenizer.Select(tokenizer.Whitespace)
+	if err != nil {
+		panic("entropy-proximity: whitespace tokenizer unavailable: " + err.Error())
+	}
+	return tok
 }
 
 func (d entropyProximityDetector) Keywords() []string {
 	return []string{
 		"password", "passwd", "pwd", "secret", "token", "credential",
-		"apikey", "api_key", "auth", "signing", "private_key", "access_key",
+		"auth", "signing", "key", "cert",
 	}
 }
 
@@ -95,14 +109,8 @@ func (d entropyProximityDetector) Description() string {
 	return "Heuristic detector for high-entropy secrets located near a credential keyword."
 }
 
-type entropyToken struct {
-	candidate        string
-	keyword          string
-	keywordFromIdent bool
-}
-
 func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	tokens := tokenize(string(data))
+	tokens := d.tok.Tokenize(ctx, string(data))
 	var results []detectors.Result
 
 	for i, tok := range tokens {
@@ -112,7 +120,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 			}
 		}
 
-		v := tok.candidate
+		v := tok.Candidate
 		if len(v) < entropyMinLen || len(v) > entropyMaxLen {
 			continue
 		}
@@ -126,6 +134,9 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 			continue
 		}
 		if isExcludedEntropyValue(v) || hasPlaceholderWord(strings.ToLower(v)) {
+			continue
+		}
+		if known, _ := detectors.IsKnownFalsePositive(v, detectors.DefaultFalsePositives, true); known {
 			continue
 		}
 		if !hasNearbyKeyword(tokens, i) {
@@ -142,33 +153,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 	return results, nil
 }
 
-var identPrefixPat = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*[=:]`)
-
-func tokenize(data string) []entropyToken {
-	fields := strings.Fields(data)
-	tokens := make([]entropyToken, 0, len(fields))
-	for _, f := range fields {
-		core := strings.Trim(f, entropyTrimCutset)
-		if core == "" {
-			continue
-		}
-		candidate, keyword := core, core
-		var keywordFromIdent bool
-		if loc := identPrefixPat.FindStringIndex(core); loc != nil {
-			candidate = core[loc[1]:]
-			keyword = core[:loc[1]]
-			keywordFromIdent = true
-		}
-		tokens = append(tokens, entropyToken{
-			candidate:        candidate,
-			keyword:          strings.ToLower(keyword),
-			keywordFromIdent: keywordFromIdent,
-		})
-	}
-	return tokens
-}
-
-func hasNearbyKeyword(tokens []entropyToken, idx int) bool {
+func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
 	lo := idx - entropyWindow
 	if lo < 0 {
 		lo = 0
@@ -178,10 +163,10 @@ func hasNearbyKeyword(tokens []entropyToken, idx int) bool {
 		hi = len(tokens) - 1
 	}
 	for j := lo; j <= hi; j++ {
-		if j == idx && !tokens[j].keywordFromIdent {
+		if j == idx && !tokens[j].KeywordFromIdent {
 			continue
 		}
-		neighbor := reduceToAlnumUnderscore(tokens[j].keyword)
+		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range keywordStems {
 			if strings.Contains(neighbor, stem) {
 				return true
@@ -197,6 +182,8 @@ func isExcludedEntropyValue(v string) bool {
 		decimalPat.MatchString(v) ||
 		hostPathPat.MatchString(v) ||
 		urlPathPat.MatchString(v) ||
+		urlishPat.MatchString(v) ||
+		orgIDPat.MatchString(v) ||
 		datetimePat.MatchString(v) ||
 		schemePat.MatchString(v) ||
 		maskPat.MatchString(v)

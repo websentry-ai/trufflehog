@@ -85,6 +85,11 @@ func TestDBConnectionURIDetector_Negative(t *testing.T) {
 			input:  `https://api.example.com/v1`,
 			reason: "no scheme keyword and no user:pass@ authority",
 		},
+		{
+			name:   "trivial short password",
+			input:  `postgresql://rag:rag@localhost:5432/embeddings`,
+			reason: "a sub-6-char password is noise, not a credential",
+		},
 	}
 
 	for _, tc := range cases {

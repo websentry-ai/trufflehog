@@ -12,12 +12,14 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors/tokenizer"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 )
@@ -65,12 +67,14 @@ type analyzeResult struct {
 	End        int     `json:"end"`
 	Score      float64 `json:"score"`
 	Source     string  `json:"source"`
+	raw        string
 }
 
 type scanner struct {
 	core               *ahocorasick.Core
 	detectors          int
 	genericSecretScore float64
+	mode               suppressionMode
 }
 
 func liveness(w http.ResponseWriter, _ *http.Request) {
@@ -136,11 +140,17 @@ func main() {
 		if err != nil {
 			log.Fatalf("invalid ENTROPY_THRESHOLD: %v", err)
 		}
-		dets = append(dets, customdetectors.NewEntropyProximity(threshold))
-		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f)", threshold)
+		tokenizerName := os.Getenv("ANALYZER_TOKENIZER")
+		tok, err := tokenizer.Select(tokenizerName)
+		if err != nil {
+			log.Fatalf("invalid ANALYZER_TOKENIZER: %v", err)
+		}
+		dets = append(dets, customdetectors.NewEntropyProximityWithTokenizer(threshold, tok))
+		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", threshold, tokenizerName)
 	}
-	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore}
-	log.Printf("trufflehog-analyzer ready: %d detectors", s.detectors)
+	mode := parseSuppressionMode(os.Getenv("FP_SUPPRESSION_MODE"))
+	s := &scanner{core: ahocorasick.NewAhoCorasickCore(dets), detectors: len(dets), genericSecretScore: genericScore, mode: mode}
+	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s", s.detectors, mode)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
@@ -151,7 +161,7 @@ func main() {
 	addr := ":" + strconv.Itoa(port)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           accessLog(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -227,6 +237,10 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 			if score < threshold {
 				continue
 			}
+			if isObviousPlaceholder(string(res.Raw)) {
+				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
+				continue
+			}
 			start, end, ok := offsets(data, res.Raw)
 			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
@@ -238,10 +252,11 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 				End:        end,
 				Score:      score,
 				Source:     "trufflehog",
+				raw:        string(res.Raw),
 			})
 		}
 	}
-	deduped := dedupeOverlapping(out)
+	deduped := s.applySuppression(ctx, dedupeOverlapping(out), data)
 	for _, res := range deduped {
 		detectionsTotal.WithLabelValues(res.EntityType).Inc()
 	}
@@ -322,6 +337,37 @@ func entropyProximityEnabled() bool {
 	}
 }
 
+var placeholderMarkers = []string{
+	"example", "redacted", "placeholder", "changeme", "change-me",
+	"do-not-use", "do_not_use", "your_", "your-", "yourkey", "yourtoken", "dummy", "sample",
+	"replace", "xxxx",
+}
+
+func isObviousPlaceholder(raw string) bool {
+	lower := strings.ToLower(raw)
+	for _, m := range placeholderMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return hasLongRepeatRun(raw, 8)
+}
+
+func hasLongRepeatRun(s string, n int) bool {
+	run := 1
+	for i := 1; i < len(s); i++ {
+		if s[i] == s[i-1] {
+			run++
+			if run >= n {
+				return true
+			}
+			continue
+		}
+		run = 1
+	}
+	return false
+}
+
 func offsets(data, raw []byte) (int, int, bool) {
 	if len(raw) == 0 {
 		return 0, 0, false
@@ -347,4 +393,58 @@ func authorized(r *http.Request, apiKey string) bool {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
+func routeLabel(path string) string {
+	switch path {
+	case "/analyze", "/health", "/readyz", "/metrics":
+		return path
+	default:
+		return "other"
+	}
+}
+
+func methodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodHead, http.MethodOptions:
+		return method
+	default:
+		return "other"
+	}
+}
+
+func accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		defer func() {
+			panicVal := recover()
+			status := rec.status
+			if panicVal != nil {
+				status = http.StatusInternalServerError
+			}
+			httpRequestsTotal.WithLabelValues(methodLabel(r.Method), routeLabel(r.URL.Path), strconv.Itoa(status)).Inc()
+			log.Printf("request method=%q path=%q status=%d dur=%s remote=%s req=%q",
+				r.Method, r.URL.Path, status, time.Since(start), r.RemoteAddr, r.Header.Get("X-Request-Id"))
+			if panicVal != nil {
+				panic(panicVal)
+			}
+		}()
+		next.ServeHTTP(rec, r)
+	})
 }

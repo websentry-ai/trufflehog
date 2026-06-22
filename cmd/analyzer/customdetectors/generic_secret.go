@@ -21,7 +21,7 @@ func NewGenericSecret() (detectors.Detector, error) {
 		ExcludeWords: []string{
 			"changeme", "change_me", "example", "redacted",
 			"placeholder", "your_password", "yourpassword", "dummy", "sample",
-			"xxxx", "your_token",
+			"xxxx", "your_token", "oauth",
 		},
 		ExcludeRegexesCapture: append([]string{
 			`^\$\{.*\}$`,
@@ -29,7 +29,7 @@ func NewGenericSecret() (detectors.Detector, error) {
 			`^\$\(.*\)$`,
 			`^\{\{.*\}\}$`,
 			`^<.*>$`,
-			`^[a-z_]+(\.[a-z_]+)+$`,
+			`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$`,
 			`@[^/]+/.+`,
 			`(?i)\.(git|com|net|org|io)$`,
 			`^(?i)(true|false|none|null|undefined|nil)$`,
