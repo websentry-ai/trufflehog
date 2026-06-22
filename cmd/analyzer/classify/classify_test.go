@@ -48,6 +48,34 @@ func TestLexiconAccessorsAreCopies(t *testing.T) {
 	}
 }
 
+func TestIsStructuralNonSecret(t *testing.T) {
+	noise := []string{
+		"a4b3b545-24ec-11f0-9f57-2256ab8c9def",
+		"a4b3b545-24ec-11f0-9f57-22",
+		"a4b3b545-24ec-11f0-9f57",
+		"org-AbC123XyZ",
+		"/v1/users/list",
+		"2026-06-22T10",
+		"2026-06-22",
+		"1234567890",
+	}
+	for _, v := range noise {
+		if !IsStructuralNonSecret(v) {
+			t.Errorf("expected %q to be structural non-secret", v)
+		}
+	}
+	secrets := []string{
+		"aB3xKp9Qm2Lr7TzWqDvNcEdF",
+		"rtcYDmAEwtsYXT7O5H5rtcReJ5SPCjdlqFF5yD",
+		"9e107d9d372bb6826bd81d3542a419d6",
+	}
+	for _, v := range secrets {
+		if IsStructuralNonSecret(v) {
+			t.Errorf("expected %q NOT to be structural non-secret", v)
+		}
+	}
+}
+
 func repeat(s string, n int) string {
 	out := make([]byte, 0, n*len(s))
 	for i := 0; i < n; i++ {

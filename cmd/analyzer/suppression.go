@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 )
 
 type suppressionMode int
@@ -29,6 +30,7 @@ const (
 	reasonBulkList    = "bulk_list"
 	reasonStripeObjID = "structural_stripe_object_id"
 	reasonHexHash     = "structural_hex_hash"
+	reasonStructural  = "structural_nonsecret"
 )
 
 func parseSuppressionMode(raw string) suppressionMode {
@@ -150,6 +152,9 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	}
 	if classify.IsHex32(f.raw) && looksLikeChecksumRow(data, f) {
 		return true, reasonHexHash
+	}
+	if f.EntityType == customdetectors.GenericSecretName && classify.IsStructuralNonSecret(f.raw) {
+		return true, reasonStructural
 	}
 	return false, ""
 }

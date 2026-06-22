@@ -101,6 +101,15 @@ func TestDecideSuppression(t *testing.T) {
 		{"hex32 uri password kept", customdetectors.EntropyName, hex32, "mongodb://svc:" + hex32 + "@db.internal:27017/app", map[string]int{}, false, ""},
 		{"hex32 far from keyword kept", customdetectors.GenericSecretName, hex32, "the api token for the service is finally " + hex32, map[string]int{}, false, ""},
 		{"hex32 newline credential kept", customdetectors.GenericSecretName, hex32, "config:\n  password:\n    " + hex32, map[string]int{}, false, ""},
+		{"generic full uuid suppressed", customdetectors.GenericSecretName, "a4b3b545-24ec-11f0-9f57-2256ab8c9def", "", map[string]int{}, true, reasonStructural},
+		{"generic truncated uuid suppressed", customdetectors.GenericSecretName, "a4b3b545-24ec-11f0-9f57-22", "", map[string]int{}, true, reasonStructural},
+		{"generic org id suppressed", customdetectors.GenericSecretName, "org-AbC123XyZ", "", map[string]int{}, true, reasonStructural},
+		{"generic url path suppressed", customdetectors.GenericSecretName, "/v1/users/list", "", map[string]int{}, true, reasonStructural},
+		{"generic date suppressed", customdetectors.GenericSecretName, "2026-06-22T10", "", map[string]int{}, true, reasonStructural},
+		{"generic mixed alnum secret kept", customdetectors.GenericSecretName, "aB3xKp9Qm2Lr7TzWqDvNcEdF", "", map[string]int{}, false, ""},
+		{"generic weak alpha password kept", customdetectors.GenericSecretName, "changeme", "", map[string]int{}, false, ""},
+		{"db uri not structurally suppressed", customdetectors.DBConnectionURIName, "postgres://app:s3cretP4ss@db.prod:5432/billing", "", map[string]int{}, false, ""},
+		{"entropy uuid not gated here", customdetectors.EntropyName, "a4b3b545-24ec-11f0-9f57-2256ab8c9def", "", map[string]int{}, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
