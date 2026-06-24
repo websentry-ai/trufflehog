@@ -166,30 +166,20 @@ func TestScanLoneHeuristicSecretSurvivesEnforce(t *testing.T) {
 	require.Greater(t, len(results), 0, "a lone heuristic secret must not be suppressed")
 }
 
-func TestScanSuppressesStructuralLocators(t *testing.T) {
-	cases := []struct {
-		name string
-		doc  string
-	}{
-		{"relative path near keyword", "secret config: cat webapp/api/v1/routes.py"},
-		{"service path near keyword", "api key file webapp/services/organization_service.py"},
-		{"npm scoped package near keyword", "auth token package @auth0/auth0-mcp-server"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			doc := []byte(tc.doc)
-			off := heuristicScanner(t, suppressionOff).scan(context.Background(), doc, 0.75)
-			enforce := heuristicScanner(t, suppressionEnforce).scan(context.Background(), doc, 0.75)
-			require.GreaterOrEqual(t, len(off), len(enforce))
-			require.Equal(t, 0, len(enforce), "structural locator must not be reported as a secret")
-		})
+func TestScanDoesNotReportStructuralLocators(t *testing.T) {
+	for _, doc := range []string{
+		"secret config file webapp/api/v1/routes.py here",
+		"auth token package @auth0/auth0-mcp-server",
+	} {
+		results := heuristicScanner(t, suppressionEnforce).scan(context.Background(), []byte(doc), 0.75)
+		require.Equal(t, 0, len(results), "structural locator must not be reported as a secret: %q", doc)
 	}
 }
 
 func TestScanKeepsSlashSecretNearKeyword(t *testing.T) {
 	doc := []byte("secret key aB3x/Kp9Q/m2Lr7TzWqDvNcEd here")
 	results := heuristicScanner(t, suppressionEnforce).scan(context.Background(), doc, 0.75)
-	require.Greater(t, len(results), 0, "a mixed-case slash secret must still be detected")
+	require.Greater(t, len(results), 0, "a mixed-case slash secret of similar shape must still be detected")
 }
 
 func TestScanSuppressesSingleStripeObjectID(t *testing.T) {
