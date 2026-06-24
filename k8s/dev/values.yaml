@@ -35,6 +35,8 @@ env:
   - name: ENTROPY_THRESHOLD
     value: "0.7"
   - name: ENABLE_GENERIC_SECRETS
-    value: "true"
+    value: "false"
   - name: ENABLE_ENTROPY_PROXIMITY
     value: "true"
+  - name: FP_SUPPRESSION_MODE
+    value: "enforce"
