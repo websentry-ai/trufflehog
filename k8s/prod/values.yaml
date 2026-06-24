@@ -46,4 +46,4 @@ env:
   - name: ENABLE_ENTROPY_PROXIMITY
     value: "false"
   - name: FP_SUPPRESSION_MODE
-    value: "off"
+    value: "enforce"
