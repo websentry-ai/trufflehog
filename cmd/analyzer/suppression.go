@@ -253,7 +253,8 @@ func (s *scanner) decideAny(f analyzeResult, shapes map[string]int, data []byte)
 			return true, reason, s.mode
 		}
 	}
-	if s.vendorMode != suppressionOff {
+	if s.vendorMode != suppressionOff && isCuratedVendor(f.EntityType) {
+		vendorFindingsEvaluatedTotal.WithLabelValues(f.EntityType, s.vendorMode.String()).Inc()
 		if suppress, reason := decideVendorSuppression(f); suppress {
 			return true, reason, s.vendorMode
 		}

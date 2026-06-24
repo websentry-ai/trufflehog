@@ -41,7 +41,7 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsSecretAlphabet, "secret-charset-space", "aB3 x", false},
 		{IsUUIDish, "uuid-canonical", "a1d976ec-a095-46eb-a163-2256ab8c9def", true},
 		{IsUUIDish, "uuid-truncated-trailing-dash", "a1d976ec-a095-46eb-a163-", true},
-		{IsUUIDish, "uuid-four-groups", "a1d976ec-a095-46eb-a163", true},
+		{IsUUIDish, "uuid-four-groups-no-dash", "a1d976ec-a095-46eb-a163", false},
 		{IsUUIDish, "jira-opaque-token-not-uuid", "n27p22cchdt2k3kxabcd1234", false},
 		{IsUUIDish, "atatt-token-not-uuid", "ATATT3xFfGF0abcdefghij=A", false},
 		{IsUUIDish, "hex-but-wrong-layout", "a1d976eca09546eba1632256", false},

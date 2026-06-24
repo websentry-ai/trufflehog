@@ -14,6 +14,11 @@ var vendorStructuralRules = map[string]vendorRule{
 	"Atlassian": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
 }
 
+func isCuratedVendor(entity string) bool {
+	_, ok := vendorStructuralRules[entity]
+	return ok
+}
+
 func decideVendorSuppression(f analyzeResult) (bool, string) {
 	rule, ok := vendorStructuralRules[f.EntityType]
 	if !ok {
