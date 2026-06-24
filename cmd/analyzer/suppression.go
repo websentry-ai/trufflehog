@@ -242,7 +242,7 @@ func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data
 	}
 	if len(counts) > 0 {
 		total, summary := summarizeCounts(counts)
-		log.Printf("scan suppressed req=%s total=%d reasons=%s", reqIDFrom(ctx), total, summary)
+		log.Printf("scan suppressed req=%s fp_mode=%s vendor_mode=%s total=%d reasons=%s", reqIDFrom(ctx), s.mode, s.vendorMode, total, summary)
 	}
 	return kept
 }

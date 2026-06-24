@@ -2,10 +2,7 @@ package main
 
 import "github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 
-const (
-	reasonVendorStructuralUUID  = "vendor_structural_uuid"
-	reasonVendorStructuralAzure = "vendor_structural_azure"
-)
+const reasonVendorStructuralUUID = "vendor_structural_uuid"
 
 type vendorRule struct {
 	match  func(string) bool
@@ -15,7 +12,6 @@ type vendorRule struct {
 var vendorStructuralRules = map[string]vendorRule{
 	"JiraToken": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
 	"Atlassian": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
-	"Azure":     {match: classify.HasNonAzureSecretChar, reason: reasonVendorStructuralAzure},
 }
 
 func decideVendorSuppression(f analyzeResult) (bool, string) {

@@ -110,27 +110,4 @@ func IsHex32(s string) bool { return hex32Pat.MatchString(s) }
 
 func IsUUIDish(s string) bool { return uuidishPat.MatchString(s) }
 
-func HasNonAzureSecretChar(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if !isAzureSecretRune(r) {
-			return true
-		}
-	}
-	return false
-}
-
-func isAzureSecretRune(r rune) bool {
-	switch {
-	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		return true
-	case r == '_' || r == '~' || r == '.' || r == '-' || r == '+' || r == '/' || r == '=':
-		return true
-	default:
-		return false
-	}
-}
-
 func IsSecretAlphabet(s string) bool { return secretCharPat.MatchString(s) }

@@ -44,10 +44,7 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsUUIDish, "uuid-four-groups", "a1d976ec-a095-46eb-a163", true},
 		{IsUUIDish, "jira-opaque-token-not-uuid", "n27p22cchdt2k3kxabcd1234", false},
 		{IsUUIDish, "atatt-token-not-uuid", "ATATT3xFfGF0abcdefghij=A", false},
-		{HasNonAzureSecretChar, "code-fragment", "sameShapeToken(i))\\n\\t}\\n\\treturn", true},
-		{HasNonAzureSecretChar, "code-fragment-braces", "map[string]string{abcdefghij", true},
-		{HasNonAzureSecretChar, "real-azure-new-format", "abcQ~aB3xKp9Qm2Lr7TzWqDvNcEdFgHi", false},
-		{HasNonAzureSecretChar, "real-azure-base64", "aB3xKp9Qm2Lr7TzWqDvNcEd+Fg/Hi=", false},
+		{IsUUIDish, "hex-but-wrong-layout", "a1d976eca09546eba1632256", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
