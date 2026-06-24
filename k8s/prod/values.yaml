@@ -44,6 +44,6 @@ env:
   - name: ENABLE_GENERIC_SECRETS
     value: "false"
   - name: ENABLE_ENTROPY_PROXIMITY
-    value: "true"
+    value: "false"
   - name: FP_SUPPRESSION_MODE
     value: "enforce"
