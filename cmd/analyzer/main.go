@@ -74,6 +74,7 @@ type scanner struct {
 	detectors          int
 	genericSecretScore float64
 	mode               suppressionMode
+	vendorMode         suppressionMode
 }
 
 func liveness(w http.ResponseWriter, _ *http.Request) {

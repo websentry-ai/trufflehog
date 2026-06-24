@@ -18,6 +18,7 @@ type scannerConfig struct {
 	entropyThreshold        float64
 	tokenizerName           string
 	mode                    suppressionMode
+	vendorMode              suppressionMode
 }
 
 func defaultScannerConfig() scannerConfig {
@@ -28,6 +29,7 @@ func defaultScannerConfig() scannerConfig {
 		entropyThreshold:        customdetectors.DefaultEntropyThreshold,
 		tokenizerName:           "",
 		mode:                    suppressionEnforce,
+		vendorMode:              suppressionOff,
 	}
 }
 
@@ -39,6 +41,7 @@ func scannerConfigFromEnv() (scannerConfig, error) {
 		entropyThreshold:        customdetectors.DefaultEntropyThreshold,
 		tokenizerName:           os.Getenv("ANALYZER_TOKENIZER"),
 		mode:                    parseSuppressionMode(os.Getenv("FP_SUPPRESSION_MODE")),
+		vendorMode:              parseVendorSuppressionMode(os.Getenv("VENDOR_STRUCTURAL_SUPPRESSION")),
 	}
 	if cfg.genericSecretsEnabled {
 		score, err := parseGenericSecretScore(os.Getenv("GENERIC_SECRET_SCORE"))
@@ -103,5 +106,6 @@ func buildScanner(cfg scannerConfig) (*scanner, error) {
 		detectors:          len(dets),
 		genericSecretScore: cfg.genericSecretScore,
 		mode:               cfg.mode,
+		vendorMode:         cfg.vendorMode,
 	}, nil
 }

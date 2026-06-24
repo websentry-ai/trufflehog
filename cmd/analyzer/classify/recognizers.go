@@ -31,6 +31,7 @@ var (
 	uuidPat       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
 	hexHashPat    = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
 	hex32Pat      = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	uuidishPat    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{0,12})?$`)
 	decimalPat    = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
 	hostPathPat   = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
 	urlPathPat    = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
@@ -106,5 +107,30 @@ func IsStructuralNonSecret(v string) bool {
 func IsStripeObjectID(s string) bool { return stripeObjPat.MatchString(s) }
 
 func IsHex32(s string) bool { return hex32Pat.MatchString(s) }
+
+func IsUUIDish(s string) bool { return uuidishPat.MatchString(s) }
+
+func HasNonAzureSecretChar(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !isAzureSecretRune(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAzureSecretRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	case r == '_' || r == '~' || r == '.' || r == '-' || r == '+' || r == '/' || r == '=':
+		return true
+	default:
+		return false
+	}
+}
 
 func IsSecretAlphabet(s string) bool { return secretCharPat.MatchString(s) }
