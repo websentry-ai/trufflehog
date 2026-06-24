@@ -36,6 +36,7 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "mixed-case-slash-secret-not-excluded", "aB3x/Kp9Q/m2Lr7TzWqDvN", false},
 		{IsExcludedEntropyValue, "secret-trailing-slash-not-excluded", "aB3xKp9Qm2Lr7Tz/", false},
 		{IsExcludedEntropyValue, "secret-dotted-tail-not-excluded", "aB3xKp9Q/m2Lr7Tz.WqDvNcEdF", false},
+		{IsExcludedEntropyValue, "mixed-case-2seg-trailing-slash-not-excluded", "aB3xKp9Q/m2Lr7TzWqDv/", false},
 		{IsSecretAlphabet, "secret-charset", "aB3=._-+/~@", true},
 		{IsSecretAlphabet, "secret-charset-space", "aB3 x", false},
 	}
@@ -94,6 +95,8 @@ func TestIsStructuralNonSecret(t *testing.T) {
 		"aB3xKp9Qm2Lr7Tz/",
 		"Zm9vYmFyc2VjcmV0dG9rZW4/",
 		"aB3xKp9Q/m2Lr7Tz.WqDvNcEdF",
+		"aB3xKp9Q/m2Lr7TzWqDv/",
+		"A1B2C3D4/E5F6G7H8/",
 		"foo/",
 	}
 	for _, v := range secrets {
