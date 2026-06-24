@@ -6,12 +6,19 @@ name: Build and Deploy EKS
 #   PR                → build-only (no push, no rollout)
 #   push to main      → build + push :sha + :dev + rollout dev
 #   workflow_dispatch → build + push :sha + :<env> + optional rollout
+#     • dev/staging   → deploy immediately (no gate)
+#     • prod          → Slack approval gate → deploy → 2h soak (✅ release / 🚨 rollback)
 #
 # Auth: GitHub OIDC -> AWS IAM role unbound-dev-gha-ci (shared per-env CI role).
 # Image tags follow Pattern C: :sha always (rollback handle), mutable :<env> tag
 # drives the cluster. selfHeal/values.yaml are NOT mutated by CI — the env tag
-# is repointed and a rollout restart pulls it. Operator-driven rollout is the
-# canonical path (see user runbook); CI rollout below is best-effort.
+# is repointed and a rollout restart pulls it.
+#
+# Prod gate + soak require these repo (or org) Slack settings — without them the
+# gate fails CLOSED (no approval = no deploy):
+#   secret SLACK_BOT_TOKEN  ·  variable SLACK_PROD_CHANNEL_ID
+# Prod rollback repoints :prod → :prod-previous (snapshotted before each deploy)
+# and restarts trufflehog-prod.
 
 on:
   push:
@@ -37,24 +44,32 @@ concurrency:
   group: deploy-trufflehog-${{ github.event.inputs.environment || 'dev' }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  AWS_REGION: us-west-2
-  ECR_REPO: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
-  DEPLOYMENT: trufflehog
-
 permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-west-2
+  ECR_REPO: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
+  ECR_NAME: k8s/trufflehog
+  DEPLOYMENT: trufflehog
+
 jobs:
-  build-and-deploy:
+  # ---------------------------------------------------------------------------
+  # Resolve env/tags up front so the gate job can key on env == prod BEFORE any
+  # build runs. All user-influenced expressions piped through env: instead of
+  # inlined into run: blocks — defense in depth against template injection.
+  # ---------------------------------------------------------------------------
+  resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      env: ${{ steps.r.outputs.env }}
+      push: ${{ steps.r.outputs.push }}
+      rollout: ${{ steps.r.outputs.rollout }}
+      gate: ${{ steps.r.outputs.gate }}
+      tags: ${{ steps.r.outputs.tags }}
     steps:
-      # All user-influenced expressions piped through env: instead of inlined
-      # into run: shell blocks — defense in depth against template injection.
-      - name: Resolve env + tags
-        id: meta
+      - id: r
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_ENV: ${{ inputs.environment }}
@@ -71,33 +86,147 @@ jobs:
           fi
           PUSH="true"
           [ "$EVENT_NAME" = "pull_request" ] && PUSH="false"
+          # Gate ONLY prod — dev/staging deploy without approval (unchanged).
+          GATE=false
+          [ "$ENV" = "prod" ] && GATE=true
           TAGS=""
           [ "$PUSH" = "true" ] && TAGS="${ECR_REPO}:${GIT_SHA},${ECR_REPO}:${ENV}"
           {
             echo "env=$ENV"
             echo "push=$PUSH"
             echo "rollout=$ROLLOUT"
+            echo "gate=$GATE"
             echo "tags<<EOF"
             echo "$TAGS"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-          echo "env=$ENV push=$PUSH rollout=$ROLLOUT"
+          echo "Resolved: env=$ENV push=$PUSH rollout=$ROLLOUT gate=$GATE"
 
+  # ---------------------------------------------------------------------------
+  # Slack approval gate — PROD ONLY. Posts to #prod-eks-deployments and polls
+  # reactions (✅ approve / ❌ deny). Fails CLOSED if Slack isn't configured.
+  # ---------------------------------------------------------------------------
+  gate:
+    needs: resolve
+    if: needs.resolve.outputs.gate == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      decision: ${{ steps.g.outputs.decision }}
+      ts: ${{ steps.g.outputs.ts }}
+    steps:
+      - id: g
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
+          TITLE: ':rotating_light: *Deploying trufflehog* `[PROD]`'
+          DETAILS: "Ref `${{ github.ref }}` @ `${{ github.sha }}` — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run log>"
+          QUOTE: '> Gilfoyle says — Someone wants the secret-scanner in production. On purpose, allegedly.'
+          TIMEOUT_SECONDS: '3600'
+          POLL_SECONDS: '25'
+        run: |
+          set -uo pipefail
+          api() { local m="$1"; shift; curl -sS -X POST "https://slack.com/api/${m}" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-type: application/x-www-form-urlencoded" "$@"; }
+          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then
+            echo "::error::Slack not configured (need SLACK_BOT_TOKEN + SLACK_PROD_CHANNEL_ID) — failing closed (no approval)."
+            echo "decision=denied" >> "$GITHUB_OUTPUT"; exit 1; fi
+          BOT_ID="$(api auth.test | jq -r '.user_id // empty')"
+          # Without the bot's own user id the poll can't tell the pre-seeded
+          # reactions from a human's — an empty BOT_ID would let the bot's own
+          # ✅ self-approve the deploy on the first poll. Fail closed.
+          if [ -z "$BOT_ID" ]; then
+            echo "::error::Slack auth.test returned no user_id — cannot filter the bot's own seeded reactions; failing closed."
+            echo "decision=denied" >> "$GITHUB_OUTPUT"; exit 1; fi
+          TEXT="$(printf '%s\n%s\n%s\n\n*React one of the following:*\n•   :white_check_mark:  approve\n•   :x:  decline' "$TITLE" "$QUOTE" "$DETAILS")"
+          POST="$(api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "text=${TEXT}")"
+          [ "$(echo "$POST" | jq -r '.ok')" = "true" ] || { echo "::error::postMessage failed"; echo "decision=denied" >> "$GITHUB_OUTPUT"; exit 1; }
+          TS="$(echo "$POST" | jq -r '.ts')"
+          echo "ts=$TS" >> "$GITHUB_OUTPUT"
+          for e in white_check_mark x; do api reactions.add --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}" --data-urlencode "name=$e" >/dev/null || true; done
+          human() { echo "$2" | jq -r --arg e "$1" --arg bot "$BOT_ID" '(.message.reactions // []) | map(select(.name==$e)) | .[0].users // [] | map(select(. != $bot)) | .[0] // empty'; }
+          name_of() { api users.info --data-urlencode "user=$1" | jq -r '.user.profile.real_name // .user.name // "someone"'; }
+          reply() { api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "thread_ts=${TS}" --data-urlencode "text=$1" >/dev/null || true; }
+          DEADLINE=$(( SECONDS + TIMEOUT_SECONDS ))
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            R="$(api reactions.get --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}")"
+            if [ "$(echo "$R" | jq -r '.ok')" = "true" ]; then
+              D="$(human x "$R")";  if [ -n "$D" ]; then N="$(name_of "$D")"; reply "⛔ ${N} denied it. Finally, a correct decision in this channel. Standing down."; echo "decision=denied" >> "$GITHUB_OUTPUT"; echo "::notice::Denied by ${N}"; exit 0; fi
+              A="$(human white_check_mark "$R")"; if [ -n "$A" ]; then N="$(name_of "$A")"; reply "✅ Approved by ${N}. Their name's on it now, not mine. Deploying."; echo "decision=approved" >> "$GITHUB_OUTPUT"; echo "::notice::Approved by ${N}"; exit 0; fi
+            else
+              echo "::warning::Slack reactions.get failed ($(echo "$R" | jq -r '.error // "unknown"')) — retrying"
+            fi
+            sleep "$POLL_SECONDS"
+          done
+          reply "⏳ Nobody reacted for an hour. I'll take your silence as the cowardice it is. Cancelled."
+          echo "decision=timeout" >> "$GITHUB_OUTPUT"; echo "::error::Approval timed out"; exit 1
+
+  build-and-deploy:
+    needs: [resolve, gate]
+    # always() so the job still evaluates when the prod-only gate is skipped
+    # (dev/staging) or fails (deny/timeout). Run only when resolve succeeded AND
+    # either no gate was required or the gate approved.
+    if: |
+      always() && needs.resolve.result == 'success' &&
+      (needs.resolve.outputs.gate != 'true' || needs.gate.outputs.decision == 'approved')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      image_sha: ${{ github.sha }}
+    steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Configure AWS credentials (OIDC)
-        if: steps.meta.outputs.push == 'true'
+        if: needs.resolve.outputs.push == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
-        if: steps.meta.outputs.push == 'true'
+        if: needs.resolve.outputs.push == 'true'
         uses: aws-actions/amazon-ecr-login@v2
+
+      # Snapshot the CURRENT :prod image → :prod-previous BEFORE the build below
+      # overwrites :prod. This is the soak's rollback target.
+      - name: Snapshot current :prod for rollback
+        if: needs.resolve.outputs.push == 'true' && needs.resolve.outputs.env == 'prod' && needs.resolve.outputs.rollout == 'true'
+        env:
+          ECR_NAME: ${{ env.ECR_NAME }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          # A failed read is NOT "first deploy": an IAM regression or transient
+          # AWS error here would otherwise look like a missing :prod tag,
+          # silently bypassing the fail-closed write below and arming the soak
+          # with no rollback target. (A genuinely absent tag still succeeds
+          # with an empty/None result and falls through to the notice below.)
+          PREV=$(aws ecr batch-get-image --repository-name "$ECR_NAME" \
+                   --image-ids imageTag=prod --region "$AWS_REGION" \
+                   --query 'images[0].imageManifest' --output text 2>/tmp/ecr-read-err) || {
+            echo "::error::could not read ${ECR_NAME}:prod — aborting deploy (cannot verify rollback target). $(cat /tmp/ecr-read-err)"
+            exit 1
+          }
+          if [ -n "$PREV" ] && [ "$PREV" != "None" ]; then
+            # Fail closed: without this snapshot the soak's 🚨 rollback has no
+            # image to restore, so a failed write must stop the deploy here.
+            # ImageAlreadyExistsException = :prod-previous already points at
+            # this exact manifest (re-deploy of the same image) — benign.
+            OUT=$(aws ecr put-image --repository-name "$ECR_NAME" --image-tag prod-previous \
+                    --image-manifest "$PREV" --region "$AWS_REGION" 2>&1) && RC=0 || RC=$?
+            if [ "$RC" = "0" ]; then
+              echo "Snapshotted ${ECR_NAME}:prod → :prod-previous"
+            elif echo "$OUT" | grep -q ImageAlreadyExistsException; then
+              echo "Snapshot already current (:prod-previous points at this manifest)"
+            else
+              echo "::error::could not write :prod-previous for ${ECR_NAME} — aborting deploy (no rollback target). ${OUT}"
+              exit 1
+            fi
+          else
+            echo "::notice::no existing :prod in ${ECR_NAME} (first prod deploy?)"
+          fi
 
       # Build context is the repo ROOT — cmd/analyzer/Dockerfile does
       # `COPY go.mod go.sum` and `go build ./cmd/analyzer`, so it needs the
@@ -107,35 +236,35 @@ jobs:
         with:
           context: .
           file: cmd/analyzer/Dockerfile
-          push: ${{ steps.meta.outputs.push == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          push: ${{ needs.resolve.outputs.push == 'true' }}
+          tags: ${{ needs.resolve.outputs.tags }}
           cache-from: type=gha,scope=trufflehog-analyzer
           cache-to: type=gha,scope=trufflehog-analyzer,mode=max
           provenance: false
 
       - name: Wait for ECR image manifest
-        if: steps.meta.outputs.push == 'true' && steps.meta.outputs.rollout == 'true'
+        if: needs.resolve.outputs.push == 'true' && needs.resolve.outputs.rollout == 'true'
         env:
-          ECR_REPO: ${{ env.ECR_REPO }}
+          ECR_NAME: ${{ env.ECR_NAME }}
           GIT_SHA: ${{ github.sha }}
           AWS_REGION: ${{ env.AWS_REGION }}
         run: |
-          NAME="${ECR_REPO#*/}"   # strip registry host -> k8s/trufflehog
           for i in $(seq 1 12); do
-            if aws ecr describe-images --repository-name "$NAME" \
+            if aws ecr describe-images --repository-name "$ECR_NAME" \
                 --image-ids imageTag="$GIT_SHA" --region "$AWS_REGION" \
                 >/dev/null 2>&1; then
-              echo "Image manifest visible ($NAME)"; exit 0
+              echo "Image manifest visible ($ECR_NAME)"; exit 0
             fi
             echo "Waiting for ECR manifest (attempt $i/12)..."; sleep 5
           done
           echo "::warning::ECR manifest not visible after 60s — proceeding anyway"
 
-      # Rollout only on dev + staging — prod is print-only (operator runs it).
+      # dev + staging: unchanged. A status timeout here is a hard failure —
+      # there's no soak watchdog to catch a non-converging rollout.
       - name: Rollout (dev + staging)
-        if: steps.meta.outputs.push == 'true' && steps.meta.outputs.rollout == 'true' && steps.meta.outputs.env != 'prod'
+        if: needs.resolve.outputs.push == 'true' && needs.resolve.outputs.rollout == 'true' && needs.resolve.outputs.env != 'prod'
         env:
-          ENV: ${{ steps.meta.outputs.env }}
+          ENV: ${{ needs.resolve.outputs.env }}
           AWS_REGION: ${{ env.AWS_REGION }}
           DEPLOYMENT: ${{ env.DEPLOYMENT }}
         run: |
@@ -168,23 +297,38 @@ jobs:
           kubectl get pods -n "${ENV}" -l app="${DEPLOYMENT}-${ENV}" -o wide || true
           [ "${POST_FAIL:-0}" = "1" ] && exit 1 || true
 
-      - name: Prod rollout (manual — print only)
-        if: steps.meta.outputs.push == 'true' && steps.meta.outputs.env == 'prod'
+      # prod: gated above; deploy for real. Unlike dev/staging, a status timeout
+      # is NOT a failure — the restart already succeeded and keeps converging
+      # in-cluster, and the soak job arms the rollback window. Failing here
+      # would skip the soak while the new image is live.
+      - name: Rollout (prod)
+        if: needs.resolve.outputs.push == 'true' && needs.resolve.outputs.rollout == 'true' && needs.resolve.outputs.env == 'prod'
         env:
-          GIT_SHA: ${{ github.sha }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          DEPLOYMENT: ${{ env.DEPLOYMENT }}
         run: |
-          echo "::notice::Prod image pushed. Run rollout from your laptop:"
-          echo ""
-          echo "  kubectl --context unbound-prod rollout restart deployment/trufflehog-prod -n prod"
-          echo ""
-          echo "Image SHA: $GIT_SHA"
+          if ! aws eks update-kubeconfig --name unbound-prod --region "${AWS_REGION}"; then
+            echo "::error::aws eks update-kubeconfig failed for unbound-prod"; exit 1
+          fi
+          if ! kubectl rollout restart "deployment/${DEPLOYMENT}-prod" -n prod; then
+            echo "::error::rollout restart failed for ${DEPLOYMENT}-prod (auth/RBAC/not-found)"
+            kubectl get events -n prod --sort-by=.lastTimestamp | tail -20 || true
+            exit 1
+          fi
+          if ! kubectl rollout status "deployment/${DEPLOYMENT}-prod" -n prod --timeout=10m; then
+            kubectl describe "deployment/${DEPLOYMENT}-prod" -n prod | tail -30 || true
+            POD=$(kubectl get pods -n prod -l app="${DEPLOYMENT}-prod" --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || true)
+            [ -n "$POD" ] && kubectl logs "$POD" -n prod --tail=50 || true
+            echo "::warning::rollout status didn't converge in 10m for ${DEPLOYMENT}-prod; still progressing in-cluster. Proceeding (soak still arms)."
+          fi
+          kubectl get pods -n prod -l app="${DEPLOYMENT}-prod" -o wide || true
 
       - name: Summary
         if: always()
         env:
-          ENV: ${{ steps.meta.outputs.env }}
-          PUSH: ${{ steps.meta.outputs.push }}
-          ROLLOUT: ${{ steps.meta.outputs.rollout }}
+          ENV: ${{ needs.resolve.outputs.env }}
+          PUSH: ${{ needs.resolve.outputs.push }}
+          ROLLOUT: ${{ needs.resolve.outputs.rollout }}
           ECR_REPO: ${{ env.ECR_REPO }}
           GIT_SHA: ${{ github.sha }}
         run: |
@@ -195,3 +339,124 @@ jobs:
               echo "- tags: \`${ECR_REPO}:${GIT_SHA}\`, \`${ECR_REPO}:${ENV}\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # 2h soak (PROD only): post to #prod-eks-deployments, poll reactions —
+  # ✅ release stable early, 🚨 repoint :prod → :prod-previous and restart.
+  # ---------------------------------------------------------------------------
+  soak:
+    needs: [resolve, build-and-deploy, gate]
+    # 'failure' included deliberately: if the prod rollout step errored AFTER
+    # :prod was moved, the deployed image still needs a rollback window. A build
+    # that failed before moving :prod makes the rollback a no-op restart.
+    if: always() && needs.resolve.outputs.env == 'prod' && needs.resolve.outputs.rollout == 'true' && contains(fromJSON('["success", "failure"]'), needs.build-and-deploy.result)
+    runs-on: ubuntu-latest
+    # 2h reaction poll + a late 🚨 rollback (status waits up to 10m) + the Slack
+    # confirmation must all fit.
+    timeout-minutes: 150
+    steps:
+      - id: soak
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
+          GATE_TS: ${{ needs.gate.outputs.ts }}
+          TITLE: ':large_green_circle: *Soaking trufflehog* `[PROD]` — 2h'
+          DETAILS: "SHA `${{ needs.build-and-deploy.outputs.image_sha }}` — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|run log>"
+          QUOTE: '> Gilfoyle says — It scans secrets. It also might leak them if it breaks. Watching it for two hours.'
+          TIMEOUT_SECONDS: '7200'
+          POLL_SECONDS: '60'
+        run: |
+          set -uo pipefail
+          api() { local m="$1"; shift; curl -sS -X POST "https://slack.com/api/${m}" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-type: application/x-www-form-urlencoded" "$@"; }
+          # Fail visibly (unlike the gate, the deploy is already live, so we
+          # can't fail closed — but a soak with no watchdog must not look green).
+          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then echo "::error::Slack not configured — soak has no rollback watchdog (deploy stays live)"; exit 1; fi
+          BOT_ID="$(api auth.test | jq -r '.user_id // empty')"
+          # An empty BOT_ID would let the bot's own pre-seeded ✅ self-release
+          # the soak on the first poll. The deploy is already live, so fail
+          # visibly rather than silently dropping the watchdog.
+          if [ -z "$BOT_ID" ]; then echo "::error::Slack auth.test returned no user_id — the bot's own seeded ✅ would self-release the soak; failing (deploy stays live)"; exit 1; fi
+          TEXT="$(printf '%s\n%s\n%s\n\n*React one of the following:*\n•   :white_check_mark:  release stable early\n•   :rotating_light:  roll back' "$TITLE" "$QUOTE" "$DETAILS")"
+          PARGS=(--data-urlencode "channel=${CHANNEL}" --data-urlencode "text=${TEXT}")
+          [ -n "${GATE_TS:-}" ] && PARGS+=(--data-urlencode "thread_ts=${GATE_TS}")
+          POST="$(api chat.postMessage "${PARGS[@]}")"
+          [ "$(echo "$POST" | jq -r '.ok')" = "true" ] || { echo "::error::postMessage failed ($(echo "$POST" | jq -r '.error // "unknown"')) — soak has no rollback watchdog (deploy stays live)"; exit 1; }
+          TS="$(echo "$POST" | jq -r '.ts')"
+          for e in white_check_mark rotating_light; do api reactions.add --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}" --data-urlencode "name=$e" >/dev/null || true; done
+          human() { echo "$2" | jq -r --arg e "$1" --arg bot "$BOT_ID" '(.message.reactions // []) | map(select(.name==$e)) | .[0].users // [] | map(select(. != $bot)) | .[0] // empty'; }
+          name_of() { api users.info --data-urlencode "user=$1" | jq -r '.user.profile.real_name // .user.name // "someone"'; }
+          reply() { api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "thread_ts=${TS}" --data-urlencode "text=$1" >/dev/null || true; }
+          DEADLINE=$(( SECONDS + TIMEOUT_SECONDS ))
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            R="$(api reactions.get --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}")"
+            if [ "$(echo "$R" | jq -r '.ok')" = "true" ]; then
+              # 🚨 outranks ✅: if both reactions land within one poll window,
+              # an explicit rollback request must never lose to early-stable.
+              X="$(human rotating_light "$R")"; if [ -n "$X" ]; then N="$(name_of "$X")"; reply "↩️ ${N} hit the panic button. Rolling back to the last version that didn't embarrass us."; echo "decision=rollback" >> "$GITHUB_OUTPUT"; echo "actor=${N}" >> "$GITHUB_OUTPUT"; echo "::notice::Rollback by ${N}"; exit 0; fi
+              S="$(human white_check_mark "$R")"; if [ -n "$S" ]; then N="$(name_of "$S")"; reply "✅ Released as *stable* by ${N}. Calling it early. Bold. If it breaks now, it breaks on your name."; echo "decision=stable" >> "$GITHUB_OUTPUT"; echo "::notice::Released stable early by ${N}"; exit 0; fi
+            else
+              echo "::warning::Slack reactions.get failed ($(echo "$R" | jq -r '.error // "unknown"')) — retrying"
+            fi
+            sleep "$POLL_SECONDS"
+          done
+          reply "✅ Two hours, no rollback. It's stable. Don't get used to the praise."
+          echo "decision=stable" >> "$GITHUB_OUTPUT"; echo "::notice::Stable"
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.soak.outputs.decision == 'rollback'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Roll back (repoint :prod to prior image + restart)
+        if: steps.soak.outputs.decision == 'rollback'
+        env:
+          ECR_NAME: ${{ env.ECR_NAME }}
+          DEPLOYMENT: ${{ env.DEPLOYMENT }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
+          GATE_TS: ${{ needs.gate.outputs.ts }}
+        run: |
+          if ! aws eks update-kubeconfig --name unbound-prod --region "${AWS_REGION}"; then
+            echo "::error::aws eks update-kubeconfig failed for unbound-prod"; exit 1
+          fi
+          FAILED=0
+          echo "↩️ ${DEPLOYMENT}-prod: repoint ${ECR_NAME}:prod → :prod-previous, then restart"
+          PREV=$(aws ecr batch-get-image --repository-name "$ECR_NAME" --image-ids imageTag=prod-previous \
+                   --region "$AWS_REGION" --query 'images[0].imageManifest' --output text 2>/dev/null || true)
+          if [ -z "$PREV" ] || [ "$PREV" = "None" ]; then
+            echo "::error::no :prod-previous in ${ECR_NAME} — cannot roll back ${DEPLOYMENT}-prod"; FAILED=1
+          else
+            POUT=$(aws ecr put-image --repository-name "$ECR_NAME" --image-tag prod --image-manifest "$PREV" --region "$AWS_REGION" 2>&1) && PRC=0 || PRC=$?
+            if [ "$PRC" != "0" ]; then
+              # ImageAlreadyExistsException = :prod already points at this
+              # manifest (same-image re-deploy, or the build failed before
+              # moving the tag) — prod is already on the right image, so the
+              # restart below is all that's needed. NOT a failed rollback.
+              if echo "$POUT" | grep -q ImageAlreadyExistsException; then
+                echo ":prod already points at the previous manifest for ${ECR_NAME}"
+              else
+                echo "::error::failed to repoint ${ECR_NAME}:prod — ${POUT}"; FAILED=1
+              fi
+            fi
+            if [ "$FAILED" = "0" ]; then
+              if ! kubectl rollout restart "deployment/${DEPLOYMENT}-prod" -n prod; then
+                echo "::error::rollout restart failed for ${DEPLOYMENT}-prod"; FAILED=1
+              else
+                # Status timeout ≠ failed rollback: the restart was issued and
+                # the old image is converging in-cluster.
+                kubectl rollout status "deployment/${DEPLOYMENT}-prod" -n prod --timeout=10m \
+                  || echo "::warning::${DEPLOYMENT}-prod status wait timed out — rollback restart issued, still converging in-cluster"
+              fi
+            fi
+          fi
+          if [ "$FAILED" = "0" ]; then MSG=":leftwards_arrow_with_hook: Rolled back ${DEPLOYMENT}-prod. The previous image is live again. We achieved nothing today."; else MSG=":x: The rollback of ${DEPLOYMENT}-prod also failed. Of course it did. Read the logs and reflect."; fi
+          NARGS=(--data-urlencode "channel=${CHANNEL}" --data-urlencode "text=${MSG}")
+          [ -n "${GATE_TS:-}" ] && NARGS+=(--data-urlencode "thread_ts=${GATE_TS}")
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" -H "Content-type: application/x-www-form-urlencoded" "${NARGS[@]}" >/dev/null || true
+          exit $FAILED
