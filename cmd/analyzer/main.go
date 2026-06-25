@@ -105,6 +105,8 @@ func main() {
 		port = n
 	}
 
+	recordBuildInfo()
+
 	cfg, err := scannerConfigFromEnv()
 	if err != nil {
 		log.Fatalf("invalid scanner config: %v", err)

@@ -1,11 +1,18 @@
 package main
 
 import (
+	"runtime"
+	"runtime/debug"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const metricsNamespace = "trufflehog"
+
+// version is the analyzer build version. Overridable at build time via
+// -ldflags "-X main.version=<tag>"; defaults to "dev" for local/untagged builds.
+var version = "dev"
 
 var (
 	analyzeRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -65,4 +72,30 @@ var (
 		Help:      "Size of scanned request bodies in bytes.",
 		Buckets:   prometheus.ExponentialBuckets(256, 2, 13),
 	})
+
+	// Static build metadata. Constant value 1; the deployed version/commit/go
+	// version ride on the labels so a single board can show what's running in
+	// each environment. Labels are build-time constants, never request data.
+	buildInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: metricsNamespace,
+		Name:      "build_info",
+		Help:      "Build metadata, constant 1, labelled by version, commit, and go_version.",
+	}, []string{"version", "commit", "go_version"})
 )
+
+// recordBuildInfo sets the trufflehog_build_info gauge to 1 with the build's
+// version, VCS commit, and Go runtime version. Commit is read from the embedded
+// build info (set automatically by `go build` from VCS) and falls back to
+// "unknown" when unavailable (e.g. `go test`).
+func recordBuildInfo() {
+	commit := "unknown"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && s.Value != "" {
+				commit = s.Value
+				break
+			}
+		}
+	}
+	buildInfo.WithLabelValues(version, commit, runtime.Version()).Set(1)
+}
