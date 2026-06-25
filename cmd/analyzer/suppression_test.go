@@ -182,6 +182,61 @@ func TestScanKeepsSlashSecretNearKeyword(t *testing.T) {
 	require.Greater(t, len(results), 0, "a mixed-case slash secret of similar shape must still be detected")
 }
 
+func TestParseVendorSuppressionMode(t *testing.T) {
+	require.Equal(t, suppressionOff, parseVendorSuppressionMode(""))
+	require.Equal(t, suppressionOff, parseVendorSuppressionMode("off"))
+	require.Equal(t, suppressionOff, parseVendorSuppressionMode("nonsense"))
+	require.Equal(t, suppressionShadow, parseVendorSuppressionMode("shadow"))
+	require.Equal(t, suppressionEnforce, parseVendorSuppressionMode(" ENFORCE "))
+}
+
+func TestDecideVendorSuppression(t *testing.T) {
+	cases := []struct {
+		name       string
+		entity     string
+		raw        string
+		wantSup    bool
+		wantReason string
+	}{
+		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralUUID},
+		{"jira real token kept", "JiraToken", "n27p22cchdt2k3kxabcd1234", false, ""},
+		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralUUID},
+		{"azure code fragment with backslash", "Azure", "sameShapeToken(i))\\n\\t}\\n\\treturn", true, reasonVendorStructuralCode},
+		{"azure code fragment with space", "Azure", "map[string]string{ continue }", true, reasonVendorStructuralCode},
+		{"azure v1 punctuation secret kept", "Azure", "Abc@def*ghi;jkl:mno[pqr]stu^vwx1", false, ""},
+		{"azure punctuation-only fragment kept", "Azure", "customdetectors.GenericSecretName,", false, ""},
+		{"non-curated vendor kept", "Github", "a1d976ec-a095-46eb-a163-", false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw})
+			require.Equal(t, tc.wantSup, sup)
+			require.Equal(t, tc.wantReason, reason)
+		})
+	}
+}
+
+func TestApplySuppressionVendorMode(t *testing.T) {
+	findings := []analyzeResult{
+		{EntityType: "JiraToken", raw: "a1d976ec-a095-46eb-a163-"},
+		{EntityType: "Azure", raw: "sameShapeToken(i))\\n\\t}\\n\\treturn"},
+		{EntityType: "Azure", raw: "Abc@def*ghi;jkl:mno[pqr]stu^vwx1"},
+		{EntityType: "Github", raw: "ghp_0123456789abcdefghijklmnopqrstuvwxyz"},
+	}
+	data := []byte("")
+
+	off := (&scanner{mode: suppressionOff, vendorMode: suppressionOff}).applySuppression(context.Background(), findings, data)
+	require.Equal(t, len(findings), len(off), "vendor off must not change findings")
+
+	shadow := (&scanner{mode: suppressionOff, vendorMode: suppressionShadow}).applySuppression(context.Background(), findings, data)
+	require.Equal(t, len(findings), len(shadow), "shadow must emit the same findings as off")
+
+	enforce := (&scanner{mode: suppressionOff, vendorMode: suppressionEnforce}).applySuppression(context.Background(), findings, data)
+	require.Equal(t, 2, len(enforce), "enforce must drop the truncated uuid and the azure code fragment")
+	require.Equal(t, "Azure", enforce[0].EntityType, "azure punctuation secret must survive")
+	require.Equal(t, "Github", enforce[1].EntityType, "non-curated vendor must survive")
+}
+
 func TestScanSuppressesSingleStripeObjectID(t *testing.T) {
 	doc := []byte("the dispute token is du_1TIUcBBrSQGfJTjiR3r4WQh4 ok")
 	off := heuristicScanner(t, suppressionOff).scan(context.Background(), doc, 0.75)

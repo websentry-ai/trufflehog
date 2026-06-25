@@ -47,6 +47,20 @@ func parseSuppressionMode(raw string) suppressionMode {
 	}
 }
 
+func parseVendorSuppressionMode(raw string) suppressionMode {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "off":
+		return suppressionOff
+	case "shadow":
+		return suppressionShadow
+	case "enforce":
+		return suppressionEnforce
+	default:
+		log.Printf("VENDOR_STRUCTURAL_SUPPRESSION=%q unrecognized; defaulting to off (valid: off, shadow, enforce)", raw)
+		return suppressionOff
+	}
+}
+
 func (m suppressionMode) String() string {
 	switch m {
 	case suppressionShadow:
@@ -205,39 +219,47 @@ func runeToByteOffset(data []byte, runeIdx int) int {
 }
 
 func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte) []analyzeResult {
-	if s.mode == suppressionOff {
+	if s.mode == suppressionOff && s.vendorMode == suppressionOff {
 		return in
 	}
-	gateable := false
-	for _, f := range in {
-		if isGenericDetectorName(f.EntityType) {
-			gateable = true
-			break
-		}
+	var shapes map[string]int
+	if s.mode != suppressionOff {
+		shapes = documentShapes(data)
 	}
-	if !gateable {
-		return in
-	}
-	shapes := documentShapes(data)
 	kept := make([]analyzeResult, 0, len(in))
 	counts := map[string]int{}
 	for _, f := range in {
-		suppress, reason := decideSuppression(f, shapes, data)
+		suppress, reason, mode := s.decideAny(f, shapes, data)
 		if !suppress {
 			kept = append(kept, f)
 			continue
 		}
-		findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, s.mode.String()).Inc()
+		findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, mode.String()).Inc()
 		counts[reason]++
-		if s.mode == suppressionShadow {
+		if mode == suppressionShadow {
 			kept = append(kept, f)
 		}
 	}
 	if len(counts) > 0 {
 		total, summary := summarizeCounts(counts)
-		log.Printf("scan suppressed req=%s mode=%s total=%d reasons=%s", reqIDFrom(ctx), s.mode, total, summary)
+		log.Printf("scan suppressed req=%s fp_mode=%s vendor_mode=%s total=%d reasons=%s", reqIDFrom(ctx), s.mode, s.vendorMode, total, summary)
 	}
 	return kept
+}
+
+func (s *scanner) decideAny(f analyzeResult, shapes map[string]int, data []byte) (bool, string, suppressionMode) {
+	if s.mode != suppressionOff {
+		if suppress, reason := decideSuppression(f, shapes, data); suppress {
+			return true, reason, s.mode
+		}
+	}
+	if s.vendorMode != suppressionOff && isCuratedVendor(f.EntityType) {
+		vendorFindingsEvaluatedTotal.WithLabelValues(f.EntityType, s.vendorMode.String()).Inc()
+		if suppress, reason := decideVendorSuppression(f); suppress {
+			return true, reason, s.vendorMode
+		}
+	}
+	return false, "", suppressionOff
 }
 
 func summarizeCounts(counts map[string]int) (int, string) {

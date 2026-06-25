@@ -31,6 +31,7 @@ var (
 	uuidPat       = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
 	hexHashPat    = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
 	hex32Pat      = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	uuidishPat    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{0,12}$`)
 	decimalPat    = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
 	hostPathPat   = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
 	urlPathPat    = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
@@ -44,6 +45,7 @@ var (
 	maskPat       = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
 	stripeObjPat  = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
 	secretCharPat = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
+	codeNoisePat  = regexp.MustCompile(`[\s\\]`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -107,4 +109,8 @@ func IsStripeObjectID(s string) bool { return stripeObjPat.MatchString(s) }
 
 func IsHex32(s string) bool { return hex32Pat.MatchString(s) }
 
+func IsUUIDish(s string) bool { return uuidishPat.MatchString(s) }
+
 func IsSecretAlphabet(s string) bool { return secretCharPat.MatchString(s) }
+
+func ContainsWhitespaceOrBackslash(s string) bool { return codeNoisePat.MatchString(s) }

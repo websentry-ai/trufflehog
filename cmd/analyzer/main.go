@@ -74,6 +74,7 @@ type scanner struct {
 	detectors          int
 	genericSecretScore float64
 	mode               suppressionMode
+	vendorMode         suppressionMode
 }
 
 func liveness(w http.ResponseWriter, _ *http.Request) {
@@ -120,7 +121,7 @@ func main() {
 	if cfg.entropyProximityEnabled {
 		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", cfg.entropyThreshold, cfg.tokenizerName)
 	}
-	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s", s.detectors, cfg.mode)
+	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s, vendor_structural_suppression=%s", s.detectors, cfg.mode, cfg.vendorMode)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
