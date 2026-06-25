@@ -16,8 +16,8 @@ ingress:
 
 autoscaling:
   enabled: true
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 2
   targetCPUUtilizationPercentage: 75
   targetMemoryUtilizationPercentage: 75
 
@@ -40,3 +40,5 @@ env:
     value: "true"
   - name: FP_SUPPRESSION_MODE
     value: "enforce"
+# Staging: retire old ReplicaSets quickly.
+revisionHistoryLimit: 2
