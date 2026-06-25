@@ -10,9 +10,15 @@ import (
 
 const metricsNamespace = "trufflehog"
 
-// version is the analyzer build version. Overridable at build time via
-// -ldflags "-X main.version=<tag>"; defaults to "dev" for local/untagged builds.
-var version = "dev"
+// version and commit are stamped at build time via
+// -ldflags "-X main.version=<ref> -X main.commit=<sha>" (see cmd/analyzer/Dockerfile,
+// wired from CI in deploy-eks.yml). They default to "dev"/"unknown" for local builds.
+// .dockerignore excludes .git, so the image has no VCS info to fall back on —
+// the ldflag stamp is the source of truth in deployed builds.
+var (
+	version = "dev"
+	commit  = "unknown"
+)
 
 var (
 	analyzeRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -84,18 +90,20 @@ var (
 )
 
 // recordBuildInfo sets the trufflehog_build_info gauge to 1 with the build's
-// version, VCS commit, and Go runtime version. Commit is read from the embedded
-// build info (set automatically by `go build` from VCS) and falls back to
-// "unknown" when unavailable (e.g. `go test`).
+// version, VCS commit, and Go runtime version. The commit prefers the ldflag
+// stamp; for un-stamped local builds it falls back to the embedded VCS revision
+// (`go build` from a git tree) and finally "unknown" (e.g. `go test`).
 func recordBuildInfo() {
-	commit := "unknown"
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range info.Settings {
-			if s.Key == "vcs.revision" && s.Value != "" {
-				commit = s.Value
-				break
+	c := commit
+	if c == "unknown" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, s := range info.Settings {
+				if s.Key == "vcs.revision" && s.Value != "" {
+					c = s.Value
+					break
+				}
 			}
 		}
 	}
-	buildInfo.WithLabelValues(version, commit, runtime.Version()).Set(1)
+	buildInfo.WithLabelValues(version, c, runtime.Version()).Set(1)
 }
