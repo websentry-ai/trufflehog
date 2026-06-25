@@ -29,7 +29,7 @@ func defaultScannerConfig() scannerConfig {
 		entropyThreshold:        customdetectors.DefaultEntropyThreshold,
 		tokenizerName:           "",
 		mode:                    suppressionEnforce,
-		vendorMode:              suppressionEnforce,
+		vendorMode:              suppressionOff,
 	}
 }
 

@@ -49,15 +49,15 @@ func parseSuppressionMode(raw string) suppressionMode {
 
 func parseVendorSuppressionMode(raw string) suppressionMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "enforce":
-		return suppressionEnforce
-	case "off":
+	case "", "off":
 		return suppressionOff
 	case "shadow":
 		return suppressionShadow
-	default:
-		log.Printf("VENDOR_STRUCTURAL_SUPPRESSION=%q unrecognized; defaulting to enforce (valid: off, shadow, enforce)", raw)
+	case "enforce":
 		return suppressionEnforce
+	default:
+		log.Printf("VENDOR_STRUCTURAL_SUPPRESSION=%q unrecognized; defaulting to off (valid: off, shadow, enforce)", raw)
+		return suppressionOff
 	}
 }
 

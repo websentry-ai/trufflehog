@@ -183,10 +183,9 @@ func TestScanKeepsSlashSecretNearKeyword(t *testing.T) {
 }
 
 func TestParseVendorSuppressionMode(t *testing.T) {
-	require.Equal(t, suppressionEnforce, parseVendorSuppressionMode(""))
-	require.Equal(t, suppressionEnforce, parseVendorSuppressionMode("nonsense"))
+	require.Equal(t, suppressionOff, parseVendorSuppressionMode(""))
 	require.Equal(t, suppressionOff, parseVendorSuppressionMode("off"))
-	require.Equal(t, suppressionOff, parseVendorSuppressionMode(" OFF "))
+	require.Equal(t, suppressionOff, parseVendorSuppressionMode("nonsense"))
 	require.Equal(t, suppressionShadow, parseVendorSuppressionMode("shadow"))
 	require.Equal(t, suppressionEnforce, parseVendorSuppressionMode(" ENFORCE "))
 }
