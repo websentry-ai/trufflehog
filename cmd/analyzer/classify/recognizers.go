@@ -45,6 +45,7 @@ var (
 	maskPat       = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
 	stripeObjPat  = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
 	secretCharPat = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
+	codeNoisePat  = regexp.MustCompile(`[\s\\]`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -111,3 +112,5 @@ func IsHex32(s string) bool { return hex32Pat.MatchString(s) }
 func IsUUIDish(s string) bool { return uuidishPat.MatchString(s) }
 
 func IsSecretAlphabet(s string) bool { return secretCharPat.MatchString(s) }
+
+func ContainsWhitespaceOrBackslash(s string) bool { return codeNoisePat.MatchString(s) }
