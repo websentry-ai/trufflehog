@@ -53,6 +53,12 @@ var (
 		Help:      "FP-gate suppression decisions, labelled by reason, detector, and mode (shadow counts would-be suppressions).",
 	}, []string{"reason", "detector", "mode"})
 
+	vendorFindingsEvaluatedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "vendor_findings_evaluated_total",
+		Help:      "Curated-vendor findings evaluated by the structural gate, labelled by detector and mode (denominator for vendor suppression rate).",
+	}, []string{"detector", "mode"})
+
 	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: metricsNamespace,
 		Name:      "http_requests_total",

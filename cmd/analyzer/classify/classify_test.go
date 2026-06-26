@@ -39,6 +39,17 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "mixed-case-2seg-trailing-slash-not-excluded", "aB3xKp9Q/m2Lr7TzWqDv/", false},
 		{IsSecretAlphabet, "secret-charset", "aB3=._-+/~@", true},
 		{IsSecretAlphabet, "secret-charset-space", "aB3 x", false},
+		{IsUUIDish, "uuid-canonical", "a1d976ec-a095-46eb-a163-2256ab8c9def", true},
+		{IsUUIDish, "uuid-truncated-trailing-dash", "a1d976ec-a095-46eb-a163-", true},
+		{IsUUIDish, "uuid-four-groups-no-dash", "a1d976ec-a095-46eb-a163", false},
+		{IsUUIDish, "jira-opaque-token-not-uuid", "n27p22cchdt2k3kxabcd1234", false},
+		{IsUUIDish, "atatt-token-not-uuid", "ATATT3xFfGF0abcdefghij=A", false},
+		{IsUUIDish, "hex-but-wrong-layout", "a1d976eca09546eba1632256", false},
+		{ContainsWhitespaceOrBackslash, "backslash-escape", "sameShapeToken(i))\\n\\t}\\n\\treturn", true},
+		{ContainsWhitespaceOrBackslash, "space", "map[string]string{ continue }", true},
+		{ContainsWhitespaceOrBackslash, "punctuation-only-no-whitespace", "customdetectors.GenericSecretName,", false},
+		{ContainsWhitespaceOrBackslash, "azure-v1-punctuation-secret", "Abc@def*ghi;jkl:mno[pqr]stu^vwx1", false},
+		{ContainsWhitespaceOrBackslash, "base64-secret", "YWxhZGRpbg/c2VzYW1l", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

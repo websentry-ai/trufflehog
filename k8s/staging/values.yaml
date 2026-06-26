@@ -40,5 +40,8 @@ env:
     value: "true"
   - name: FP_SUPPRESSION_MODE
     value: "enforce"
+  - name: VENDOR_STRUCTURAL_SUPPRESSION
+    value: "enforce"
+    
 # Staging: retire old ReplicaSets quickly.
 revisionHistoryLimit: 2
