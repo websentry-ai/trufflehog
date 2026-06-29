@@ -235,6 +235,20 @@ func TestEntropyProximity_Negative_HashDigestNearLabel(t *testing.T) {
 	}
 }
 
+func TestEntropyProximity_Positive_HexKeyNotSuppressedByDistantHashWord(t *testing.T) {
+	key := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7"
+	input := "api_key=" + key + " verify the checksum value below"
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	var found bool
+	for _, r := range results {
+		if string(r.Raw) == key {
+			found = true
+		}
+	}
+	require.True(t, found,
+		"a hex API key assigned to api_key must not be suppressed by a non-adjacent hash word")
+}
+
 func TestEntropyProximity_Positive_IdentPrefixSelfKeyword(t *testing.T) {
 	input := `API_KEY=aB3xKp9Qm2Lr7TzWqDv`
 	data := []byte(input)

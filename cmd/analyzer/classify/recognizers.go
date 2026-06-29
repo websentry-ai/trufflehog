@@ -51,7 +51,7 @@ var (
 	oktaIDPat       = regexp.MustCompile(`^00[a-z][a-zA-Z0-9]{17}$`)
 	aiObjectIDPat   = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_]*)\s*=`)
+	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 )
 
@@ -172,6 +172,9 @@ var connBenignKeys = map[string]bool{
 
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
+		return false
+	}
+	if !strings.Contains(v, "://") {
 		return false
 	}
 	if strings.Contains(v, "@") {

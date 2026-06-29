@@ -96,7 +96,11 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsNonSecretConnString, "jdbc-password-key-kept", "jdbc:sqlserver://localhost:1;password=hunter2", false},
 		{IsNonSecretConnString, "jdbc-token-key-kept", "jdbc:mysql://localhost/db?accessToken=Ab3xKp9Q", false},
 		{IsNonSecretConnString, "jdbc-userinfo-password-kept", "jdbc:postgresql://app:s3cretP4ss@localhost:5432", false},
-		{IsNonSecretConnString, "jdbc-oracle-userinfo-slash-kept", "jdbc:oracle:thin:scott/tiger@localhost:1521:db", false},
+		{IsNonSecretConnString, "jdbc-oracle-userinfo-at-kept", "jdbc:oracle:thin:scott/tiger@localhost:1521:db", false},
+		{IsNonSecretConnString, "jdbc-oracle-positional-slash-kept", "jdbc:oracle:thin:scott/tiger/localhost:1521/db", false},
+		{IsNonSecretConnString, "jdbc-no-url-scheme-kept", "jdbc:sqlite:/var/data/app.db", false},
+		{IsNonSecretConnString, "jdbc-hyphen-cred-key-kept", "jdbc:mysql://db.prod/app?api-key=sk_live_xxx&encrypt=true", false},
+		{IsNonSecretConnString, "jdbc-dotted-unknown-key-kept", "jdbc:oracle:thin://h/db?oracle.net.authentication=x", false},
 		{IsNonSecretConnString, "bare-password-not-connstring-kept", "hunter2", false},
 	}
 	for _, c := range cases {
