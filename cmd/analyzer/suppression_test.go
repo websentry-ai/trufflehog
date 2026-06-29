@@ -208,7 +208,9 @@ func TestDecideVendorSuppression(t *testing.T) {
 		{"azure dotted selector no comma", "Azure", "customdetectors.GenericSecretName", true, reasonVendorStructuralCode},
 		{"non-curated vendor kept", "Github", "a1d976ec-a095-46eb-a163-", false, ""},
 		{"jdbc localhost no creds", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
-		{"jdbc embedded password kept", "JDBC", "jdbc:sqlserver://h:1;password=hunter2", false, ""},
+		{"jdbc localhost embedded password kept", "JDBC", "jdbc:sqlserver://localhost:1;password=hunter2", false, ""},
+		{"jdbc remote host kept", "JDBC", "jdbc:sqlserver://db.prod:1433;databaseName=app", false, ""},
+		{"jdbc bare captured password kept", "JDBC", "hunter2", false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

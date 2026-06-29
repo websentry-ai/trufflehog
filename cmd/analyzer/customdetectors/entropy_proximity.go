@@ -132,9 +132,9 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) []string {
 		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range keywordStems {
 			if strings.Contains(neighbor, stem) {
-				if _, ok := seen[neighbor]; !ok {
-					seen[neighbor] = struct{}{}
-					words = append(words, neighbor)
+				if _, ok := seen[stem]; !ok {
+					seen[stem] = struct{}{}
+					words = append(words, stem)
 				}
 				break
 			}

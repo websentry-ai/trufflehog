@@ -28,31 +28,32 @@ var envRefPatternStrings = []string{
 }
 
 var (
-	uuidPat        = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
-	hexHashPat     = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
-	hex32Pat       = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
-	uuidishPat     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{0,12}$`)
-	decimalPat     = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
-	hostPathPat    = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
-	urlPathPat     = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
-	relPathPat     = regexp.MustCompile(`^(?:[A-Za-z0-9._~%@-]+/)+[A-Za-z0-9._~%@-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$|^(?:[a-z0-9._-]+/){2,}$`)
-	npmScopedPat   = regexp.MustCompile(`^@[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`)
-	urlishPat      = regexp.MustCompile(`^//|://`)
-	orgIDPat       = regexp.MustCompile(`^org-[A-Za-z0-9]+$`)
-	datetimePat    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}`)
-	datePrefixPat  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}(?::\d{2}){0,2})?$`)
-	schemePat      = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
-	maskPat        = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
-	stripeObjPat   = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
-	secretCharPat  = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
-	codeDelimPat   = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
-	filenamePat    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$`)
-	oktaIDPat      = regexp.MustCompile(`^00[a-z][a-zA-Z0-9]{17}$`)
-	aiToolIDPat    = regexp.MustCompile(`^toolu_[A-Za-z0-9]{16,}$`)
-	snakeIdentPat  = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connPwdPat     = regexp.MustCompile(`(?i)(?:password|pwd)\s*=`)
-	connUserPwd    = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
-	dottedIdentPat = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	uuidPat         = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
+	hexHashPat      = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
+	hex32Pat        = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	uuidishPat      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{0,12}$`)
+	decimalPat      = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
+	hostPathPat     = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
+	urlPathPat      = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
+	relPathPat      = regexp.MustCompile(`^(?:[A-Za-z0-9._~%@-]+/)+[A-Za-z0-9._~%@-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$|^(?:[a-z0-9._-]+/){2,}$`)
+	npmScopedPat    = regexp.MustCompile(`^@[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`)
+	urlishPat       = regexp.MustCompile(`^//|://`)
+	orgIDPat        = regexp.MustCompile(`^org-[A-Za-z0-9]+$`)
+	datetimePat     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}`)
+	datePrefixPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}(?::\d{2}){0,2})?$`)
+	schemePat       = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
+	maskPat         = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
+	stripeObjPat    = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
+	secretCharPat   = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
+	codeDelimPat    = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
+	filenamePat     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$`)
+	oktaIDPat       = regexp.MustCompile(`^00[a-z][a-zA-Z0-9]{17}$`)
+	aiToolIDPat     = regexp.MustCompile(`^toolu_[A-Za-z0-9]{16,}$`)
+	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
+	connLoopbackPat = regexp.MustCompile(`(?i)(?://|@)(?:localhost|127\.0\.0\.1|\[::1\])(?:[:/]|$)`)
+	connCredPat     = regexp.MustCompile(`(?i)password|passwd|pwd|pass|secret|token|credential|auth|apikey|accesskey|signature`)
+	connUserPwd     = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
+	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -118,8 +119,14 @@ func IsSnakeCaseIdentifier(v string) bool {
 	return false
 }
 
-func IsCredentialFreeConnString(v string) bool {
-	return !connPwdPat.MatchString(v) && !connUserPwd.MatchString(v)
+func IsNonSecretLocalConnString(v string) bool {
+	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
+		return false
+	}
+	if !connLoopbackPat.MatchString(v) {
+		return false
+	}
+	return !connCredPat.MatchString(v) && !connUserPwd.MatchString(v)
 }
 
 func IsCodeLike(v string) bool {

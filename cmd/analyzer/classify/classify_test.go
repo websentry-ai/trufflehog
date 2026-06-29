@@ -65,9 +65,14 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "snake-ident-no-digit-passphrase-kept", "correct_horse_battery_staple", false},
 		{IsExcludedEntropyValue, "snake-ident-two-seg-kept", "secret_v2", false},
 		{IsExcludedEntropyValue, "mixed-case-secret-kept", "aB3xKp9Qm2Lr7TzWqDv", false},
-		{IsCredentialFreeConnString, "jdbc-localhost-no-cred", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true},
-		{IsCredentialFreeConnString, "jdbc-embedded-password-kept", "jdbc:sqlserver://h:1;password=hunter2", false},
-		{IsCredentialFreeConnString, "uri-userinfo-password-kept", "postgres://app:s3cretP4ss@db.prod:5432", false},
+		{IsNonSecretLocalConnString, "jdbc-localhost-no-cred", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true},
+		{IsNonSecretLocalConnString, "jdbc-loopback-ip-no-cred", "jdbc:postgresql://127.0.0.1:5432/app", true},
+		{IsNonSecretLocalConnString, "jdbc-localhost-embedded-password-kept", "jdbc:sqlserver://localhost:1;password=hunter2", false},
+		{IsNonSecretLocalConnString, "jdbc-localhost-accesstoken-kept", "jdbc:mysql://localhost/db?accessToken=Ab3xKp9Q", false},
+		{IsNonSecretLocalConnString, "jdbc-localhost-pass-param-kept", "jdbc:mysql://localhost/db?pass=Ab3xKp9Q", false},
+		{IsNonSecretLocalConnString, "jdbc-remote-host-kept", "jdbc:sqlserver://db.prod:1433;databaseName=app", false},
+		{IsNonSecretLocalConnString, "bare-password-not-connstring-kept", "hunter2", false},
+		{IsNonSecretLocalConnString, "uri-userinfo-password-kept", "postgres://app:s3cretP4ss@localhost:5432", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
