@@ -65,14 +65,14 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "snake-ident-no-digit-passphrase-kept", "correct_horse_battery_staple", false},
 		{IsExcludedEntropyValue, "snake-ident-two-seg-kept", "secret_v2", false},
 		{IsExcludedEntropyValue, "mixed-case-secret-kept", "aB3xKp9Qm2Lr7TzWqDv", false},
-		{IsNonSecretLocalConnString, "jdbc-localhost-no-cred", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true},
-		{IsNonSecretLocalConnString, "jdbc-loopback-ip-no-cred", "jdbc:postgresql://127.0.0.1:5432/app", true},
-		{IsNonSecretLocalConnString, "jdbc-localhost-embedded-password-kept", "jdbc:sqlserver://localhost:1;password=hunter2", false},
-		{IsNonSecretLocalConnString, "jdbc-localhost-accesstoken-kept", "jdbc:mysql://localhost/db?accessToken=Ab3xKp9Q", false},
-		{IsNonSecretLocalConnString, "jdbc-localhost-pass-param-kept", "jdbc:mysql://localhost/db?pass=Ab3xKp9Q", false},
-		{IsNonSecretLocalConnString, "jdbc-remote-host-kept", "jdbc:sqlserver://db.prod:1433;databaseName=app", false},
-		{IsNonSecretLocalConnString, "bare-password-not-connstring-kept", "hunter2", false},
-		{IsNonSecretLocalConnString, "uri-userinfo-password-kept", "postgres://app:s3cretP4ss@localhost:5432", false},
+		{IsNonSecretConnString, "jdbc-no-cred-localhost", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true},
+		{IsNonSecretConnString, "jdbc-no-cred-internal-host", "jdbc:sqlserver://aao-st-elydb.io.thehut.local;databaseName=Hounds;applicationName=Hounds;encrypt=true;trustServerCertificate=true", true},
+		{IsNonSecretConnString, "jdbc-embedded-password-kept", "jdbc:sqlserver://db.prod:1;password=hunter2", false},
+		{IsNonSecretConnString, "jdbc-accesstoken-kept", "jdbc:mysql://db.prod/db?accessToken=Ab3xKp9Q", false},
+		{IsNonSecretConnString, "jdbc-pass-param-kept", "jdbc:mysql://db.prod/db?pass=Ab3xKp9Q", false},
+		{IsNonSecretConnString, "jdbc-exotic-key-highentropy-value-kept", "jdbc:mysql://db.prod/db?x=AKIANZHP27R2JXHL67Q7AbCd", false},
+		{IsNonSecretConnString, "jdbc-userinfo-password-kept", "jdbc:postgresql://app:s3cretP4ss@db.prod:5432", false},
+		{IsNonSecretConnString, "bare-password-not-connstring-kept", "hunter2", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

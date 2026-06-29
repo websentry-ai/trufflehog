@@ -207,9 +207,10 @@ func TestDecideVendorSuppression(t *testing.T) {
 		{"azure dotted code identifier", "Azure", "customdetectors.GenericSecretName,", true, reasonVendorStructuralCode},
 		{"azure dotted selector no comma", "Azure", "customdetectors.GenericSecretName", true, reasonVendorStructuralCode},
 		{"non-curated vendor kept", "Github", "a1d976ec-a095-46eb-a163-", false, ""},
-		{"jdbc localhost no creds", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
-		{"jdbc localhost embedded password kept", "JDBC", "jdbc:sqlserver://localhost:1;password=hunter2", false, ""},
-		{"jdbc remote host kept", "JDBC", "jdbc:sqlserver://db.prod:1433;databaseName=app", false, ""},
+		{"jdbc no creds suppressed", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
+		{"jdbc internal host no creds suppressed", "JDBC", "jdbc:sqlserver://aao-st-elydb.io.thehut.local;databaseName=Hounds;applicationName=Hounds;encrypt=true;trustServerCertificate=true", true, reasonVendorStructuralConnString},
+		{"jdbc embedded password kept", "JDBC", "jdbc:sqlserver://db.prod:1;password=hunter2", false, ""},
+		{"jdbc exotic-key high-entropy value kept", "JDBC", "jdbc:mysql://db.prod/db?x=AKIANZHP27R2JXHL67Q7AbCd", false, ""},
 		{"jdbc bare captured password kept", "JDBC", "hunter2", false, ""},
 	}
 	for _, tc := range cases {

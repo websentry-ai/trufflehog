@@ -17,7 +17,7 @@ var vendorStructuralRules = map[string]vendorRule{
 	"JiraToken": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
 	"Atlassian": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
 	"Azure":     {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
-	"JDBC":      {match: classify.IsNonSecretLocalConnString, reason: reasonVendorStructuralConnString},
+	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 }
 
 func isCuratedVendor(entity string) bool {
