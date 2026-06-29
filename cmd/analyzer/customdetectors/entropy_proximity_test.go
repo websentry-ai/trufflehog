@@ -225,6 +225,16 @@ func TestEntropyProximity_Positive_LongHexCLIKey(t *testing.T) {
 		"96-char hex key after --api-key must be detected; got: %v", entropyRawStrings(results))
 }
 
+func TestEntropyProximity_Negative_HashDigestNearLabel(t *testing.T) {
+	digest := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1a3f9c1e8b2d47f6093a1c5e2"
+	input := "the signing key sha384: " + digest + " (digest)"
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	for _, r := range results {
+		require.NotEqual(t, digest, string(r.Raw),
+			"a pure-hex digest adjacent to a hash label must be suppressed, not flagged")
+	}
+}
+
 func TestEntropyProximity_Positive_IdentPrefixSelfKeyword(t *testing.T) {
 	input := `API_KEY=aB3xKp9Qm2Lr7TzWqDv`
 	data := []byte(input)

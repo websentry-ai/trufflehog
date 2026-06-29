@@ -18,10 +18,10 @@ const EntropyName = "entropy-secret"
 const DefaultEntropyThreshold = 3.0
 
 const (
-	entropyMinLen           = 16
-	entropyMaxLen           = 128
-	entropyWindow           = 5
-	entropyCancelStride     = 64
+	entropyMinLen       = 16
+	entropyMaxLen       = 128
+	entropyWindow       = 5
+	entropyCancelStride = 64
 )
 
 var keywordStems = classify.KeywordStems()
@@ -98,6 +98,9 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if len(words) == 0 {
 			continue
 		}
+		if isHexString(v) && nearHashLabel(tokens, i) {
+			continue
+		}
 
 		results = append(results, detectors.Result{
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
@@ -141,6 +144,48 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) []string {
 		}
 	}
 	return words
+}
+
+var hashLabelStems = []string{
+	"md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3",
+	"blake2", "blake3", "ripemd", "crc32", "digest", "checksum",
+	"etag", "integrity", "fingerprint",
+}
+
+func isHexString(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func nearHashLabel(tokens []tokenizer.Token, idx int) bool {
+	lo := idx - 2
+	if lo < 0 {
+		lo = 0
+	}
+	hi := idx + 2
+	if hi >= len(tokens) {
+		hi = len(tokens) - 1
+	}
+	for j := lo; j <= hi; j++ {
+		if j == idx {
+			continue
+		}
+		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
+		for _, stem := range hashLabelStems {
+			if strings.Contains(neighbor, stem) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasLetterAndDigit(s string) bool {

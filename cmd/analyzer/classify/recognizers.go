@@ -130,7 +130,7 @@ func IsWordyIdentifier(v string) bool {
 			run = 0
 		}
 	}
-	if digits == 0 || letters < 10 {
+	if digits == 0 || letters < 18 {
 		return false
 	}
 	if digits*4 > letters {

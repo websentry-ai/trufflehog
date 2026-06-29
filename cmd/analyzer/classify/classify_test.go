@@ -66,6 +66,8 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "random-secret-long-consonant-run-kept", "rtcYDmAEwtsYXT7O5H5rtcReJ5SPCjdlqFF5yD", false},
 		{IsExcludedEntropyValue, "digit-free-passphrase-kept", "CorrectHorseBatteryStaple", false},
 		{IsExcludedEntropyValue, "digit-free-identifier-kept", "getUserAuthTokenById", false},
+		{IsExcludedEntropyValue, "short-pronounceable-password-kept", "Vobat3Limuk", false},
+		{IsExcludedEntropyValue, "short-pronounceable-password-kept-2", "Reki8Fugo2Mab", false},
 		{IsExcludedEntropyValue, "filename-sql", "0004_hardening.sql", true},
 		{IsExcludedEntropyValue, "filename-yaml", "application-prod.yaml", true},
 		{IsExcludedEntropyValue, "okta-group-id", "00g1llyjisuNcGj420x8", true},
