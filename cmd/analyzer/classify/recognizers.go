@@ -48,7 +48,7 @@ var (
 	codeDelimPat   = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
 	filenamePat    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$`)
 	oktaIDPat      = regexp.MustCompile(`^00[a-z][a-zA-Z0-9]{17}$`)
-	aiToolIDPat    = regexp.MustCompile(`^toolu_[A-Za-z0-9]{16,}$`)
+	aiObjectIDPat  = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
 	snakeIdentPat  = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connCredKeyPat = regexp.MustCompile(`(?i)password|passwd|pwd|pass|secret|token|credential|auth|api[-_]?key|access[-_]?key|account[-_]?key|shared[-_]?access|private[-_]?key|signature|sig|sas`)
 	connUserPwd    = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
@@ -84,7 +84,7 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"mask", maskPat},
 	{"filename", filenamePat},
 	{"okta_id", oktaIDPat},
-	{"ai_tool_id", aiToolIDPat},
+	{"ai_object_id", aiObjectIDPat},
 }
 
 func MaskPatterns() []string { return copyOf(maskPatternStrings) }
