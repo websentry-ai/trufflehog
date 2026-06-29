@@ -106,7 +106,42 @@ func IsExcludedEntropyValue(v string) bool {
 			return true
 		}
 	}
-	return IsSnakeCaseIdentifier(v) || strings.Contains(v, "..")
+	return IsSnakeCaseIdentifier(v) || IsWordyIdentifier(v) || strings.Contains(v, "..")
+}
+
+func IsWordyIdentifier(v string) bool {
+	var letters, vowels, digits, run, maxRun int
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		switch {
+		case c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' ||
+			c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U':
+			letters++
+			vowels++
+			run = 0
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
+			letters++
+			run++
+			if run > maxRun {
+				maxRun = run
+			}
+		case c >= '0' && c <= '9':
+			digits++
+			run = 0
+		default:
+			run = 0
+		}
+	}
+	if digits == 0 || letters < 10 {
+		return false
+	}
+	if digits*4 > letters {
+		return false
+	}
+	if maxRun > 4 {
+		return false
+	}
+	return vowels*10 >= letters*3
 }
 
 func IsSnakeCaseIdentifier(v string) bool {
