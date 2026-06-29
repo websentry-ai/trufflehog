@@ -47,6 +47,7 @@ var (
 	secretCharPat       = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
 	codeDelimPat        = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
 	filenamePat         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$`)
+	lowerPathPat        = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
 	oktaIDPat           = regexp.MustCompile(`^00[a-z][a-zA-Z0-9]{17}$`)
 	aiObjectIDPat       = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
 	snakeIdentPat       = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
@@ -84,6 +85,7 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"scheme", schemePat},
 	{"mask", maskPat},
 	{"filename", filenamePat},
+	{"lower_path", lowerPathPat},
 	{"okta_id", oktaIDPat},
 	{"ai_object_id", aiObjectIDPat},
 }
@@ -104,7 +106,7 @@ func IsExcludedEntropyValue(v string) bool {
 			return true
 		}
 	}
-	return IsSnakeCaseIdentifier(v)
+	return IsSnakeCaseIdentifier(v) || strings.Contains(v, "..")
 }
 
 func IsSnakeCaseIdentifier(v string) bool {
