@@ -207,11 +207,11 @@ func TestDecideVendorSuppression(t *testing.T) {
 		{"azure dotted code identifier", "Azure", "customdetectors.GenericSecretName,", true, reasonVendorStructuralCode},
 		{"azure dotted selector no comma", "Azure", "customdetectors.GenericSecretName", true, reasonVendorStructuralCode},
 		{"non-curated vendor kept", "Github", "a1d976ec-a095-46eb-a163-", false, ""},
-		{"jdbc localhost no creds suppressed", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
-		{"jdbc internal host no creds suppressed", "JDBC", "jdbc:sqlserver://aao-st-elydb.io.thehut.local;databaseName=Hounds;applicationName=Hounds;encrypt=true;trustServerCertificate=true", true, reasonVendorStructuralConnString},
-		{"jdbc public host no creds kept", "JDBC", "jdbc:sqlserver://db.prod.example.com:1433;databaseName=app", false, ""},
-		{"jdbc public host short exotic secret kept", "JDBC", "jdbc:mysql://db.prod/db?x=aB3xKp9Qm2Lr7", false, ""},
-		{"jdbc internal embedded password kept", "JDBC", "jdbc:sqlserver://localhost:1;password=hunter2", false, ""},
+		{"jdbc benign params suppressed", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
+		{"jdbc benign params any host suppressed", "JDBC", "jdbc:sqlserver://aao-st-elydb.io.thehut.local;databaseName=Hounds;applicationName=Hounds;encrypt=true;trustServerCertificate=true", true, reasonVendorStructuralConnString},
+		{"jdbc unknown key kept", "JDBC", "jdbc:mysql://db.internal:3306/app?x=Abcd1234", false, ""},
+		{"jdbc password key kept", "JDBC", "jdbc:sqlserver://localhost:1;password=hunter2", false, ""},
+		{"jdbc userinfo kept", "JDBC", "jdbc:postgresql://app:s3cretP4ss@db.prod:5432", false, ""},
 		{"jdbc bare captured password kept", "JDBC", "hunter2", false, ""},
 	}
 	for _, tc := range cases {
