@@ -204,8 +204,11 @@ func TestDecideVendorSuppression(t *testing.T) {
 		{"azure code fragment with backslash", "Azure", "sameShapeToken(i))\\n\\t}\\n\\treturn", true, reasonVendorStructuralCode},
 		{"azure code fragment with space", "Azure", "map[string]string{ continue }", true, reasonVendorStructuralCode},
 		{"azure v1 punctuation secret kept", "Azure", "Abc@def*ghi;jkl:mno[pqr]stu^vwx1", false, ""},
-		{"azure punctuation-only fragment kept", "Azure", "customdetectors.GenericSecretName,", false, ""},
+		{"azure dotted code identifier", "Azure", "customdetectors.GenericSecretName,", true, reasonVendorStructuralCode},
+		{"azure dotted selector no comma", "Azure", "customdetectors.GenericSecretName", true, reasonVendorStructuralCode},
 		{"non-curated vendor kept", "Github", "a1d976ec-a095-46eb-a163-", false, ""},
+		{"jdbc localhost no creds", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
+		{"jdbc embedded password kept", "JDBC", "jdbc:sqlserver://h:1;password=hunter2", false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

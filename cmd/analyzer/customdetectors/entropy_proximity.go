@@ -94,7 +94,8 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if classify.IsKnownFalsePositive(v) {
 			continue
 		}
-		if !hasNearbyKeyword(tokens, i) {
+		words := nearbyKeywords(tokens, i)
+		if len(words) == 0 {
 			continue
 		}
 
@@ -102,6 +103,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
 			DetectorName: EntropyName,
 			Raw:          []byte(v),
+			ExtraData:    map[string]string{"support_words": strings.Join(words, ",")},
 		})
 	}
 
@@ -109,6 +111,10 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 }
 
 func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
+	return len(nearbyKeywords(tokens, idx)) > 0
+}
+
+func nearbyKeywords(tokens []tokenizer.Token, idx int) []string {
 	lo := idx - entropyWindow
 	if lo < 0 {
 		lo = 0
@@ -117,6 +123,8 @@ func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
 	if hi >= len(tokens) {
 		hi = len(tokens) - 1
 	}
+	var words []string
+	seen := make(map[string]struct{})
 	for j := lo; j <= hi; j++ {
 		if j == idx && !tokens[j].KeywordFromIdent {
 			continue
@@ -124,11 +132,15 @@ func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
 		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range keywordStems {
 			if strings.Contains(neighbor, stem) {
-				return true
+				if _, ok := seen[neighbor]; !ok {
+					seen[neighbor] = struct{}{}
+					words = append(words, neighbor)
+				}
+				break
 			}
 		}
 	}
-	return false
+	return words
 }
 
 func hasLetterAndDigit(s string) bool {

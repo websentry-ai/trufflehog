@@ -67,6 +67,25 @@ func TestEntropyProximity_Positive_KeywordInline(t *testing.T) {
 	require.True(t, found, "expected Raw == %q; got: %v", string(want), entropyRawStrings(results))
 }
 
+func TestEntropyProximity_Positive_SupportWordsMetadata(t *testing.T) {
+	input := `rotate this secret: aB3xKp9Qm2Lr7TzWqDv`
+	want := []byte("aB3xKp9Qm2Lr7TzWqDv")
+
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	require.NotEmpty(t, results, "expected an entropy-secret finding near 'secret:'; got zero")
+
+	var found bool
+	for _, r := range results {
+		if bytes.Equal(r.Raw, want) {
+			found = true
+			require.NotNil(t, r.ExtraData, "ExtraData must carry support_words")
+			require.Contains(t, r.ExtraData["support_words"], "secret",
+				"support_words must record the nearby keyword that triggered the flag")
+		}
+	}
+	require.True(t, found, "expected Raw == %q; got: %v", string(want), entropyRawStrings(results))
+}
+
 func TestEntropyProximity_Positive_DetectorName(t *testing.T) {
 	input := `rotate this secret: aB3xKp9Qm2Lr7TzWqDv`
 	results := filterByName(runEntropyDetector(t, input), EntropyName)
