@@ -47,12 +47,11 @@ var (
 	secretCharPat   = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
 	codeDelimPat    = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
 	filenamePat     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log)$`)
+	lowerPathPat    = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
 	oktaIDPat       = regexp.MustCompile(`^00[a-z][a-zA-Z0-9]{17}$`)
-	aiToolIDPat     = regexp.MustCompile(`^toolu_[A-Za-z0-9]{16,}$`)
+	aiObjectIDPat   = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connLoopbackPat = regexp.MustCompile(`(?i)(?://|@)(?:localhost|127\.0\.0\.1|\[::1\])(?:[:/]|$)`)
-	connCredPat     = regexp.MustCompile(`(?i)password|passwd|pwd|pass|secret|token|credential|auth|apikey|accesskey|signature`)
-	connUserPwd     = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
+	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 )
 
@@ -84,8 +83,9 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"scheme", schemePat},
 	{"mask", maskPat},
 	{"filename", filenamePat},
+	{"lower_path", lowerPathPat},
 	{"okta_id", oktaIDPat},
-	{"ai_tool_id", aiToolIDPat},
+	{"ai_object_id", aiObjectIDPat},
 }
 
 func MaskPatterns() []string { return copyOf(maskPatternStrings) }
@@ -104,7 +104,42 @@ func IsExcludedEntropyValue(v string) bool {
 			return true
 		}
 	}
-	return IsSnakeCaseIdentifier(v)
+	return IsSnakeCaseIdentifier(v) || IsWordyIdentifier(v) || strings.Contains(v, "..")
+}
+
+func IsWordyIdentifier(v string) bool {
+	var letters, vowels, digits, run, maxRun int
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		switch {
+		case c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' ||
+			c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U':
+			letters++
+			vowels++
+			run = 0
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
+			letters++
+			run++
+			if run > maxRun {
+				maxRun = run
+			}
+		case c >= '0' && c <= '9':
+			digits++
+			run = 0
+		default:
+			run = 0
+		}
+	}
+	if digits == 0 || letters < 18 {
+		return false
+	}
+	if digits*4 > letters {
+		return false
+	}
+	if maxRun > 4 {
+		return false
+	}
+	return vowels*10 >= letters*3
 }
 
 func IsSnakeCaseIdentifier(v string) bool {
@@ -119,14 +154,38 @@ func IsSnakeCaseIdentifier(v string) bool {
 	return false
 }
 
-func IsNonSecretLocalConnString(v string) bool {
+var connBenignKeys = map[string]bool{
+	"databasename": true, "applicationname": true, "encrypt": true,
+	"trustservercertificate": true, "hostnameincertificate": true,
+	"integratedsecurity": true, "instancename": true, "servername": true,
+	"portnumber": true, "applicationintent": true, "multisubnetfailover": true,
+	"logintimeout": true, "connecttimeout": true, "sockettimeout": true,
+	"ssl": true, "sslmode": true, "usessl": true, "requiressl": true,
+	"verifyservercertificate": true, "tlsversion": true, "tcpkeepalive": true,
+	"servertimezone": true, "timezone": true, "characterencoding": true,
+	"charset": true, "encoding": true, "useunicode": true,
+	"autoreconnect": true, "allowpublickeyretrieval": true, "readonly": true,
+	"targetservertype": true, "currentschema": true, "schema": true,
+	"user": true, "username": true, "uid": true, "host": true, "port": true,
+	"database": true, "db": true, "protocol": true, "driver": true,
+}
+
+func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
 	}
-	if !connLoopbackPat.MatchString(v) {
+	if !strings.Contains(v, "://") {
 		return false
 	}
-	return !connCredPat.MatchString(v) && !connUserPwd.MatchString(v)
+	if strings.Contains(v, "@") {
+		return false
+	}
+	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {
+		if !connBenignKeys[strings.ToLower(m[1])] {
+			return false
+		}
+	}
+	return true
 }
 
 func IsCodeLike(v string) bool {
