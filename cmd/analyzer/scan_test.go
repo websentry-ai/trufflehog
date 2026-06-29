@@ -196,3 +196,19 @@ func TestIsObviousPlaceholder(t *testing.T) {
 		require.False(t, isObviousPlaceholder(s), "expected %q NOT to be flagged as a placeholder", s)
 	}
 }
+
+func TestExposedMetadataAllowlist(t *testing.T) {
+	require.Nil(t, exposedMetadata(nil))
+	require.Nil(t, exposedMetadata(map[string]string{}))
+	require.Nil(t, exposedMetadata(map[string]string{"support_words": ""}))
+	require.Nil(t, exposedMetadata(map[string]string{"rotation_guide": "https://example.com"}),
+		"built-in detector ExtraData must not leak into the response")
+
+	got := exposedMetadata(map[string]string{
+		"support_words":  "secret,token",
+		"rotation_guide": "https://example.com",
+		"account":        "acme",
+	})
+	require.Equal(t, map[string]string{"support_words": "secret,token"}, got,
+		"only allowlisted keys may be exposed")
+}

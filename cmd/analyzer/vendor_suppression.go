@@ -3,8 +3,9 @@ package main
 import "github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 
 const (
-	reasonVendorStructuralUUID = "vendor_structural_uuid"
-	reasonVendorStructuralCode = "vendor_structural_code"
+	reasonVendorStructuralUUID       = "vendor_structural_uuid"
+	reasonVendorStructuralCode       = "vendor_structural_code"
+	reasonVendorStructuralConnString = "vendor_structural_connstring"
 )
 
 type vendorRule struct {
@@ -15,7 +16,8 @@ type vendorRule struct {
 var vendorStructuralRules = map[string]vendorRule{
 	"JiraToken": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
 	"Atlassian": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
-	"Azure":     {match: classify.ContainsWhitespaceOrBackslash, reason: reasonVendorStructuralCode},
+	"Azure":     {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
+	"JDBC":      {match: classify.IsNonSecretLocalConnString, reason: reasonVendorStructuralConnString},
 }
 
 func isCuratedVendor(entity string) bool {
