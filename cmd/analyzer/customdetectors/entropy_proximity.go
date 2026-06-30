@@ -167,10 +167,11 @@ func isHexString(s string) bool {
 }
 
 func nearHashLabel(tokens []tokenizer.Token, idx int) bool {
-	for _, j := range []int{idx, idx - 1} {
-		if j < 0 {
-			continue
-		}
+	lo := idx - entropyWindow
+	if lo < 0 {
+		lo = 0
+	}
+	for j := lo; j <= idx; j++ {
 		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range hashLabelStems {
 			if strings.Contains(neighbor, stem) {

@@ -80,7 +80,7 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "openai-thread-id", "thread_AbC123dEf456GhI789Jk", true},
 		{IsExcludedEntropyValue, "openai-file-id", "file-9aBcDeFgHiJkLmNoPq", true},
 		{IsExcludedEntropyValue, "openai-sk-proj-secret-kept", "sk-proj-Ab3xKp9Qm2Lr7TzWqDvNc", false},
-		{IsExcludedEntropyValue, "aws-access-key-id-not-ai-prefix-kept", "AKIANZHP27R2JXHL67Q7", false},
+		{IsExcludedEntropyValue, "twentychar-uppercase-id-not-ai-prefix-kept", "AK1ANZHP27R2JXHL67Q7", false},
 		{IsExcludedEntropyValue, "long-hex-key-kept-not-treated-as-digest", repeat("a3f9c1e8b2d47f60", 6), false},
 		{IsExcludedEntropyValue, "snake-ident-with-digit", "vault_kv_secret_v2", true},
 		{IsExcludedEntropyValue, "snake-ident-no-digit-passphrase-kept", "correct_horse_battery_staple", false},
@@ -175,4 +175,116 @@ func repeat(s string, n int) string {
 		out = append(out, s...)
 	}
 	return string(out)
+}
+
+func TestStructuredIdentifierFalsePositives(t *testing.T) {
+	cases := []struct {
+		fn   func(string) bool
+		name string
+		in   string
+		want bool
+	}{
+		// composite resource identifiers (word + structural segments)
+		{IsExcludedEntropyValue, "k8s-pod-name", "ai-platform-85f44d9c8f-hxf2l", true},
+		{IsExcludedEntropyValue, "env-resource-name", "salesloft-us3-prod", true},
+		{IsExcludedEntropyValue, "cli-flag-fragment", "--i-generative-600", true},
+		// datetime-prefixed log id
+		{IsExcludedEntropyValue, "datetime-id", "2026-06-29T071742863-7a34fad0-v2", true},
+		// uuid with a short trailing suffix
+		{IsExcludedEntropyValue, "uuid-with-suffix", "1521378b-c34c-4b6a-b668-ccefe8dce535/b2l1", true},
+		// document filename
+		{IsExcludedEntropyValue, "pdf-filename", "OneTrust_ContrastV3.pdf", true},
+		// ULIDs
+		{IsExcludedEntropyValue, "ulid-canonical", "01ARZ3NDEKTSV4RRFFQ69G5FAV", true},
+		{IsExcludedEntropyValue, "ulid-noncanonical", "01J8XK3QF7M2N9P0R1S2T3U4V5", true},
+		// Okta object ids
+		{IsExcludedEntropyValue, "okta-app-id", "0oa3nnalkuvPcIl642z0", true},
+		{IsExcludedEntropyValue, "okta-factor-id", "fwf5pmzjl2OkAb912c3d", true},
+		{IsExcludedEntropyValue, "okta-authz-server-id", "aus6qqsoMxYzWvUtSr98", true},
+		// JWT header/payload (base64url that decodes to JSON)
+		{IsExcludedEntropyValue, "jwt-header", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", true},
+		{IsExcludedEntropyValue, "jwt-payload", "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ", true},
+		// padded hex digest (go.sum style)
+		{IsExcludedEntropyValue, "padded-hex-sha1", "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1=", true},
+
+		// RECALL GUARDS — must NOT be excluded
+		{IsExcludedEntropyValue, "diceware-passphrase-kept", "correct_horse_battery_staple", false},
+		{IsExcludedEntropyValue, "dash-passphrase-kept", "correct-horse-battery-staple", false},
+		{IsExcludedEntropyValue, "embedded-secret-after-prefix-kept", "prod-aB3xKp9Qm2Lr7TzWqDvNc", false},
+		{IsExcludedEntropyValue, "embedded-secret-in-path-kept", "aB3x/Kp9Q/m2Lr7TzWqDvN", false},
+		{IsExcludedEntropyValue, "jwt-signature-kept", "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV", false},
+		{IsExcludedEntropyValue, "plain-32hex-kept", "9e107d9d372bb6826bd81d3542a419d6", false},
+		{IsExcludedEntropyValue, "ulid-lowercase-secret-kept", "01arz3ndektsv4rrffq69g5fav", false},
+		// real Fastly token shape (base62) must stay flagged via vendor path
+		{ContainsNonAlphanumeric, "fastly-real-token-kept", "xY3kP9mQ2rT7wL5nA8bC4dE6fG0hJ1kM", false},
+		{ContainsNonAlphanumeric, "fastly-dashed-fp-suppressed", "-prometheus-exporter-prometheus-", true},
+	}
+	for _, c := range cases {
+		if got := c.fn(c.in); got != c.want {
+			t.Errorf("%s(%q) = %v, want %v", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestBase64EncodedTextClassifier(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		// k8s configmap base64 JSON blob chunks (iac04)
+		{"b64-json-head", "eyJyb3V0ZXMiOlt7Im1vZGVsIjoiZ3B0LTRvIiwid2VpZ2h0IjowLjZ9LHsibW9k", true},
+		{"b64-json-mid", "ZWwiOiJjbGF1ZGUtb3B1cyIsIndlaWdodCI6MC40fV0sImZhbGxiYWNrIjoiY2xh", true},
+		{"b64-json-tail", "dWRlLXNvbm5ldCJ9", true},
+		// RECALL GUARDS — random base64 secrets decode to non-printable bytes -> kept
+		{"random-b64-secret-kept", "vO7GdEdFrPo+2vrsz643CaG7gdHjbi6gaTlBst/mZq19Kp", false},
+		{"random-b64-secret-kept-2", "s4ZxwIhq7loRJF+DKJfsMiOBF73ldjUr7a5M2SJhWk73Lr", false},
+		{"basic-auth-b64-kept", "dXNlcjpwYXNzd29yZA==", false}, // user:password, printable but no JSON marker
+		{"sendgrid-like-kept", "SG.nE8knNywwT9DmLHtadE5XL.nwI05iEXn69jxFD2R", false},
+	}
+	for _, c := range cases {
+		if got := IsBase64EncodedText(c.in); got != c.want {
+			t.Errorf("IsBase64EncodedText(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCryptoAndTraceRecognizers(t *testing.T) {
+	cases := []struct {
+		name, in string
+		want     bool
+	}{
+		{"eth-address-lower", "0x71c7656ec7ab88b098defb751b7401b5f6d8976f", true},
+		{"eth-address-checksum", "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", true},
+		{"cert-serial-0x", "0x3a4b5c6d7e8f9012", true},
+		{"btc-bech32", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", true},
+		{"w3c-traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", true},
+		// recall guards
+		{"secret-with-0x-substr-kept", "key0xAb3xKp9Qm2Lr7TzWqDvNc", false},
+		{"random-secret-kept", "aB3xKp9Qm2Lr7TzWqDvNcEdFgHiJ", false},
+	}
+	for _, c := range cases {
+		if got := IsExcludedEntropyValue(c.in); got != c.want {
+			t.Errorf("IsExcludedEntropyValue(%q)=%v want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRelayGlobalIDs(t *testing.T) {
+	cases := []struct {
+		name, in string
+		want     bool
+	}{
+		{"relay-user", "VXNlcjoxMjM0NTY3ODkw", true},        // User:1234567890
+		{"relay-product", "UHJvZHVjdDo5ODc2NTQzMjEw", true}, // Product:9876543210
+		{"relay-cursor", "YXJyYXljb25uZWN0aW9uOjI1", true},  // arrayconnection:25
+		// recall guard: base64 basic-auth user:password must be KEPT
+		{"basic-auth-kept", "dXNlcjpwYXNzd29yZA==", false},       // user:password
+		{"basic-auth-kept-2", "YWRtaW46czNjcjN0UEBzcw==", false}, // admin:s3cr3tP@ss
+	}
+	for _, c := range cases {
+		if got := IsBase64EncodedText(c.in); got != c.want {
+			t.Errorf("IsBase64EncodedText(%q)=%v want %v", c.in, got, c.want)
+		}
+	}
 }

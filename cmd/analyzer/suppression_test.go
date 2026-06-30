@@ -216,7 +216,7 @@ func TestDecideVendorSuppression(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw})
+			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, nil)
 			require.Equal(t, tc.wantSup, sup)
 			require.Equal(t, tc.wantReason, reason)
 		})
@@ -250,4 +250,33 @@ func TestScanSuppressesSingleStripeObjectID(t *testing.T) {
 	require.Greater(t, len(off), 0, "the Stripe object id should be detected before suppression")
 	enforce := heuristicScanner(t, suppressionEnforce).scan(context.Background(), doc, 0.75)
 	require.Equal(t, 0, len(enforce), "a lone Stripe object id must be suppressed structurally")
+}
+
+func TestVendorDigestContextSuppression(t *testing.T) {
+	digest := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1a3f9c1e8b2d47f6093a1c5e2"
+	cases := []struct {
+		name    string
+		entity  string
+		before  string
+		raw     string
+		wantSup bool
+	}{
+		{"oci container digest", "SentryToken", "image: ghcr.io/org/app@sha256:", digest, true},
+		{"docker manifest sha512", "SentryToken", "manifest digest sha512:", digest, true},
+		{"non-curated vendor digest", "Github", "blob @sha256:", digest, true},
+		{"real token near credential kept", "SonarCloud", `property("sonar.login", "`, "cd1fcfc72e900e4fbf7c977d6782408646f2e112", false},
+		{"hex without digest label kept", "SentryToken", "Self=", digest, false},
+		{"non-hex value with digest label kept", "SentryToken", "sha256:", "NotHexTokenValue1234567890ABCDEFGH", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte(tc.before + tc.raw)
+			f := analyzeResult{EntityType: tc.entity, raw: tc.raw, Start: utf8.RuneCountInString(tc.before)}
+			sup, reason := decideVendorSuppression(f, data)
+			require.Equal(t, tc.wantSup, sup)
+			if tc.wantSup {
+				require.Equal(t, reasonVendorStructuralDigest, reason)
+			}
+		})
+	}
 }
