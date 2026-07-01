@@ -98,7 +98,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if len(words) == 0 {
 			continue
 		}
-		if isHexString(v) && nearHashLabel(tokens, i) {
+		if isHexString(v) && nearHashLabel(tokens, i, len(v)) {
 			continue
 		}
 
@@ -152,6 +152,15 @@ var hashLabelStems = []string{
 	"etag", "integrity", "fingerprint",
 }
 
+// fixedHashHexLen maps fixed-width hash stems to their hex-encoded length. When a
+// hex candidate sits near such a label but has the WRONG length (e.g. a 32-hex key
+// near "sha256"), it is not that digest and must stay scannable. Variable-length
+// stems (sha3, blake2/3, crc32, digest, checksum, etag, integrity, fingerprint)
+// are absent here and keep matching on proximity alone.
+var fixedHashHexLen = map[string]int{
+	"md5": 32, "sha1": 40, "sha224": 56, "sha256": 64, "sha384": 96, "sha512": 128, "ripemd": 40,
+}
+
 func isHexString(s string) bool {
 	if len(s) == 0 {
 		return false
@@ -166,7 +175,13 @@ func isHexString(s string) bool {
 	return true
 }
 
-func nearHashLabel(tokens []tokenizer.Token, idx int) bool {
+// nearHashLabel reports whether a hex candidate of length hexLen sits within the
+// left window of a hash label that plausibly produced it. A fixed-width stem only
+// matches when hexLen equals its digest length (so a 32-hex key near "sha256"
+// stays scannable); variable-width stems (sha3/blake/crc32/digest/etag/…) match on
+// proximity alone. All stems in the window are considered, so the correct label
+// still suppresses even when another hash line sits nearby.
+func nearHashLabel(tokens []tokenizer.Token, idx, hexLen int) bool {
 	lo := idx - entropyWindow
 	if lo < 0 {
 		lo = 0
@@ -174,7 +189,10 @@ func nearHashLabel(tokens []tokenizer.Token, idx int) bool {
 	for j := lo; j <= idx; j++ {
 		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range hashLabelStems {
-			if strings.Contains(neighbor, stem) {
+			if !strings.Contains(neighbor, stem) {
+				continue
+			}
+			if want, fixed := fixedHashHexLen[stem]; !fixed || want == hexLen {
 				return true
 			}
 		}

@@ -199,9 +199,13 @@ func TestStructuredIdentifierFalsePositives(t *testing.T) {
 		// RECALL GUARD: a mixed-case high-entropy secret ending in digits stays flagged
 		{IsExcludedEntropyValue, "secret-ending-in-digits-kept", "aB3xKp9Qm2Lr7Tz-20241022", false},
 		{IsExcludedEntropyValue, "secret-uppercase-datestamp-kept", "Kj8N2mP9xL5vR7-20240806", false},
-		// datetime-prefixed log id
-		{IsExcludedEntropyValue, "datetime-id", "2026-06-29T071742863-7a34fad0-v2", true},
+		// colon ISO timestamps are still handled by datetimePat
 		{IsExcludedEntropyValue, "iso-timestamp-z", "2026-06-29T12:30:42.322Z", true},
+		// RECALL GUARDS: timestamp-PREFIXED secrets with chunked high-entropy tails must
+		// stay scannable (datetimeIDPat removed — it could suppress these)
+		{IsExcludedEntropyValue, "ts-chunked-secret-slash-kept", "2026-06-29T0717-aB3xKp9Qm2L/Qr7TzWqDvN", false},
+		{IsExcludedEntropyValue, "ts-chunked-secret-dash-kept", "2026-06-29T07-aB3xKp9Qm2L-aB3xKp9Qm2L", false},
+		{IsExcludedEntropyValue, "ts-compound-log-id-now-kept", "2026-06-29T071742863-7a34fad0-v2", false},
 		// uuid with a short trailing suffix
 		{IsExcludedEntropyValue, "uuid-with-suffix", "1521378b-c34c-4b6a-b668-ccefe8dce535/b2l1", true},
 		// document filename
@@ -216,6 +220,8 @@ func TestStructuredIdentifierFalsePositives(t *testing.T) {
 		// JWT header/payload (base64url that decodes to JSON)
 		{IsExcludedEntropyValue, "jwt-header", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", true},
 		{IsExcludedEntropyValue, "jwt-payload", "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ", true},
+		// RECALL GUARD: base64url JSON (JWT-shaped) that embeds a long secret must stay scannable
+		{IsExcludedEntropyValue, "jwt-shaped-embeds-secret-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXcUR2TmNFZEYifQ", false},
 		// padded hex digest (go.sum style)
 		{IsExcludedEntropyValue, "padded-hex-sha1", "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1=", true},
 
@@ -244,9 +250,13 @@ func TestBase64EncodedTextClassifier(t *testing.T) {
 		in   string
 		want bool
 	}{
-		// k8s configmap base64 JSON blob chunks (iac04)
+		// k8s configmap base64 JSON blob chunks (iac04) — short config values -> suppressed
 		{"b64-complete-json-object", "eyJlbnYiOiJwcm9kIiwidGllciI6Mn0=", true},
 		{"b64-complete-json-array", "eyJyb3V0ZXMiOlt7Im1vZGVsIjoiZ3B0LTRvIn1dfQ==", true},
+		{"b64-config-json-regions", "eyJlbnYiOiJwcm9kIiwicmVnaW9uIjoidXMtZWFzdC0xIn0=", true},
+		// RECALL GUARDS: base64 of JSON that EMBEDS a long secret must stay scannable
+		{"b64-json-embeds-apikey-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXcUR2TmNFZEYifQ==", false},
+		{"b64-json-embeds-privkey-kept", "eyJwcml2YXRlX2tleSI6Ik1JSUV2UUlCQURBTkJna3Foa2lHOXcwIn0=", false},
 		{"b64-json-partial-head-kept", "eyJyb3V0ZXMiOlt7Im1vZGVsIjoiZ3B0LTRvIiwid2VpZ2h0IjowLjZ9LHsibW9k", false},
 		{"b64-json-partial-mid-kept", "ZWwiOiJjbGF1ZGUtb3B1cyIsIndlaWdodCI6MC40fV0sImZhbGxiYWNrIjoiY2xh", false},
 		// RECALL GUARDS — random base64 secrets decode to non-printable bytes -> kept

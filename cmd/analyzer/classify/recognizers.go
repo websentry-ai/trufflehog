@@ -35,7 +35,6 @@ var (
 	uuidPat         = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
 	uuidSuffixPat   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:[/_:.-][A-Za-z0-9._~%@-]{1,12})+$`)
 	ulidPat         = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
-	datetimeIDPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}[\d:.]*Z?(?:[-_/][0-9A-Za-z]{1,12})*$`)
 	modelIDPat      = regexp.MustCompile(`^[a-z]{2,}(?:[.-][a-z0-9]{1,8})*[.-](?:20\d{2}-\d{2}-\d{2}|20\d{6})$`)
 	hexLiteralPat   = regexp.MustCompile(`^0[xX][0-9a-fA-F]{8,}$`)
 	bech32Pat       = regexp.MustCompile(`^(?:bc1|tb1|bcrt1|ltc1|tltc1)[ac-hj-np-z02-9]{20,87}$`)
@@ -84,7 +83,6 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"uuid", uuidPat},
 	{"uuid_suffix", uuidSuffixPat},
 	{"ulid", ulidPat},
-	{"datetime_id", datetimeIDPat},
 	{"model_id", modelIDPat},
 	{"hex_literal", hexLiteralPat},
 	{"bech32_address", bech32Pat},
@@ -277,13 +275,18 @@ func IsJWTComponent(v string) bool {
 	if err != nil {
 		return false
 	}
-	return len(decoded) > 0 && decoded[0] == '{' && json.Valid(decoded)
+	// A standard JWT header/payload carries only short claim values. If the decoded
+	// JSON embeds a long high-entropy token, treat it as a base64-wrapped secret
+	// (not a benign JWT segment) and keep it scannable.
+	return len(decoded) > 0 && decoded[0] == '{' && json.Valid(decoded) && !hasLongToken(decoded)
 }
 
 // IsBase64EncodedText suppresses only base64 that decodes to a COMPLETE JSON
-// object/array (unambiguously structured config, never a credential). Decoded
-// "name:value" forms are intentionally NOT suppressed: they collide with
-// base64 basic-auth credentials (e.g. "user:deadbeef"), so recall wins.
+// object/array whose values are all short config data (no embedded secret).
+// Decoded "name:value" forms are intentionally NOT suppressed: they collide with
+// base64 basic-auth credentials (e.g. "user:deadbeef"). A decoded JSON containing
+// a long high-entropy token (e.g. a service-account private key or API key) is
+// also NOT suppressed, so base64-wrapped secrets stay scannable. Recall wins.
 func IsBase64EncodedText(v string) bool {
 	if len(v) < 16 {
 		return false
@@ -292,7 +295,29 @@ func IsBase64EncodedText(v string) bool {
 	if len(decoded) == 0 {
 		return false
 	}
-	return (decoded[0] == '{' || decoded[0] == '[') && json.Valid(decoded)
+	if decoded[0] != '{' && decoded[0] != '[' {
+		return false
+	}
+	return json.Valid(decoded) && !hasLongToken(decoded)
+}
+
+// hasLongToken reports whether b contains a run of >=20 secret-alphabet bytes —
+// the signature of an embedded credential (API key, hex digest, PEM body).
+func hasLongToken(b []byte) bool {
+	run := 0
+	for _, c := range b {
+		switch {
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '+' || c == '/' || c == '_' || c == '=':
+			run++
+			if run >= 20 {
+				return true
+			}
+		default:
+			run = 0
+		}
+	}
+	return false
 }
 
 func decodeBase64Best(v string) []byte {
