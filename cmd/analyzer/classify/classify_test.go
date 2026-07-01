@@ -314,28 +314,6 @@ func TestRelayGlobalIDs(t *testing.T) {
 	}
 }
 
-func TestDashedLowercasePhrase(t *testing.T) {
-	cases := []struct {
-		name, in string
-		want     bool
-	}{
-		// k8s pod/service name fragment the Fastly detector mis-fires on
-		{"fastly-pod-name-fragment", "-prometheus-exporter-prometheus-", true},
-		{"service-phrase", "auth-gateway-service", true},
-		// RECALL GUARDS — a real Fastly token (mixed case + digits) must stay flagged
-		{"real-fastly-token-kept", "TVAWji0p7uDI6OP9DyWvmV-vgoUoXIuf", false},
-		{"real-token-no-sep-kept", "xY3kP9mQ2rT7wL5nA8bC4dE6fG0hJ1kM", false},
-		{"hex-token-kept", "9e107d9d372bb6826bd81d3542a419d6", false},
-		{"single-word-kept", "prometheus", false},
-		{"digity-phrase-kept", "worker-01-abc9", false},
-	}
-	for _, c := range cases {
-		if got := IsDashedLowercasePhrase(c.in); got != c.want {
-			t.Errorf("IsDashedLowercasePhrase(%q)=%v want %v", c.in, got, c.want)
-		}
-	}
-}
-
 func TestHexIDInContext(t *testing.T) {
 	cases := []struct {
 		name, value, before string

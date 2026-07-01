@@ -145,37 +145,6 @@ func IsCompositeIdentifier(v string) bool {
 	return hasWord && hasStructural
 }
 
-// IsDashedLowercasePhrase reports whether v is a dash/underscore-joined phrase of
-// lowercase words (e.g. a Kubernetes pod/service name fragment like
-// "-prometheus-exporter-prometheus-"). Real high-entropy vendor tokens always
-// carry mixed case and digits, so an all-lowercase separated word phrase is never
-// one — this is recall-safe.
-func IsDashedLowercasePhrase(v string) bool {
-	segs := strings.FieldsFunc(v, func(r rune) bool { return r == '-' || r == '_' })
-	if len(segs) < 2 {
-		return false
-	}
-	for _, s := range segs {
-		if len(s) < 2 {
-			return false
-		}
-		vowel := false
-		for i := 0; i < len(s); i++ {
-			c := s[i]
-			if c < 'a' || c > 'z' {
-				return false
-			}
-			if c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' {
-				vowel = true
-			}
-		}
-		if !vowel {
-			return false
-		}
-	}
-	return true
-}
-
 func isIdentDelimiter(r rune) bool {
 	switch r {
 	case '-', '_', '/', '.', ':', '+':

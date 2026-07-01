@@ -298,3 +298,30 @@ func TestVendorDigestContextSuppression(t *testing.T) {
 		})
 	}
 }
+
+func TestFastlyEmbeddedSuppression(t *testing.T) {
+	tok := "-prometheus-exporter-prometheus-"
+	realTok := "TVAWji0p7uDI6OP9DyWvmV-vgoUoXIuf"
+	cases := []struct {
+		name    string
+		raw     string
+		doc     string
+		wantSup bool
+	}{
+		// mis-extracted from a longer k8s pod name -> embedded -> suppressed
+		{"embedded in pod name", tok, "future-platform fastly" + tok + "fastly-exporter-1-7cz8lbp 1/1 Running", true},
+		// RECALL: a standalone real token (whitespace / `=` bounded) must be kept
+		{"standalone token kept", realTok, "fastly personal access value " + realTok + " here", false},
+		{"credential-assigned token kept", realTok, "fastly_token=" + realTok, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := analyzeResult{EntityType: "FastlyPersonalToken", raw: tc.raw}
+			sup, reason := decideVendorSuppression(f, []byte(tc.doc))
+			require.Equal(t, tc.wantSup, sup)
+			if tc.wantSup {
+				require.Equal(t, reasonVendorStructuralEmbedded, reason)
+			}
+		})
+	}
+}
