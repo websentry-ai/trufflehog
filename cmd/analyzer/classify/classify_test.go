@@ -191,6 +191,14 @@ func TestStructuredIdentifierFalsePositives(t *testing.T) {
 		// RECALL GUARD: a short high-entropy (upper+lower+digit) segment between words
 		// is NOT benign structure — the value must stay scannable
 		{IsExcludedEntropyValue, "composite-with-hi-entropy-short-seg-kept", "admin-Xk9f2-service-Qp7Zt", false},
+		// AI model / build identifiers ending in a release date -> excluded
+		{IsExcludedEntropyValue, "model-claude-datestamp", "claude-3-5-sonnet-20241022", true},
+		{IsExcludedEntropyValue, "model-gpt-iso-date", "gpt-4o-2024-08-06", true},
+		{IsExcludedEntropyValue, "model-claude-sonnet4", "claude-sonnet-4-20250514", true},
+		{IsExcludedEntropyValue, "model-claude-opus-date", "claude-3-opus-20240229", true},
+		// RECALL GUARD: a mixed-case high-entropy secret ending in digits stays flagged
+		{IsExcludedEntropyValue, "secret-ending-in-digits-kept", "aB3xKp9Qm2Lr7Tz-20241022", false},
+		{IsExcludedEntropyValue, "secret-uppercase-datestamp-kept", "Kj8N2mP9xL5vR7-20240806", false},
 		// datetime-prefixed log id
 		{IsExcludedEntropyValue, "datetime-id", "2026-06-29T071742863-7a34fad0-v2", true},
 		{IsExcludedEntropyValue, "iso-timestamp-z", "2026-06-29T12:30:42.322Z", true},
@@ -292,6 +300,28 @@ func TestRelayGlobalIDs(t *testing.T) {
 	for _, c := range cases {
 		if got := IsBase64EncodedText(c.in); got != c.want {
 			t.Errorf("IsBase64EncodedText(%q)=%v want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDashedLowercasePhrase(t *testing.T) {
+	cases := []struct {
+		name, in string
+		want     bool
+	}{
+		// k8s pod/service name fragment the Fastly detector mis-fires on
+		{"fastly-pod-name-fragment", "-prometheus-exporter-prometheus-", true},
+		{"service-phrase", "auth-gateway-service", true},
+		// RECALL GUARDS — a real Fastly token (mixed case + digits) must stay flagged
+		{"real-fastly-token-kept", "TVAWji0p7uDI6OP9DyWvmV-vgoUoXIuf", false},
+		{"real-token-no-sep-kept", "xY3kP9mQ2rT7wL5nA8bC4dE6fG0hJ1kM", false},
+		{"hex-token-kept", "9e107d9d372bb6826bd81d3542a419d6", false},
+		{"single-word-kept", "prometheus", false},
+		{"digity-phrase-kept", "worker-01-abc9", false},
+	}
+	for _, c := range cases {
+		if got := IsDashedLowercasePhrase(c.in); got != c.want {
+			t.Errorf("IsDashedLowercasePhrase(%q)=%v want %v", c.in, got, c.want)
 		}
 	}
 }

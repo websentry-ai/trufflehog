@@ -36,6 +36,7 @@ var (
 	uuidSuffixPat   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:[/_:.-][A-Za-z0-9._~%@-]{1,12})+$`)
 	ulidPat         = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 	datetimeIDPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}[\d:.]*Z?(?:[-_/][0-9A-Za-z]{1,12})*$`)
+	modelIDPat      = regexp.MustCompile(`^[a-z]{2,}(?:[.-][a-z0-9]{1,8})*[.-](?:20\d{2}-\d{2}-\d{2}|20\d{6})$`)
 	hexLiteralPat   = regexp.MustCompile(`^0[xX][0-9a-fA-F]{8,}$`)
 	bech32Pat       = regexp.MustCompile(`^(?:bc1|tb1|bcrt1|ltc1|tltc1)[ac-hj-np-z02-9]{20,87}$`)
 	traceparentPat  = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`)
@@ -84,6 +85,7 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"uuid_suffix", uuidSuffixPat},
 	{"ulid", ulidPat},
 	{"datetime_id", datetimeIDPat},
+	{"model_id", modelIDPat},
 	{"hex_literal", hexLiteralPat},
 	{"bech32_address", bech32Pat},
 	{"traceparent", traceparentPat},
@@ -143,6 +145,37 @@ func IsCompositeIdentifier(v string) bool {
 		}
 	}
 	return hasWord && hasStructural
+}
+
+// IsDashedLowercasePhrase reports whether v is a dash/underscore-joined phrase of
+// lowercase words (e.g. a Kubernetes pod/service name fragment like
+// "-prometheus-exporter-prometheus-"). Real high-entropy vendor tokens always
+// carry mixed case and digits, so an all-lowercase separated word phrase is never
+// one — this is recall-safe.
+func IsDashedLowercasePhrase(v string) bool {
+	segs := strings.FieldsFunc(v, func(r rune) bool { return r == '-' || r == '_' })
+	if len(segs) < 2 {
+		return false
+	}
+	for _, s := range segs {
+		if len(s) < 2 {
+			return false
+		}
+		vowel := false
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c < 'a' || c > 'z' {
+				return false
+			}
+			if c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' {
+				vowel = true
+			}
+		}
+		if !vowel {
+			return false
+		}
+	}
+	return true
 }
 
 func isIdentDelimiter(r rune) bool {

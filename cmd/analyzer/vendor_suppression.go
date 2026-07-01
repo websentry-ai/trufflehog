@@ -7,6 +7,7 @@ const (
 	reasonVendorStructuralCode       = "vendor_structural_code"
 	reasonVendorStructuralConnString = "vendor_structural_connstring"
 	reasonVendorStructuralDigest     = "vendor_structural_digest"
+	reasonVendorStructuralWordy      = "vendor_structural_wordy"
 )
 
 const digestContextWindow = 16
@@ -17,10 +18,11 @@ type vendorRule struct {
 }
 
 var vendorStructuralRules = map[string]vendorRule{
-	"JiraToken": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
-	"Atlassian": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
-	"Azure":     {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
-	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
+	"JiraToken":           {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
+	"Atlassian":           {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
+	"Azure":               {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
+	"JDBC":                {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
+	"FastlyPersonalToken": {match: classify.IsDashedLowercasePhrase, reason: reasonVendorStructuralWordy},
 }
 
 func isCuratedVendor(entity string) bool {
