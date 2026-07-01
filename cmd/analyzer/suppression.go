@@ -30,8 +30,11 @@ const (
 	reasonBulkList    = "bulk_list"
 	reasonStripeObjID = "structural_stripe_object_id"
 	reasonHexHash     = "structural_hex_hash"
+	reasonHexTraceID  = "structural_hex_trace_id"
 	reasonStructural  = "structural_nonsecret"
 )
+
+const hexIDContextWindow = 24
 
 func parseSuppressionMode(raw string) suppressionMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -167,6 +170,12 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	if classify.IsHex32(f.raw) && looksLikeChecksumRow(data, f) {
 		return true, reasonHexHash
 	}
+	if classify.IsHexIDInContext(f.raw, precedingContext(data, f, hexIDContextWindow)) {
+		return true, reasonHexTraceID
+	}
+	if isInteriorHexSegment(data, f) {
+		return true, reasonHexTraceID
+	}
 	if f.EntityType == customdetectors.GenericSecretName && classify.IsStructuralNonSecret(f.raw) {
 		return true, reasonStructural
 	}
@@ -200,6 +209,25 @@ func looksLikeChecksumRow(data []byte, f analyzeResult) bool {
 	}
 	token := rest[:end]
 	return len(token) > 0 && (bytes.IndexByte(token, '/') >= 0 || bytes.IndexByte(token, '.') >= 0)
+}
+
+// isInteriorHexSegment reports whether the finding is a pure-hex field wedged
+// between two dashes inside a dash-delimited hex chain (e.g. a W3C traceparent
+// "00-<32hex>-<16hex>-01"). A real credential is a monolithic token, never an
+// interior "-hex-" segment, so this is recall-safe.
+func isInteriorHexSegment(data []byte, f analyzeResult) bool {
+	if len(f.raw) < 16 || !classify.IsAllHex(f.raw) {
+		return false
+	}
+	start := runeToByteOffset(data, f.Start)
+	if start <= 0 {
+		return false
+	}
+	end := start + len(f.raw)
+	if end >= len(data) {
+		return false
+	}
+	return data[start-1] == '-' && data[end] == '-'
 }
 
 func runeToByteOffset(data []byte, runeIdx int) int {

@@ -34,8 +34,8 @@ const fileExtGroup = `py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|c
 var (
 	uuidPat         = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
 	uuidSuffixPat   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:[/_:.-][A-Za-z0-9._~%@-]{1,12})+$`)
-	ulidPat         = regexp.MustCompile(`^[0-7][0-9A-Z]{25}$`)
-	datetimeIDPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}`)
+	ulidPat         = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
+	datetimeIDPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}[\d:.]*Z?(?:[-_/][0-9A-Za-z]{1,12})*$`)
 	hexLiteralPat   = regexp.MustCompile(`^0[xX][0-9a-fA-F]{8,}$`)
 	bech32Pat       = regexp.MustCompile(`^(?:bc1|tb1|bcrt1|ltc1|tltc1)[ac-hj-np-z02-9]{20,87}$`)
 	traceparentPat  = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`)
@@ -136,24 +136,13 @@ func IsCompositeIdentifier(v string) bool {
 		switch {
 		case isWordSegment(s):
 			hasWord = true
-		case isAllDigits(s), len(s) <= 6, isHexSegment(s):
+		case isAllDigits(s), isShortStructuralSegment(s), isHexSegment(s):
 			hasStructural = true
 		default:
 			return false
 		}
 	}
 	return hasWord && hasStructural
-}
-
-func ContainsNonAlphanumeric(v string) bool {
-	for i := 0; i < len(v); i++ {
-		c := v[i]
-		alnum := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-		if !alnum {
-			return true
-		}
-	}
-	return false
 }
 
 func isIdentDelimiter(r rune) bool {
@@ -211,6 +200,28 @@ func isAllDigits(s string) bool {
 	return true
 }
 
+// isShortStructuralSegment treats a short (≤6 char) fragment as benign structure
+// (version/region/type markers like v2, api, us, k8s, prod) UNLESS it carries the
+// upper+lower+digit signature of a random secret chunk — those stay scannable.
+func isShortStructuralSegment(s string) bool {
+	if len(s) == 0 || len(s) > 6 {
+		return false
+	}
+	var upper, lower, digit bool
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+			upper = true
+		case c >= 'a' && c <= 'z':
+			lower = true
+		case c >= '0' && c <= '9':
+			digit = true
+		}
+	}
+	return !(upper && lower && digit)
+}
+
 func isHexSegment(s string) bool {
 	if len(s) == 0 || len(s) > 12 {
 		return false
@@ -236,28 +247,19 @@ func IsJWTComponent(v string) bool {
 	return len(decoded) > 0 && decoded[0] == '{' && json.Valid(decoded)
 }
 
-var jsonTextMarkers = []string{`{"`, `":"`, `","`, `":[`, `":{`, `"}`, `null`, `true`, `false`}
-
-var relayIDPat = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*:(?:\d+|[0-9a-fA-F]{8,}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
-
+// IsBase64EncodedText suppresses only base64 that decodes to a COMPLETE JSON
+// object/array (unambiguously structured config, never a credential). Decoded
+// "name:value" forms are intentionally NOT suppressed: they collide with
+// base64 basic-auth credentials (e.g. "user:deadbeef"), so recall wins.
 func IsBase64EncodedText(v string) bool {
 	if len(v) < 16 {
 		return false
 	}
 	decoded := decodeBase64Best(v)
-	if decoded == nil || !mostlyPrintable(decoded) {
+	if len(decoded) == 0 {
 		return false
 	}
-	s := string(decoded)
-	if relayIDPat.MatchString(s) {
-		return true
-	}
-	for _, m := range jsonTextMarkers {
-		if strings.Contains(s, m) {
-			return true
-		}
-	}
-	return false
+	return (decoded[0] == '{' || decoded[0] == '[') && json.Valid(decoded)
 }
 
 func decodeBase64Best(v string) []byte {
@@ -272,19 +274,6 @@ func decodeBase64Best(v string) []byte {
 	return nil
 }
 
-func mostlyPrintable(b []byte) bool {
-	if len(b) == 0 {
-		return false
-	}
-	printable := 0
-	for _, c := range b {
-		if c == '\t' || c == '\n' || c == '\r' || (c >= 0x20 && c <= 0x7e) {
-			printable++
-		}
-	}
-	return printable*10 >= len(b)*9
-}
-
 func IsPaddedHexDigest(v string) bool {
 	trimmed := strings.TrimRight(v, "=")
 	if trimmed == v {
@@ -293,13 +282,45 @@ func IsPaddedHexDigest(v string) bool {
 	return hexHashPat.MatchString(trimmed)
 }
 
-var hexDigestLabelPat = regexp.MustCompile(`(?i)(?:md5|sha-?(?:1|224|256|384|512)|sha3-?(?:224|256|384|512)?|blake2[bs]?|blake3|ripemd-?160)[:=-] ?$`)
+var hexDigestLabelPat = regexp.MustCompile(`(?i)(md5|sha-?1|sha-?224|sha-?256|sha-?384|sha-?512|sha3-?224|sha3-?256|sha3-?384|sha3-?512|sha3|blake2b|blake2s|blake3|ripemd-?160)[:=-] ?$`)
+
+// digestHexLen maps a normalized digest algorithm (lowercase, no dashes) to its
+// hex-encoded length. A labeled digest must be exactly this long; anything else
+// (e.g. a 32-hex key sitting next to a `sha256:` label) is NOT a real digest and
+// stays reportable.
+var digestHexLen = map[string]int{
+	"md5": 32, "sha1": 40, "sha224": 56, "sha256": 64, "sha384": 96, "sha512": 128,
+	"sha3224": 56, "sha3256": 64, "sha3384": 96, "sha3512": 128,
+	"blake2b": 128, "blake2s": 64, "blake3": 64, "ripemd160": 40,
+}
 
 func IsHexDigestInContext(value, before string) bool {
 	if len(value) < 16 || !isAllHex(value) {
 		return false
 	}
-	return hexDigestLabelPat.MatchString(before)
+	m := hexDigestLabelPat.FindStringSubmatch(before)
+	if m == nil {
+		return false
+	}
+	algo := strings.ReplaceAll(strings.ToLower(m[1]), "-", "")
+	want, known := digestHexLen[algo]
+	if !known {
+		return true // "sha3" bare has no fixed width; trust the label
+	}
+	return len(value) == want
+}
+
+var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)?|trace[_-]?id|parent[_-]?id|segment[_-]?id|correlation[_-]?id|event[_-]?id|session[_-]?id|x-?ray|x-amzn-trace(?:[_-]?id)?|build ?hash|content[_-]?hash|debug[_-]?id)[\s=:@/-]*$|(?i)(?:self|root)\s*=\s*$`)
+
+func IsHexIDInContext(value, before string) bool {
+	if len(value) < 16 || !isAllHex(value) {
+		return false
+	}
+	return hexIDLabelPat.MatchString(before)
+}
+
+func IsAllHex(s string) bool {
+	return isAllHex(s)
 }
 
 func isAllHex(s string) bool {

@@ -110,6 +110,14 @@ func TestDecideSuppression(t *testing.T) {
 		{"generic weak alpha password kept", customdetectors.GenericSecretName, "changeme", "", map[string]int{}, false, ""},
 		{"db uri not structurally suppressed", customdetectors.DBConnectionURIName, "postgres://app:s3cretP4ss@db.prod:5432/billing", "", map[string]int{}, false, ""},
 		{"entropy uuid not gated here", customdetectors.EntropyName, "a4b3b545-24ec-11f0-9f57-2256ab8c9def", "", map[string]int{}, false, ""},
+		// distributed-tracing hex IDs preceded by their label -> suppressed
+		{"span id hex suppressed", customdetectors.EntropyName, "00f067aa0ba902b7", "the api_key call shows span_id=00f067aa0ba902b7 done", map[string]int{}, true, reasonHexTraceID},
+		{"sentry event id hex suppressed", customdetectors.EntropyName, "fedcba0987654321fedcba0987654321", "event_id: fedcba0987654321fedcba0987654321", map[string]int{}, true, reasonHexTraceID},
+		// traceparent interior segment (dash-wrapped hex) -> suppressed
+		{"traceparent trace-id segment suppressed", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", map[string]int{}, true, reasonHexTraceID},
+		// RECALL GUARDS: a real hex secret under a credential label must be kept
+		{"hex api_key value kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "api_key=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
+		{"hex secret bare kept", customdetectors.EntropyName, "9e107d9d372bb6826bd81d3542a419d6", "the signing secret is 9e107d9d372bb6826bd81d3542a419d6", map[string]int{}, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,7 +261,8 @@ func TestScanSuppressesSingleStripeObjectID(t *testing.T) {
 }
 
 func TestVendorDigestContextSuppression(t *testing.T) {
-	digest := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1a3f9c1e8b2d47f6093a1c5e2"
+	digest := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1a3f9c1e8b2d47f6093a1c5e2" // 64 hex (sha256)
+	digest512 := digest + digest                                                 // 128 hex (sha512)
 	cases := []struct {
 		name    string
 		entity  string
@@ -262,8 +271,10 @@ func TestVendorDigestContextSuppression(t *testing.T) {
 		wantSup bool
 	}{
 		{"oci container digest", "SentryToken", "image: ghcr.io/org/app@sha256:", digest, true},
-		{"docker manifest sha512", "SentryToken", "manifest digest sha512:", digest, true},
+		{"docker manifest sha512", "SentryToken", "manifest digest sha512:", digest512, true},
 		{"non-curated vendor digest", "Github", "blob @sha256:", digest, true},
+		// RECALL: a 32-hex or wrong-length hex next to a digest label is NOT that digest -> kept
+		{"sha256 label wrong length kept", "SentryToken", "sha256:", "9e107d9d372bb6826bd81d3542a419d6", false},
 		{"real token near credential kept", "SonarCloud", `property("sonar.login", "`, "cd1fcfc72e900e4fbf7c977d6782408646f2e112", false},
 		{"hex without digest label kept", "SentryToken", "Self=", digest, false},
 		{"non-hex value with digest label kept", "SentryToken", "sha256:", "NotHexTokenValue1234567890ABCDEFGH", false},
