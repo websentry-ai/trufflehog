@@ -264,6 +264,11 @@ func TestBase64EncodedTextClassifier(t *testing.T) {
 		// RECALL GUARDS: base64 of JSON that EMBEDS a long secret must stay scannable
 		{"b64-json-embeds-apikey-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXcUR2TmNFZEYifQ==", false},
 		{"b64-json-embeds-privkey-kept", "eyJwcml2YXRlX2tleSI6Ik1JSUV2UUlCQURBTkJna3Foa2lHOXcwIn0=", false},
+		// RECALL GUARD: a SHORT (<20) credential-field value must also veto suppression
+		// ({"apiKey":"aB3xKp9Qm2Lr7TzW"}) — the value is only 16 chars
+		{"b64-json-short-credential-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXIn0=", false},
+		// a credential-named field with a placeholder word value is still config
+		{"b64-json-token-placeholder-suppressed", "eyJ0b2tlbiI6Im5vbmUifQ==", true},
 		{"b64-json-partial-head-kept", "eyJyb3V0ZXMiOlt7Im1vZGVsIjoiZ3B0LTRvIiwid2VpZ2h0IjowLjZ9LHsibW9k", false},
 		{"b64-json-partial-mid-kept", "ZWwiOiJjbGF1ZGUtb3B1cyIsIndlaWdodCI6MC40fV0sImZhbGxiYWNrIjoiY2xh", false},
 		// RECALL GUARDS — random base64 secrets decode to non-printable bytes -> kept

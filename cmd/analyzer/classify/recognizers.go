@@ -295,9 +295,37 @@ func IsJWTComponent(v string) bool {
 		return false
 	}
 	// A standard JWT header/payload carries only short claim values. If the decoded
-	// JSON embeds a long high-entropy token, treat it as a base64-wrapped secret
-	// (not a benign JWT segment) and keep it scannable.
-	return len(decoded) > 0 && decoded[0] == '{' && json.Valid(decoded) && !hasLongToken(decoded)
+	// JSON embeds a long high-entropy token, or a credential-named field with a
+	// secret-shaped value, treat it as a base64-wrapped secret (not a benign JWT
+	// segment) and keep it scannable.
+	return len(decoded) > 0 && decoded[0] == '{' && json.Valid(decoded) &&
+		!hasLongToken(decoded) && !jsonHasCredentialValue(decoded)
+}
+
+var jsonCredentialFieldPat = regexp.MustCompile(`(?i)"(?:api[_-]?key|apikey|secret|token|password|passwd|passphrase|credential|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|bearer)"\s*:\s*"([^"]{8,})"`)
+
+// jsonHasCredentialValue reports whether decoded JSON assigns a credential-named
+// field a secret-shaped value (mixed letters+digits, or >=16 chars). Such a value
+// vetoes base64-JSON/JWT suppression even when it is shorter than hasLongToken's
+// 20-byte run, so a wrapped credential like {"apiKey":"aB3xKp9Qm2Lr7TzW"} stays
+// scannable instead of being treated as benign config.
+func jsonHasCredentialValue(b []byte) bool {
+	for _, m := range jsonCredentialFieldPat.FindAllSubmatch(b, -1) {
+		v := m[1]
+		var letter, digit bool
+		for _, c := range v {
+			switch {
+			case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
+				letter = true
+			case c >= '0' && c <= '9':
+				digit = true
+			}
+		}
+		if (letter && digit) || len(v) >= 16 {
+			return true
+		}
+	}
+	return false
 }
 
 // IsBase64EncodedText suppresses only base64 that decodes to a COMPLETE JSON
@@ -317,7 +345,7 @@ func IsBase64EncodedText(v string) bool {
 	if decoded[0] != '{' && decoded[0] != '[' {
 		return false
 	}
-	return json.Valid(decoded) && !hasLongToken(decoded)
+	return json.Valid(decoded) && !hasLongToken(decoded) && !jsonHasCredentialValue(decoded)
 }
 
 // hasLongToken reports whether b contains a run of >=20 secret-alphabet bytes —
