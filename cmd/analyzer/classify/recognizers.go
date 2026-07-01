@@ -219,7 +219,7 @@ func isShortStructuralSegment(s string) bool {
 			digit = true
 		}
 	}
-	return !(upper && lower && digit)
+	return !upper || !lower || !digit
 }
 
 func isHexSegment(s string) bool {
