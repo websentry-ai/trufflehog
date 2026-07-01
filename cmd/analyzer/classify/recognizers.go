@@ -123,7 +123,7 @@ func IsExcludedEntropyValue(v string) bool {
 	if IsSnakeCaseIdentifier(v) || IsWordyIdentifier(v) || strings.Contains(v, "..") {
 		return true
 	}
-	return IsCompositeIdentifier(v) || IsJWTComponent(v) || IsPaddedHexDigest(v) || IsBase64EncodedText(v)
+	return IsCompositeIdentifier(v) || IsDatetimePrefixedID(v) || IsJWTComponent(v) || IsPaddedHexDigest(v) || IsBase64EncodedText(v)
 }
 
 func IsCompositeIdentifier(v string) bool {
@@ -230,6 +230,56 @@ func isHexSegment(s string) bool {
 		c := s[i]
 		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 		if !isHex {
+			return false
+		}
+	}
+	return true
+}
+
+var datetimeIDAnchorPat = regexp.MustCompile(`^\d{4}-(?:0\d|1[0-2])-(?:[0-2]\d|3[01])(?:[T ]|[-_/]|$)`)
+
+// isDatetimeIshSegment reports whether a delimiter-separated segment is benign
+// structure inside a timestamped identifier: a run of digits with optional ISO
+// markers (T/Z, e.g. "29T071742863", "0717"), a short hex chunk, or a short
+// version/type marker. A segment carrying the upper+lower+digit signature of a
+// random secret chunk (e.g. "aB3xKp9Qm2L") is NOT one, so it keeps the finding.
+func isDatetimeIshSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	onlyDigitsAndISO, hasDigit := true, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		case c == 'T' || c == 'Z':
+		default:
+			onlyDigitsAndISO = false
+		}
+	}
+	if onlyDigitsAndISO && hasDigit {
+		return true
+	}
+	return isHexSegment(s) || isShortStructuralSegment(s)
+}
+
+// IsDatetimePrefixedID reports whether v is an identifier that begins with an ISO
+// date and is composed only of structural segments — a build/log/trace id like
+// "2026-06-29T071742863-7a34fad0-v2", not a secret. It is recall-safe: if any
+// segment after the date has the high-entropy signature of a secret chunk (mixed
+// case + digits, or a long non-hex run) the value is kept, so a real secret split
+// into chunks after a timestamp (2026-06-29T0717-aB3xKp9Qm2L) still reports.
+func IsDatetimePrefixedID(v string) bool {
+	if !datetimeIDAnchorPat.MatchString(v) {
+		return false
+	}
+	segs := strings.FieldsFunc(v, isIdentDelimiter)
+	if len(segs) < 3 {
+		return false
+	}
+	for _, s := range segs {
+		if !isDatetimeIshSegment(s) {
 			return false
 		}
 	}

@@ -70,6 +70,11 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "short-pronounceable-password-kept-2", "Reki8Fugo2Mab", false},
 		{IsExcludedEntropyValue, "iso-timestamp-pure-excluded", "2026-06-29T12:30:00Z", true},
 		{IsExcludedEntropyValue, "iso-timestamp-suffixed-secret-kept", "2026-06-29T12:30:00Z-aB3xKp9Qm2Lr7Tz", false},
+		{IsExcludedEntropyValue, "datetime-prefixed-build-id", "2026-06-29T071742863-7a34fad0-v2", true},
+		{IsExcludedEntropyValue, "datetime-prefixed-dated-build", "2026-06-29-build-1a2b3c4d-prod", true},
+		{IsExcludedEntropyValue, "datetime-prefixed-chunked-secret-kept", "2026-06-29T0717-aB3xKp9Qm2L", false},
+		{IsExcludedEntropyValue, "datetime-prefixed-chunked-secret-kept-2", "2026-06-29T0717-aB3xKp9Qm2L-Qr7TzWqDvN", false},
+		{IsExcludedEntropyValue, "datetime-prefixed-long-random-tail-kept", "2026-06-29-x7f3k9m2p5q8w1z", false},
 		{IsExcludedEntropyValue, "filename-sql", "0004_hardening.sql", true},
 		{IsExcludedEntropyValue, "filename-yaml", "application-prod.yaml", true},
 		{IsExcludedEntropyValue, "okta-group-id", "00g1llyjisuNcGj420x8", true},
@@ -204,10 +209,10 @@ func TestStructuredIdentifierFalsePositives(t *testing.T) {
 		// colon ISO timestamps are still handled by datetimePat
 		{IsExcludedEntropyValue, "iso-timestamp-z", "2026-06-29T12:30:42.322Z", true},
 		// RECALL GUARDS: timestamp-PREFIXED secrets with chunked high-entropy tails must
-		// stay scannable (datetimeIDPat removed — it could suppress these)
+		// stay scannable — IsDatetimePrefixedID keeps any value with a mixed-case+digit
+		// segment (a secret chunk), only suppressing all-structural dated ids
 		{IsExcludedEntropyValue, "ts-chunked-secret-slash-kept", "2026-06-29T0717-aB3xKp9Qm2L/Qr7TzWqDvN", false},
 		{IsExcludedEntropyValue, "ts-chunked-secret-dash-kept", "2026-06-29T07-aB3xKp9Qm2L-aB3xKp9Qm2L", false},
-		{IsExcludedEntropyValue, "ts-compound-log-id-now-kept", "2026-06-29T071742863-7a34fad0-v2", false},
 		// uuid with a short trailing suffix
 		{IsExcludedEntropyValue, "uuid-with-suffix", "1521378b-c34c-4b6a-b668-ccefe8dce535/b2l1", true},
 		// document filename
