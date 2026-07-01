@@ -370,6 +370,17 @@ func IsHexDigestInContext(value, before string) bool {
 
 var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)?|trace[_-]?id|parent[_-]?id|segment[_-]?id|correlation[_-]?id|event[_-]?id|session[_-]?id|x-?ray|x-amzn-trace(?:[_-]?id)?|build ?hash|content[_-]?hash|debug[_-]?id)[\s=:@/-]*$|(?i)(?:self|root)\s*=\s*$`)
 
+var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|secret|passwd|password|token|credential|access[_-]?key|private[_-]?key|client[_-]?secret)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
+
+// IsCredentialAssignment reports whether the bytes immediately preceding a value
+// assign it to a credential-named key (e.g. "api_key=", "client_secret: ").
+// Used to veto context-based hex suppression: if any occurrence of a value is
+// assigned to a credential, it must be reported even when another occurrence sits
+// in a benign trace/digest context.
+func IsCredentialAssignment(before string) bool {
+	return credentialAssignPat.MatchString(before)
+}
+
 func IsHexIDInContext(value, before string) bool {
 	if len(value) < 16 || !isAllHex(value) {
 		return false

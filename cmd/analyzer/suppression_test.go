@@ -118,6 +118,10 @@ func TestDecideSuppression(t *testing.T) {
 		// RECALL GUARDS: a real hex secret under a credential label must be kept
 		{"hex api_key value kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "api_key=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
 		{"hex secret bare kept", customdetectors.EntropyName, "9e107d9d372bb6826bd81d3542a419d6", "the signing secret is 9e107d9d372bb6826bd81d3542a419d6", map[string]int{}, false, ""},
+		// EVASION GUARD: a benign trace-labeled duplicate earlier must NOT suppress the
+		// real credential occurrence later (offsets() anchors to the first occurrence)
+		{"crafted trace duplicate then credential kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "span_id=4bf92f3577b34da6a3ce929d0e0e4736 ... api_key=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
+		{"trace hex both occurrences benign suppressed", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "span_id=4bf92f3577b34da6a3ce929d0e0e4736 and trace 4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, true, reasonHexTraceID},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -278,6 +282,9 @@ func TestVendorDigestContextSuppression(t *testing.T) {
 		{"real token near credential kept", "SonarCloud", `property("sonar.login", "`, "cd1fcfc72e900e4fbf7c977d6782408646f2e112", false},
 		{"hex without digest label kept", "SentryToken", "Self=", digest, false},
 		{"non-hex value with digest label kept", "SentryToken", "sha256:", "NotHexTokenValue1234567890ABCDEFGH", false},
+		// EVASION GUARD: a digest-labeled duplicate earlier must not suppress a later
+		// credential-labeled occurrence of the same bytes
+		{"crafted digest duplicate then credential kept", "SentryToken", "sha256:" + digest + " api_key=", digest, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
@@ -167,13 +166,14 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	if len(f.raw) >= bulkShapeMinLen && shapes[shapeKey(f.raw)] >= bulkListMinCount {
 		return true, reasonBulkList
 	}
-	if classify.IsHex32(f.raw) && looksLikeChecksumRow(data, f) {
+	if classify.IsHex32(f.raw) && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+		return isChecksumRowAt(d, s, len(f.raw))
+	}) {
 		return true, reasonHexHash
 	}
-	if classify.IsHexIDInContext(f.raw, precedingContext(data, f, hexIDContextWindow)) {
-		return true, reasonHexTraceID
-	}
-	if isInteriorHexSegment(data, f) {
+	if classify.IsAllHex(f.raw) && len(f.raw) >= 16 && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+		return hexInTraceContextAt(d, s, f.raw)
+	}) {
 		return true, reasonHexTraceID
 	}
 	if f.EntityType == customdetectors.GenericSecretName && classify.IsStructuralNonSecret(f.raw) {
@@ -182,12 +182,44 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	return false, ""
 }
 
-func looksLikeChecksumRow(data []byte, f analyzeResult) bool {
-	start := runeToByteOffset(data, f.Start)
-	if start < 0 {
+const credentialContextWindow = 32
+
+// contextSuppressed reports whether a value should be suppressed by document
+// context: benignAt must hold at ≥1 occurrence AND no occurrence may be assigned
+// to a credential-named key. offsets() anchors a finding to the first occurrence
+// of its bytes, so scanning every occurrence prevents a crafted benign-labeled
+// duplicate from suppressing a later real "api_key=<value>" occurrence.
+func contextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
 		return false
 	}
-	off := start + len(f.raw)
+	benign := false
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		lo := pos - credentialContextWindow
+		if lo < 0 {
+			lo = 0
+		}
+		if classify.IsCredentialAssignment(string(data[lo:pos])) {
+			return false
+		}
+		if benignAt(data, pos) {
+			benign = true
+		}
+		off = pos + 1
+	}
+	return benign
+}
+
+// isChecksumRowAt reports whether the n-byte token at start is immediately
+// followed by whitespace and a filename-like token (checksum-file row).
+func isChecksumRowAt(data []byte, start, n int) bool {
+	off := start + n
 	if off > len(data) {
 		return false
 	}
@@ -211,39 +243,20 @@ func looksLikeChecksumRow(data []byte, f analyzeResult) bool {
 	return len(token) > 0 && (bytes.IndexByte(token, '/') >= 0 || bytes.IndexByte(token, '.') >= 0)
 }
 
-// isInteriorHexSegment reports whether the finding is a pure-hex field wedged
-// between two dashes inside a dash-delimited hex chain (e.g. a W3C traceparent
-// "00-<32hex>-<16hex>-01"). A real credential is a monolithic token, never an
-// interior "-hex-" segment, so this is recall-safe.
-func isInteriorHexSegment(data []byte, f analyzeResult) bool {
-	if len(f.raw) < 16 || !classify.IsAllHex(f.raw) {
-		return false
+// hexInTraceContextAt reports whether the pure-hex value at start is benign: it
+// carries a distributed-tracing/observability label (IsHexIDInContext) OR is an
+// interior "-hex-" segment of a dash-delimited hex chain (e.g. W3C traceparent).
+// A real credential is neither, so this is recall-safe.
+func hexInTraceContextAt(data []byte, start int, raw string) bool {
+	lo := start - hexIDContextWindow
+	if lo < 0 {
+		lo = 0
 	}
-	start := runeToByteOffset(data, f.Start)
-	if start <= 0 {
-		return false
+	if classify.IsHexIDInContext(raw, string(data[lo:start])) {
+		return true
 	}
-	end := start + len(f.raw)
-	if end >= len(data) {
-		return false
-	}
-	return data[start-1] == '-' && data[end] == '-'
-}
-
-func runeToByteOffset(data []byte, runeIdx int) int {
-	b, count := 0, 0
-	for b < len(data) {
-		if count == runeIdx {
-			return b
-		}
-		_, size := utf8.DecodeRune(data[b:])
-		b += size
-		count++
-	}
-	if count == runeIdx {
-		return len(data)
-	}
-	return -1
+	end := start + len(raw)
+	return start > 0 && end < len(data) && data[start-1] == '-' && data[end] == '-'
 }
 
 func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte) []analyzeResult {

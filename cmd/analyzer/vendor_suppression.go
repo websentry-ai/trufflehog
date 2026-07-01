@@ -31,7 +31,15 @@ func isCuratedVendor(entity string) bool {
 }
 
 func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
-	if classify.IsHexDigestInContext(f.raw, precedingContext(data, f, digestContextWindow)) {
+	// Require the digest label at EVERY occurrence of the value, so a crafted
+	// earlier duplicate next to a digest label cannot suppress a later real secret.
+	if contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+		lo := s - digestContextWindow
+		if lo < 0 {
+			lo = 0
+		}
+		return classify.IsHexDigestInContext(f.raw, string(d[lo:s]))
+	}) {
 		return true, reasonVendorStructuralDigest
 	}
 	rule, ok := vendorStructuralRules[f.EntityType]
@@ -42,16 +50,4 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 		return true, rule.reason
 	}
 	return false, ""
-}
-
-func precedingContext(data []byte, f analyzeResult, n int) string {
-	start := runeToByteOffset(data, f.Start)
-	if start <= 0 {
-		return ""
-	}
-	lo := start - n
-	if lo < 0 {
-		lo = 0
-	}
-	return string(data[lo:start])
 }
