@@ -67,6 +67,27 @@ func TestEntropyProximity_Positive_KeywordInline(t *testing.T) {
 	require.True(t, found, "expected Raw == %q; got: %v", string(want), entropyRawStrings(results))
 }
 
+func TestEntropyProximity_Positive_SupportWordsMetadata(t *testing.T) {
+	input := `my_app_secret_key: aB3xKp9Qm2Lr7TzWqDv`
+	want := []byte("aB3xKp9Qm2Lr7TzWqDv")
+
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	require.NotEmpty(t, results, "expected an entropy-secret finding near a credential keyword; got zero")
+
+	var found bool
+	for _, r := range results {
+		if bytes.Equal(r.Raw, want) {
+			found = true
+			require.NotNil(t, r.ExtraData, "ExtraData must carry support_words")
+			require.Equal(t, "secret", r.ExtraData["support_words"],
+				"support_words must expose only the matched credential stem, never the raw field name")
+			require.NotContains(t, r.ExtraData["support_words"], "my_app_secret_key",
+				"support_words must not echo surrounding field text into the response")
+		}
+	}
+	require.True(t, found, "expected Raw == %q; got: %v", string(want), entropyRawStrings(results))
+}
+
 func TestEntropyProximity_Positive_DetectorName(t *testing.T) {
 	input := `rotate this secret: aB3xKp9Qm2Lr7TzWqDv`
 	results := filterByName(runEntropyDetector(t, input), EntropyName)
@@ -202,6 +223,44 @@ func TestEntropyProximity_Positive_LongHexCLIKey(t *testing.T) {
 	}
 	require.True(t, found,
 		"96-char hex key after --api-key must be detected; got: %v", entropyRawStrings(results))
+}
+
+func TestEntropyProximity_Negative_HashDigestNearLabel(t *testing.T) {
+	digest := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1a3f9c1e8b2d47f6093a1c5e2"
+	input := "the signing key sha384: " + digest + " (digest)"
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	for _, r := range results {
+		require.NotEqual(t, digest, string(r.Raw),
+			"a pure-hex digest adjacent to a hash label must be suppressed, not flagged")
+	}
+}
+
+func TestEntropyProximity_Positive_WrongLengthHexNearHashLabelKept(t *testing.T) {
+	key := "9e107d9d372bb6826bd81d3542a419d6"
+	input := "the signing secret sha256 rotation used " + key
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	var found bool
+	for _, r := range results {
+		if string(r.Raw) == key {
+			found = true
+		}
+	}
+	require.True(t, found,
+		"a 32-hex key near a sha256 label (wrong digest length) must not be suppressed")
+}
+
+func TestEntropyProximity_Positive_HexKeyNotSuppressedByDistantHashWord(t *testing.T) {
+	key := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7"
+	input := "api_key=" + key + " verify the checksum value below"
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	var found bool
+	for _, r := range results {
+		if string(r.Raw) == key {
+			found = true
+		}
+	}
+	require.True(t, found,
+		"a hex API key assigned to api_key must not be suppressed by a non-adjacent hash word")
 }
 
 func TestEntropyProximity_Positive_IdentPrefixSelfKeyword(t *testing.T) {

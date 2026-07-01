@@ -61,11 +61,12 @@ type analyzeRequest struct {
 }
 
 type analyzeResult struct {
-	EntityType string  `json:"entity_type"`
-	Start      int     `json:"start"`
-	End        int     `json:"end"`
-	Score      float64 `json:"score"`
-	Source     string  `json:"source"`
+	EntityType string            `json:"entity_type"`
+	Start      int               `json:"start"`
+	End        int               `json:"end"`
+	Score      float64           `json:"score"`
+	Source     string            `json:"source"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 	raw        string
 }
 
@@ -74,6 +75,7 @@ type scanner struct {
 	detectors          int
 	genericSecretScore float64
 	mode               suppressionMode
+	vendorMode         suppressionMode
 }
 
 func liveness(w http.ResponseWriter, _ *http.Request) {
@@ -122,7 +124,7 @@ func main() {
 	if cfg.entropyProximityEnabled {
 		log.Printf("entropy-proximity detector ENABLED (threshold=%.1f, tokenizer=%q)", cfg.entropyThreshold, cfg.tokenizerName)
 	}
-	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s", s.detectors, cfg.mode)
+	log.Printf("trufflehog-analyzer ready: %d detectors, fp_suppression=%s, vendor_structural_suppression=%s", s.detectors, cfg.mode, cfg.vendorMode)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", s.analyzeHandler(apiKey))
@@ -224,6 +226,7 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 				End:        end,
 				Score:      score,
 				Source:     "trufflehog",
+				Metadata:   exposedMetadata(res.ExtraData),
 				raw:        string(res.Raw),
 			})
 		}
@@ -281,6 +284,24 @@ func entityRank(name string) int {
 	default:
 		return 0
 	}
+}
+
+var exposedMetadataKeys = []string{"support_words"}
+
+func exposedMetadata(extra map[string]string) map[string]string {
+	if len(extra) == 0 {
+		return nil
+	}
+	var out map[string]string
+	for _, k := range exposedMetadataKeys {
+		if v, ok := extra[k]; ok && v != "" {
+			if out == nil {
+				out = make(map[string]string, len(exposedMetadataKeys))
+			}
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func isGenericDetectorName(name string) bool {

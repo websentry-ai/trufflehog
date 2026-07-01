@@ -7,7 +7,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
@@ -30,8 +29,11 @@ const (
 	reasonBulkList    = "bulk_list"
 	reasonStripeObjID = "structural_stripe_object_id"
 	reasonHexHash     = "structural_hex_hash"
+	reasonHexTraceID  = "structural_hex_trace_id"
 	reasonStructural  = "structural_nonsecret"
 )
+
+const hexIDContextWindow = 24
 
 func parseSuppressionMode(raw string) suppressionMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -44,6 +46,20 @@ func parseSuppressionMode(raw string) suppressionMode {
 	default:
 		log.Printf("FP_SUPPRESSION_MODE=%q unrecognized; defaulting to enforce (valid: off, shadow, enforce)", raw)
 		return suppressionEnforce
+	}
+}
+
+func parseVendorSuppressionMode(raw string) suppressionMode {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "off":
+		return suppressionOff
+	case "shadow":
+		return suppressionShadow
+	case "enforce":
+		return suppressionEnforce
+	default:
+		log.Printf("VENDOR_STRUCTURAL_SUPPRESSION=%q unrecognized; defaulting to off (valid: off, shadow, enforce)", raw)
+		return suppressionOff
 	}
 }
 
@@ -150,8 +166,15 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	if len(f.raw) >= bulkShapeMinLen && shapes[shapeKey(f.raw)] >= bulkListMinCount {
 		return true, reasonBulkList
 	}
-	if classify.IsHex32(f.raw) && looksLikeChecksumRow(data, f) {
+	if classify.IsHex32(f.raw) && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+		return isChecksumRowAt(d, s, len(f.raw))
+	}) {
 		return true, reasonHexHash
+	}
+	if classify.IsAllHex(f.raw) && len(f.raw) >= 16 && traceContextSuppressed(data, f.raw, func(d []byte, s int) bool {
+		return hexInTraceContextAt(d, s, f.raw)
+	}) {
+		return true, reasonHexTraceID
 	}
 	if f.EntityType == customdetectors.GenericSecretName && classify.IsStructuralNonSecret(f.raw) {
 		return true, reasonStructural
@@ -159,12 +182,63 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	return false, ""
 }
 
-func looksLikeChecksumRow(data []byte, f analyzeResult) bool {
-	start := runeToByteOffset(data, f.Start)
-	if start < 0 {
+const (
+	credentialContextWindow = 32
+	credentialKeywordWindow = 16
+)
+
+func suppressByContext(data []byte, raw string, requireAll bool, benignAt func(data []byte, start int) bool) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
 		return false
 	}
-	off := start + len(f.raw)
+	anyBenign := false
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		end := pos + len(rb)
+		if (isAlnumByte(rb[0]) && pos > 0 && isAlnumByte(data[pos-1])) ||
+			(isAlnumByte(rb[len(rb)-1]) && end < len(data) && isAlnumByte(data[end])) {
+			off = pos + 1
+			continue
+		}
+		lo := pos - credentialContextWindow
+		if lo < 0 {
+			lo = 0
+		}
+		if classify.IsCredentialAssignment(string(data[lo:pos])) {
+			return false
+		}
+		klo := pos - credentialKeywordWindow
+		if klo < 0 {
+			klo = 0
+		}
+		if classify.IsCredentialContext(string(data[klo:pos])) {
+			return false
+		}
+		if benignAt(data, pos) {
+			anyBenign = true
+		} else if requireAll {
+			return false
+		}
+		off = pos + 1
+	}
+	return anyBenign
+}
+
+func contextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
+	return suppressByContext(data, raw, true, benignAt)
+}
+
+func traceContextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
+	return suppressByContext(data, raw, false, benignAt)
+}
+
+func isChecksumRowAt(data []byte, start, n int) bool {
+	off := start + n
 	if off > len(data) {
 		return false
 	}
@@ -188,56 +262,90 @@ func looksLikeChecksumRow(data []byte, f analyzeResult) bool {
 	return len(token) > 0 && (bytes.IndexByte(token, '/') >= 0 || bytes.IndexByte(token, '.') >= 0)
 }
 
-func runeToByteOffset(data []byte, runeIdx int) int {
-	b, count := 0, 0
-	for b < len(data) {
-		if count == runeIdx {
-			return b
+func hexInTraceContextAt(data []byte, start int, raw string) bool {
+	lo := start - hexIDContextWindow
+	if lo < 0 {
+		lo = 0
+	}
+	if classify.IsHexIDInContext(raw, string(data[lo:start])) {
+		return true
+	}
+	end := start + len(raw)
+	return start > 0 && end < len(data) && data[start-1] == '-' && data[end] == '-' &&
+		hexChainNeighbor(data, start-1, -1) && hexChainNeighbor(data, end, +1)
+}
+
+func isAlnumByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+func isHexByte(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+func hexChainNeighbor(data []byte, dashPos, dir int) bool {
+	i := dashPos + dir
+	n := 0
+	for i >= 0 && i < len(data) && isHexByte(data[i]) {
+		n++
+		i += dir
+	}
+	if n == 0 {
+		return false
+	}
+	if i >= 0 && i < len(data) {
+		c := data[i]
+		if (c >= 'g' && c <= 'z') || (c >= 'G' && c <= 'Z') || c == '_' {
+			return false
 		}
-		_, size := utf8.DecodeRune(data[b:])
-		b += size
-		count++
 	}
-	if count == runeIdx {
-		return len(data)
-	}
-	return -1
+	return true
 }
 
 func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte) []analyzeResult {
-	if s.mode == suppressionOff {
+	if s.mode == suppressionOff && s.vendorMode == suppressionOff {
 		return in
 	}
-	gateable := false
-	for _, f := range in {
-		if isGenericDetectorName(f.EntityType) {
-			gateable = true
-			break
-		}
+	var shapes map[string]int
+	if s.mode != suppressionOff {
+		shapes = documentShapes(data)
 	}
-	if !gateable {
-		return in
-	}
-	shapes := documentShapes(data)
 	kept := make([]analyzeResult, 0, len(in))
 	counts := map[string]int{}
 	for _, f := range in {
-		suppress, reason := decideSuppression(f, shapes, data)
+		suppress, reason, mode := s.decideAny(f, shapes, data)
 		if !suppress {
 			kept = append(kept, f)
 			continue
 		}
-		findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, s.mode.String()).Inc()
+		findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, mode.String()).Inc()
 		counts[reason]++
-		if s.mode == suppressionShadow {
+		if mode == suppressionShadow {
 			kept = append(kept, f)
 		}
 	}
 	if len(counts) > 0 {
 		total, summary := summarizeCounts(counts)
-		log.Printf("scan suppressed req=%s mode=%s total=%d reasons=%s", reqIDFrom(ctx), s.mode, total, summary)
+		log.Printf("scan suppressed req=%s fp_mode=%s vendor_mode=%s total=%d reasons=%s", reqIDFrom(ctx), s.mode, s.vendorMode, total, summary)
 	}
 	return kept
+}
+
+func (s *scanner) decideAny(f analyzeResult, shapes map[string]int, data []byte) (bool, string, suppressionMode) {
+	if s.mode != suppressionOff {
+		if suppress, reason := decideSuppression(f, shapes, data); suppress {
+			return true, reason, s.mode
+		}
+	}
+	if s.vendorMode != suppressionOff && !isGenericDetectorName(f.EntityType) {
+		if isCuratedVendor(f.EntityType) {
+			vendorFindingsEvaluatedTotal.WithLabelValues(f.EntityType, s.vendorMode.String()).Inc()
+		}
+		if suppress, reason := decideVendorSuppression(f, data); suppress {
+			return true, reason, s.vendorMode
+		}
+	}
+	return false, "", suppressionOff
 }
 
 func summarizeCounts(counts map[string]int) (int, string) {

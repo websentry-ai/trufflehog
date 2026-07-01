@@ -18,10 +18,10 @@ const EntropyName = "entropy-secret"
 const DefaultEntropyThreshold = 3.0
 
 const (
-	entropyMinLen           = 16
-	entropyMaxLen           = 128
-	entropyWindow           = 5
-	entropyCancelStride     = 64
+	entropyMinLen       = 16
+	entropyMaxLen       = 128
+	entropyWindow       = 5
+	entropyCancelStride = 64
 )
 
 var keywordStems = classify.KeywordStems()
@@ -94,7 +94,11 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if classify.IsKnownFalsePositive(v) {
 			continue
 		}
-		if !hasNearbyKeyword(tokens, i) {
+		words := nearbyKeywords(tokens, i)
+		if len(words) == 0 {
+			continue
+		}
+		if isHexString(v) && nearHashLabel(tokens, i, len(v)) {
 			continue
 		}
 
@@ -102,6 +106,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
 			DetectorName: EntropyName,
 			Raw:          []byte(v),
+			ExtraData:    map[string]string{"support_words": strings.Join(words, ",")},
 		})
 	}
 
@@ -109,6 +114,10 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 }
 
 func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
+	return len(nearbyKeywords(tokens, idx)) > 0
+}
+
+func nearbyKeywords(tokens []tokenizer.Token, idx int) []string {
 	lo := idx - entropyWindow
 	if lo < 0 {
 		lo = 0
@@ -117,6 +126,8 @@ func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
 	if hi >= len(tokens) {
 		hi = len(tokens) - 1
 	}
+	var words []string
+	seen := make(map[string]struct{})
 	for j := lo; j <= hi; j++ {
 		if j == idx && !tokens[j].KeywordFromIdent {
 			continue
@@ -124,6 +135,53 @@ func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
 		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range keywordStems {
 			if strings.Contains(neighbor, stem) {
+				if _, ok := seen[stem]; !ok {
+					seen[stem] = struct{}{}
+					words = append(words, stem)
+				}
+				break
+			}
+		}
+	}
+	return words
+}
+
+var hashLabelStems = []string{
+	"md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3",
+	"blake2", "blake3", "ripemd", "crc32", "digest", "checksum",
+	"etag", "integrity", "fingerprint",
+}
+
+var fixedHashHexLen = map[string]int{
+	"md5": 32, "sha1": 40, "sha224": 56, "sha256": 64, "sha384": 96, "sha512": 128, "ripemd": 40,
+}
+
+func isHexString(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return true
+}
+
+func nearHashLabel(tokens []tokenizer.Token, idx, hexLen int) bool {
+	lo := idx - entropyWindow
+	if lo < 0 {
+		lo = 0
+	}
+	for j := lo; j <= idx; j++ {
+		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
+		for _, stem := range hashLabelStems {
+			if !strings.Contains(neighbor, stem) {
+				continue
+			}
+			if want, fixed := fixedHashHexLen[stem]; !fixed || want == hexLen {
 				return true
 			}
 		}
