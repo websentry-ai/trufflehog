@@ -122,6 +122,12 @@ func TestDecideSuppression(t *testing.T) {
 		// real credential occurrence later (offsets() anchors to the first occurrence)
 		{"crafted trace duplicate then credential kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "span_id=4bf92f3577b34da6a3ce929d0e0e4736 ... api_key=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
 		{"trace hex both occurrences benign suppressed", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "span_id=4bf92f3577b34da6a3ce929d0e0e4736 and trace 4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, true, reasonHexTraceID},
+		// EVASION GUARD: a prose-mentioned secret must be kept even if the same bytes
+		// also appear once in a benign span_id position (credential-keyword veto)
+		{"prose secret duplicated as span_id kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "the signing key is 4bf92f3577b34da6a3ce929d0e0e4736 and span_id=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
+		// RECALL: dash-wrapped hex in a non-hex slug (neighbours are words) is NOT a
+		// trace chain and must be kept
+		{"dashed slug hex not trace chain kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "the build-4bf92f3577b34da6a3ce929d0e0e4736-release artifact", map[string]int{}, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -313,6 +319,9 @@ func TestFastlyEmbeddedSuppression(t *testing.T) {
 		// RECALL: a standalone real token (whitespace / `=` bounded) must be kept
 		{"standalone token kept", realTok, "fastly personal access value " + realTok + " here", false},
 		{"credential-assigned token kept", realTok, "fastly_token=" + realTok, false},
+		// RECALL: an embedded occurrence must not suppress a standalone occurrence of
+		// the same token elsewhere in the document
+		{"embedded plus standalone kept", realTok, "pod fastly-" + realTok + "-exporter and value " + realTok + " here", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

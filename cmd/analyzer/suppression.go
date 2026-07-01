@@ -171,7 +171,7 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	}) {
 		return true, reasonHexHash
 	}
-	if classify.IsAllHex(f.raw) && len(f.raw) >= 16 && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+	if classify.IsAllHex(f.raw) && len(f.raw) >= 16 && traceContextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		return hexInTraceContextAt(d, s, f.raw)
 	}) {
 		return true, reasonHexTraceID
@@ -182,25 +182,43 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	return false, ""
 }
 
-const credentialContextWindow = 32
+const (
+	credentialContextWindow = 32
+	credentialKeywordWindow = 16
+)
 
-// contextSuppressed reports whether a value should be suppressed by document
-// context: benignAt must hold at ≥1 occurrence AND no occurrence may be assigned
-// to a credential-named key. offsets() anchors a finding to the first occurrence
-// of its bytes, so scanning every occurrence prevents a crafted benign-labeled
-// duplicate from suppressing a later real "api_key=<value>" occurrence.
-func contextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
+// suppressByContext decides context-based suppression by scanning EVERY occurrence
+// of the value (offsets() only anchors a finding to the first one). Any occurrence
+// assigned to a credential key or sitting near a credential keyword vetoes
+// suppression outright, so a crafted benign-labeled duplicate cannot hide a real
+// secret. When requireAll is true every occurrence must be benign (used where no
+// legitimate reuse exists: digest/checksum/vendor-embedded); when false a single
+// benign occurrence suffices (the trace path, since W3C tracestate legitimately
+// echoes a span-id that also appears bare).
+func suppressByContext(data []byte, raw string, requireAll bool, benignAt func(data []byte, start int) bool) bool {
 	rb := []byte(raw)
 	if len(rb) == 0 {
 		return false
 	}
-	benign := false
+	anyBenign := false
 	for off := 0; off+len(rb) <= len(data); {
 		i := bytes.Index(data[off:], rb)
 		if i < 0 {
 			break
 		}
 		pos := off + i
+		// Skip a match that is mid-run inside a longer alphanumeric token (e.g. a
+		// 64-hex digest that also appears inside a 128-hex blob): it is not a real
+		// standalone occurrence, so it must neither veto nor satisfy the benign
+		// check. Only a boundary where the value's own edge char is alphanumeric AND
+		// its neighbour is too counts as mid-run — a value delimited by '-'/'_' (a
+		// Fastly PAT embedded as "fastly-<tok>-exporter") is a real occurrence.
+		end := pos + len(rb)
+		if (isAlnumByte(rb[0]) && pos > 0 && isAlnumByte(data[pos-1])) ||
+			(isAlnumByte(rb[len(rb)-1]) && end < len(data) && isAlnumByte(data[end])) {
+			off = pos + 1
+			continue
+		}
 		lo := pos - credentialContextWindow
 		if lo < 0 {
 			lo = 0
@@ -208,12 +226,36 @@ func contextSuppressed(data []byte, raw string, benignAt func(data []byte, start
 		if classify.IsCredentialAssignment(string(data[lo:pos])) {
 			return false
 		}
+		klo := pos - credentialKeywordWindow
+		if klo < 0 {
+			klo = 0
+		}
+		// A bare credential keyword (no "=") must sit close to the value to veto;
+		// a wider window would catch an unrelated keyword elsewhere on a trace line
+		// (e.g. "the api_key call shows span_id=<hex>").
+		if classify.IsCredentialContext(string(data[klo:pos])) {
+			return false
+		}
 		if benignAt(data, pos) {
-			benign = true
+			anyBenign = true
+		} else if requireAll {
+			return false
 		}
 		off = pos + 1
 	}
-	return benign
+	return anyBenign
+}
+
+// contextSuppressed requires every occurrence to be benign (no legitimate-reuse
+// scenario). Used for digest/checksum/vendor-embedded suppression.
+func contextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
+	return suppressByContext(data, raw, true, benignAt)
+}
+
+// traceContextSuppressed accepts a single benign occurrence, since real W3C
+// tracestate echoes the span-id that may also appear bare in the same document.
+func traceContextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
+	return suppressByContext(data, raw, false, benignAt)
 }
 
 // isChecksumRowAt reports whether the n-byte token at start is immediately
@@ -245,8 +287,10 @@ func isChecksumRowAt(data []byte, start, n int) bool {
 
 // hexInTraceContextAt reports whether the pure-hex value at start is benign: it
 // carries a distributed-tracing/observability label (IsHexIDInContext) OR is an
-// interior "-hex-" segment of a dash-delimited hex chain (e.g. W3C traceparent).
-// A real credential is neither, so this is recall-safe.
+// interior "-hex-" segment of an all-hex dash chain (e.g. W3C traceparent
+// 00-<hex>-<hex>-01). The chain check requires the neighbouring dash-delimited
+// segments to be hex too, so an arbitrary dashed slug (word-<hex>-word) is NOT
+// treated as trace data. A real credential is neither, so this is recall-safe.
 func hexInTraceContextAt(data []byte, start int, raw string) bool {
 	lo := start - hexIDContextWindow
 	if lo < 0 {
@@ -256,7 +300,39 @@ func hexInTraceContextAt(data []byte, start int, raw string) bool {
 		return true
 	}
 	end := start + len(raw)
-	return start > 0 && end < len(data) && data[start-1] == '-' && data[end] == '-'
+	return start > 0 && end < len(data) && data[start-1] == '-' && data[end] == '-' &&
+		hexChainNeighbor(data, start-1, -1) && hexChainNeighbor(data, end, +1)
+}
+
+func isAlnumByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+func isHexByte(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+// hexChainNeighbor reports whether the dash-delimited segment next to the dash at
+// dashPos (dir -1 = left, +1 = right) is a non-empty run of hex digits ending at a
+// delimiter — not cut short by a non-hex letter that would make it part of a wider
+// word token. This distinguishes an all-hex chain (traceparent) from a slug.
+func hexChainNeighbor(data []byte, dashPos, dir int) bool {
+	i := dashPos + dir
+	n := 0
+	for i >= 0 && i < len(data) && isHexByte(data[i]) {
+		n++
+		i += dir
+	}
+	if n == 0 {
+		return false
+	}
+	if i >= 0 && i < len(data) {
+		c := data[i]
+		if (c >= 'g' && c <= 'z') || (c >= 'G' && c <= 'Z') || c == '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte) []analyzeResult {

@@ -49,7 +49,7 @@ var (
 	npmScopedPat    = regexp.MustCompile(`^@[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`)
 	urlishPat       = regexp.MustCompile(`^//|://`)
 	orgIDPat        = regexp.MustCompile(`^org-[A-Za-z0-9]+$`)
-	datetimePat     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}`)
+	datetimePat     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$`)
 	datePrefixPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}(?::\d{2}){0,2})?$`)
 	schemePat       = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 	maskPat         = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
@@ -348,6 +348,19 @@ var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|secret|passwd|p
 // in a benign trace/digest context.
 func IsCredentialAssignment(before string) bool {
 	return credentialAssignPat.MatchString(before)
+}
+
+var credentialContextPat = regexp.MustCompile("(?i)\\b(?:secret|api[_-]?key|apikey|password|passwd|private[_-]?key|signing|credential|access[_-]?key|auth[_-]?token|bearer|keys?)\\b")
+
+// IsCredentialContext reports whether a credential keyword appears in the bytes
+// shortly before a value even without an explicit "key=value" assignment (e.g.
+// prose "the signing key is <hex>"). Vetoes trace-context suppression so a secret
+// described in prose is not dropped merely because the same bytes also appear in a
+// benign span_id/trace position. Word-boundaried so "partition_key"/"monkey" do
+// not match. Since a veto only forces the finding to be reported, over-matching is
+// recall-safe.
+func IsCredentialContext(before string) bool {
+	return credentialContextPat.MatchString(before)
 }
 
 func IsHexIDInContext(value, before string) bool {
