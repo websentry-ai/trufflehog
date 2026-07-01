@@ -110,6 +110,15 @@ func TestDecideSuppression(t *testing.T) {
 		{"generic weak alpha password kept", customdetectors.GenericSecretName, "changeme", "", map[string]int{}, false, ""},
 		{"db uri not structurally suppressed", customdetectors.DBConnectionURIName, "postgres://app:s3cretP4ss@db.prod:5432/billing", "", map[string]int{}, false, ""},
 		{"entropy uuid not gated here", customdetectors.EntropyName, "a4b3b545-24ec-11f0-9f57-2256ab8c9def", "", map[string]int{}, false, ""},
+		{"span id hex suppressed", customdetectors.EntropyName, "00f067aa0ba902b7", "the api_key call shows span_id=00f067aa0ba902b7 done", map[string]int{}, true, reasonHexTraceID},
+		{"sentry event id hex suppressed", customdetectors.EntropyName, "fedcba0987654321fedcba0987654321", "event_id: fedcba0987654321fedcba0987654321", map[string]int{}, true, reasonHexTraceID},
+		{"traceparent trace-id segment suppressed", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", map[string]int{}, true, reasonHexTraceID},
+		{"hex api_key value kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "api_key=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
+		{"hex secret bare kept", customdetectors.EntropyName, "9e107d9d372bb6826bd81d3542a419d6", "the signing secret is 9e107d9d372bb6826bd81d3542a419d6", map[string]int{}, false, ""},
+		{"crafted trace duplicate then credential kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "span_id=4bf92f3577b34da6a3ce929d0e0e4736 ... api_key=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
+		{"trace hex both occurrences benign suppressed", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "span_id=4bf92f3577b34da6a3ce929d0e0e4736 and trace 4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, true, reasonHexTraceID},
+		{"prose secret duplicated as span_id kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "the signing key is 4bf92f3577b34da6a3ce929d0e0e4736 and span_id=4bf92f3577b34da6a3ce929d0e0e4736", map[string]int{}, false, ""},
+		{"dashed slug hex not trace chain kept", customdetectors.EntropyName, "4bf92f3577b34da6a3ce929d0e0e4736", "the build-4bf92f3577b34da6a3ce929d0e0e4736-release artifact", map[string]int{}, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -216,7 +225,7 @@ func TestDecideVendorSuppression(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw})
+			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, nil)
 			require.Equal(t, tc.wantSup, sup)
 			require.Equal(t, tc.wantReason, reason)
 		})
@@ -250,4 +259,62 @@ func TestScanSuppressesSingleStripeObjectID(t *testing.T) {
 	require.Greater(t, len(off), 0, "the Stripe object id should be detected before suppression")
 	enforce := heuristicScanner(t, suppressionEnforce).scan(context.Background(), doc, 0.75)
 	require.Equal(t, 0, len(enforce), "a lone Stripe object id must be suppressed structurally")
+}
+
+func TestVendorDigestContextSuppression(t *testing.T) {
+	digest := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1a3f9c1e8b2d47f6093a1c5e2"
+	digest512 := digest + digest
+	cases := []struct {
+		name    string
+		entity  string
+		before  string
+		raw     string
+		wantSup bool
+	}{
+		{"oci container digest", "SentryToken", "image: ghcr.io/org/app@sha256:", digest, true},
+		{"docker manifest sha512", "SentryToken", "manifest digest sha512:", digest512, true},
+		{"non-curated vendor digest", "Github", "blob @sha256:", digest, true},
+		{"sha256 label wrong length kept", "SentryToken", "sha256:", "9e107d9d372bb6826bd81d3542a419d6", false},
+		{"real token near credential kept", "SonarCloud", `property("sonar.login", "`, "cd1fcfc72e900e4fbf7c977d6782408646f2e112", false},
+		{"hex without digest label kept", "SentryToken", "Self=", digest, false},
+		{"non-hex value with digest label kept", "SentryToken", "sha256:", "NotHexTokenValue1234567890ABCDEFGH", false},
+		{"crafted digest duplicate then credential kept", "SentryToken", "sha256:" + digest + " api_key=", digest, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte(tc.before + tc.raw)
+			f := analyzeResult{EntityType: tc.entity, raw: tc.raw, Start: utf8.RuneCountInString(tc.before)}
+			sup, reason := decideVendorSuppression(f, data)
+			require.Equal(t, tc.wantSup, sup)
+			if tc.wantSup {
+				require.Equal(t, reasonVendorStructuralDigest, reason)
+			}
+		})
+	}
+}
+
+func TestFastlyEmbeddedSuppression(t *testing.T) {
+	tok := "-prometheus-exporter-prometheus-"
+	realTok := "TVAWji0p7uDI6OP9DyWvmV-vgoUoXIuf"
+	cases := []struct {
+		name    string
+		raw     string
+		doc     string
+		wantSup bool
+	}{
+		{"embedded in pod name", tok, "future-platform fastly" + tok + "fastly-exporter-1-7cz8lbp 1/1 Running", true},
+		{"standalone token kept", realTok, "fastly personal access value " + realTok + " here", false},
+		{"credential-assigned token kept", realTok, "fastly_token=" + realTok, false},
+		{"embedded plus standalone kept", realTok, "pod fastly-" + realTok + "-exporter and value " + realTok + " here", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := analyzeResult{EntityType: "FastlyPersonalToken", raw: tc.raw}
+			sup, reason := decideVendorSuppression(f, []byte(tc.doc))
+			require.Equal(t, tc.wantSup, sup)
+			if tc.wantSup {
+				require.Equal(t, reasonVendorStructuralEmbedded, reason)
+			}
+		})
+	}
 }

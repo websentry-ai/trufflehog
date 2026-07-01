@@ -98,7 +98,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if len(words) == 0 {
 			continue
 		}
-		if isHexString(v) && nearHashLabel(tokens, i) {
+		if isHexString(v) && nearHashLabel(tokens, i, len(v)) {
 			continue
 		}
 
@@ -152,6 +152,10 @@ var hashLabelStems = []string{
 	"etag", "integrity", "fingerprint",
 }
 
+var fixedHashHexLen = map[string]int{
+	"md5": 32, "sha1": 40, "sha224": 56, "sha256": 64, "sha384": 96, "sha512": 128, "ripemd": 40,
+}
+
 func isHexString(s string) bool {
 	if len(s) == 0 {
 		return false
@@ -166,14 +170,18 @@ func isHexString(s string) bool {
 	return true
 }
 
-func nearHashLabel(tokens []tokenizer.Token, idx int) bool {
-	for _, j := range []int{idx, idx - 1} {
-		if j < 0 {
-			continue
-		}
+func nearHashLabel(tokens []tokenizer.Token, idx, hexLen int) bool {
+	lo := idx - entropyWindow
+	if lo < 0 {
+		lo = 0
+	}
+	for j := lo; j <= idx; j++ {
 		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
 		for _, stem := range hashLabelStems {
-			if strings.Contains(neighbor, stem) {
+			if !strings.Contains(neighbor, stem) {
+				continue
+			}
+			if want, fixed := fixedHashHexLen[stem]; !fixed || want == hexLen {
 				return true
 			}
 		}

@@ -235,6 +235,20 @@ func TestEntropyProximity_Negative_HashDigestNearLabel(t *testing.T) {
 	}
 }
 
+func TestEntropyProximity_Positive_WrongLengthHexNearHashLabelKept(t *testing.T) {
+	key := "9e107d9d372bb6826bd81d3542a419d6"
+	input := "the signing secret sha256 rotation used " + key
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	var found bool
+	for _, r := range results {
+		if string(r.Raw) == key {
+			found = true
+		}
+	}
+	require.True(t, found,
+		"a 32-hex key near a sha256 label (wrong digest length) must not be suppressed")
+}
+
 func TestEntropyProximity_Positive_HexKeyNotSuppressedByDistantHashWord(t *testing.T) {
 	key := "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7"
 	input := "api_key=" + key + " verify the checksum value below"
