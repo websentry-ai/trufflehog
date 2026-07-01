@@ -37,8 +37,6 @@ func isIdentByte(b byte) bool {
 }
 
 func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
-	// Require the digest label at EVERY occurrence of the value, so a crafted
-	// earlier duplicate next to a digest label cannot suppress a later real secret.
 	if contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		lo := s - digestContextWindow
 		if lo < 0 {
@@ -48,10 +46,6 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	}) {
 		return true, reasonVendorStructuralDigest
 	}
-	// Fastly PATs are mis-extracted from longer identifiers (e.g. a k8s pod name
-	// "fastly-prometheus-exporter-prometheus-fastly-exporter-1"). Suppress only when
-	// the match is embedded inside a larger ident at every occurrence and none is a
-	// credential assignment. A real standalone token is never embedded, so recall-safe.
 	if f.EntityType == "FastlyPersonalToken" && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		n := len(f.raw)
 		left := s > 0 && isIdentByte(d[s-1])

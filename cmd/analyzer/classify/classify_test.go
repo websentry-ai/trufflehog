@@ -191,48 +191,31 @@ func TestStructuredIdentifierFalsePositives(t *testing.T) {
 		in   string
 		want bool
 	}{
-		// composite resource identifiers (word + structural segments)
 		{IsExcludedEntropyValue, "k8s-pod-name", "ai-platform-85f44d9c8f-hxf2l", true},
 		{IsExcludedEntropyValue, "env-resource-name", "salesloft-us3-prod", true},
 		{IsExcludedEntropyValue, "cli-flag-fragment", "--i-generative-600", true},
-		// RECALL GUARD: a short high-entropy (upper+lower+digit) segment between words
-		// is NOT benign structure — the value must stay scannable
 		{IsExcludedEntropyValue, "composite-with-hi-entropy-short-seg-kept", "admin-Xk9f2-service-Qp7Zt", false},
-		// AI model / build identifiers ending in a release date -> excluded
 		{IsExcludedEntropyValue, "model-claude-datestamp", "claude-3-5-sonnet-20241022", true},
 		{IsExcludedEntropyValue, "model-gpt-iso-date", "gpt-4o-2024-08-06", true},
 		{IsExcludedEntropyValue, "model-claude-sonnet4", "claude-sonnet-4-20250514", true},
 		{IsExcludedEntropyValue, "model-claude-opus-date", "claude-3-opus-20240229", true},
-		// RECALL GUARD: a mixed-case high-entropy secret ending in digits stays flagged
 		{IsExcludedEntropyValue, "secret-ending-in-digits-kept", "aB3xKp9Qm2Lr7Tz-20241022", false},
 		{IsExcludedEntropyValue, "secret-uppercase-datestamp-kept", "Kj8N2mP9xL5vR7-20240806", false},
-		// colon ISO timestamps are still handled by datetimePat
 		{IsExcludedEntropyValue, "iso-timestamp-z", "2026-06-29T12:30:42.322Z", true},
-		// RECALL GUARDS: timestamp-PREFIXED secrets with chunked high-entropy tails must
-		// stay scannable — IsDatetimePrefixedID keeps any value with a mixed-case+digit
-		// segment (a secret chunk), only suppressing all-structural dated ids
 		{IsExcludedEntropyValue, "ts-chunked-secret-slash-kept", "2026-06-29T0717-aB3xKp9Qm2L/Qr7TzWqDvN", false},
 		{IsExcludedEntropyValue, "ts-chunked-secret-dash-kept", "2026-06-29T07-aB3xKp9Qm2L-aB3xKp9Qm2L", false},
-		// uuid with a short trailing suffix
 		{IsExcludedEntropyValue, "uuid-with-suffix", "1521378b-c34c-4b6a-b668-ccefe8dce535/b2l1", true},
-		// document filename
 		{IsExcludedEntropyValue, "pdf-filename", "OneTrust_ContrastV3.pdf", true},
-		// ULIDs
 		{IsExcludedEntropyValue, "ulid-canonical", "01ARZ3NDEKTSV4RRFFQ69G5FAV", true},
 		{IsExcludedEntropyValue, "ulid-noncrockford-U-kept", "01J8XK3QF7M2N9P0R1S2T3U4V5", false},
-		// Okta object ids
 		{IsExcludedEntropyValue, "okta-app-id", "0oa3nnalkuvPcIl642z0", true},
 		{IsExcludedEntropyValue, "okta-factor-id", "fwf5pmzjl2OkAb912c3d", true},
 		{IsExcludedEntropyValue, "okta-authz-server-id", "aus6qqsoMxYzWvUtSr98", true},
-		// JWT header/payload (base64url that decodes to JSON)
 		{IsExcludedEntropyValue, "jwt-header", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", true},
 		{IsExcludedEntropyValue, "jwt-payload", "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ", true},
-		// RECALL GUARD: base64url JSON (JWT-shaped) that embeds a long secret must stay scannable
 		{IsExcludedEntropyValue, "jwt-shaped-embeds-secret-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXcUR2TmNFZEYifQ", false},
-		// padded hex digest (go.sum style)
 		{IsExcludedEntropyValue, "padded-hex-sha1", "a3f9c1e8b2d47f6093a1c5e2d8b4f0a7c6e3d9b1=", true},
 
-		// RECALL GUARDS — must NOT be excluded
 		{IsExcludedEntropyValue, "diceware-passphrase-kept", "correct_horse_battery_staple", false},
 		{IsExcludedEntropyValue, "dash-passphrase-kept", "correct-horse-battery-staple", false},
 		{IsExcludedEntropyValue, "embedded-secret-after-prefix-kept", "prod-aB3xKp9Qm2Lr7TzWqDvNc", false},
@@ -240,7 +223,6 @@ func TestStructuredIdentifierFalsePositives(t *testing.T) {
 		{IsExcludedEntropyValue, "jwt-signature-kept", "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV", false},
 		{IsExcludedEntropyValue, "plain-32hex-kept", "9e107d9d372bb6826bd81d3542a419d6", false},
 		{IsExcludedEntropyValue, "ulid-lowercase-secret-kept", "01arz3ndektsv4rrffq69g5fav", false},
-		// date-PREFIXED secret with a long random segment must NOT be dropped as a datetime id
 		{IsExcludedEntropyValue, "date-prefixed-secret-kept", "2026-06-29T07-aB3xKp9Qm2Lr7TzWqDvNc", false},
 		{IsExcludedEntropyValue, "date-prefixed-secret-nodash-kept", "2026-06-29T07aB3xKp9Qm2Lr7TzWqDvNc", false},
 	}
@@ -257,24 +239,18 @@ func TestBase64EncodedTextClassifier(t *testing.T) {
 		in   string
 		want bool
 	}{
-		// k8s configmap base64 JSON blob chunks (iac04) — short config values -> suppressed
 		{"b64-complete-json-object", "eyJlbnYiOiJwcm9kIiwidGllciI6Mn0=", true},
 		{"b64-complete-json-array", "eyJyb3V0ZXMiOlt7Im1vZGVsIjoiZ3B0LTRvIn1dfQ==", true},
 		{"b64-config-json-regions", "eyJlbnYiOiJwcm9kIiwicmVnaW9uIjoidXMtZWFzdC0xIn0=", true},
-		// RECALL GUARDS: base64 of JSON that EMBEDS a long secret must stay scannable
 		{"b64-json-embeds-apikey-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXcUR2TmNFZEYifQ==", false},
 		{"b64-json-embeds-privkey-kept", "eyJwcml2YXRlX2tleSI6Ik1JSUV2UUlCQURBTkJna3Foa2lHOXcwIn0=", false},
-		// RECALL GUARD: a SHORT (<20) credential-field value must also veto suppression
-		// ({"apiKey":"aB3xKp9Qm2Lr7TzW"}) — the value is only 16 chars
 		{"b64-json-short-credential-kept", "eyJhcGlLZXkiOiJhQjN4S3A5UW0yTHI3VHpXIn0=", false},
-		// a credential-named field with a placeholder word value is still config
 		{"b64-json-token-placeholder-suppressed", "eyJ0b2tlbiI6Im5vbmUifQ==", true},
 		{"b64-json-partial-head-kept", "eyJyb3V0ZXMiOlt7Im1vZGVsIjoiZ3B0LTRvIiwid2VpZ2h0IjowLjZ9LHsibW9k", false},
 		{"b64-json-partial-mid-kept", "ZWwiOiJjbGF1ZGUtb3B1cyIsIndlaWdodCI6MC40fV0sImZhbGxiYWNrIjoiY2xh", false},
-		// RECALL GUARDS — random base64 secrets decode to non-printable bytes -> kept
 		{"random-b64-secret-kept", "vO7GdEdFrPo+2vrsz643CaG7gdHjbi6gaTlBst/mZq19Kp", false},
 		{"random-b64-secret-kept-2", "s4ZxwIhq7loRJF+DKJfsMiOBF73ldjUr7a5M2SJhWk73Lr", false},
-		{"basic-auth-b64-kept", "dXNlcjpwYXNzd29yZA==", false}, // user:password, printable but no JSON marker
+		{"basic-auth-b64-kept", "dXNlcjpwYXNzd29yZA==", false},
 		{"sendgrid-like-kept", "SG.nE8knNywwT9DmLHtadE5XL.nwI05iEXn69jxFD2R", false},
 	}
 	for _, c := range cases {
@@ -294,7 +270,6 @@ func TestCryptoAndTraceRecognizers(t *testing.T) {
 		{"cert-serial-0x", "0x3a4b5c6d7e8f9012", true},
 		{"btc-bech32", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", true},
 		{"w3c-traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", true},
-		// recall guards
 		{"secret-with-0x-substr-kept", "key0xAb3xKp9Qm2Lr7TzWqDvNc", false},
 		{"random-secret-kept", "aB3xKp9Qm2Lr7TzWqDvNcEdFgHiJ", false},
 	}
@@ -310,14 +285,12 @@ func TestRelayGlobalIDs(t *testing.T) {
 		name, in string
 		want     bool
 	}{
-		// "name:value" base64 is NO LONGER suppressed (ambiguous with basic-auth) — recall wins
-		{"relay-user-now-kept", "VXNlcjoxMjM0NTY3ODkw", false}, // User:1234567890
+		{"relay-user-now-kept", "VXNlcjoxMjM0NTY3ODkw", false},
 		{"relay-product-now-kept", "UHJvZHVjdDo5ODc2NTQzMjEw", false},
-		// recall guards: base64 basic-auth (word / hex / numeric password) must be KEPT
-		{"basic-auth-word-kept", "dXNlcjpwYXNzd29yZA==", false},       // user:password
-		{"basic-auth-symbol-kept", "YWRtaW46czNjcjN0UEBzcw==", false}, // admin:s3cr3tP@ss
-		{"basic-auth-hex-kept", "dXNlcjpkZWFkYmVlZg==", false},        // user:deadbeef (Greptile)
-		{"basic-auth-hex-kept-2", "dXNlcjpjYWZlYmFiZQ==", false},      // user:cafebabe (Greptile)
+		{"basic-auth-word-kept", "dXNlcjpwYXNzd29yZA==", false},
+		{"basic-auth-symbol-kept", "YWRtaW46czNjcjN0UEBzcw==", false},
+		{"basic-auth-hex-kept", "dXNlcjpkZWFkYmVlZg==", false},
+		{"basic-auth-hex-kept-2", "dXNlcjpjYWZlYmFiZQ==", false},
 	}
 	for _, c := range cases {
 		if got := IsBase64EncodedText(c.in); got != c.want {
@@ -331,14 +304,12 @@ func TestHexIDInContext(t *testing.T) {
 		name, value, before string
 		want                bool
 	}{
-		// distributed-tracing / observability hex IDs preceded by their label -> suppressed
 		{"w3c-span-id", "00f067aa0ba902b7", "the api_key call shows span_id=", true},
 		{"w3c-trace-id", "4bf92f3577b34da6a3ce929d0e0e4736", "under trace ", true},
 		{"sentry-event-id", "fedcba0987654321fedcba0987654321", "event_id: ", true},
 		{"sourcemap-build-hash", "7a8b9c0d1e2f3a4b", "build hash: ", true},
 		{"xray-self-segment", "2d8b4f0a7c6e3d9b1", "  Self=", true},
 		{"correlation-id", "a1b2c3d4e5f6a7b8", "correlation_id=", true},
-		// RECALL GUARDS — a real credential label must NOT be treated as a trace label
 		{"api-key-hex-kept", "4bf92f3577b34da6a3ce929d0e0e4736", "API_KEY=", false},
 		{"secret-hex-kept", "9e107d9d372bb6826bd81d3542a419d6", "client_secret: ", false},
 		{"root-token-hex-kept", "9e107d9d372bb6826bd81d3542a419d6", "root_token=", false},

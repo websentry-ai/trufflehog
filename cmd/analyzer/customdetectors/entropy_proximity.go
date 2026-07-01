@@ -152,11 +152,6 @@ var hashLabelStems = []string{
 	"etag", "integrity", "fingerprint",
 }
 
-// fixedHashHexLen maps fixed-width hash stems to their hex-encoded length. When a
-// hex candidate sits near such a label but has the WRONG length (e.g. a 32-hex key
-// near "sha256"), it is not that digest and must stay scannable. Variable-length
-// stems (sha3, blake2/3, crc32, digest, checksum, etag, integrity, fingerprint)
-// are absent here and keep matching on proximity alone.
 var fixedHashHexLen = map[string]int{
 	"md5": 32, "sha1": 40, "sha224": 56, "sha256": 64, "sha384": 96, "sha512": 128, "ripemd": 40,
 }
@@ -175,12 +170,6 @@ func isHexString(s string) bool {
 	return true
 }
 
-// nearHashLabel reports whether a hex candidate of length hexLen sits within the
-// left window of a hash label that plausibly produced it. A fixed-width stem only
-// matches when hexLen equals its digest length (so a 32-hex key near "sha256"
-// stays scannable); variable-width stems (sha3/blake/crc32/digest/etag/…) match on
-// proximity alone. All stems in the window are considered, so the correct label
-// still suppresses even when another hash line sits nearby.
 func nearHashLabel(tokens []tokenizer.Token, idx, hexLen int) bool {
 	lo := idx - entropyWindow
 	if lo < 0 {

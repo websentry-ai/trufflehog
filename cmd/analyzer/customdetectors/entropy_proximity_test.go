@@ -236,7 +236,6 @@ func TestEntropyProximity_Negative_HashDigestNearLabel(t *testing.T) {
 }
 
 func TestEntropyProximity_Positive_WrongLengthHexNearHashLabelKept(t *testing.T) {
-	// 32-hex is md5-length, NOT sha256 (64) — a key mislabeled/adjacent to sha256 must stay flagged
 	key := "9e107d9d372bb6826bd81d3542a419d6"
 	input := "the signing secret sha256 rotation used " + key
 	results := filterByName(runEntropyDetector(t, input), EntropyName)

@@ -200,9 +200,6 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-// isShortStructuralSegment treats a short (≤6 char) fragment as benign structure
-// (version/region/type markers like v2, api, us, k8s, prod) UNLESS it carries the
-// upper+lower+digit signature of a random secret chunk — those stay scannable.
 func isShortStructuralSegment(s string) bool {
 	if len(s) == 0 || len(s) > 6 {
 		return false
@@ -238,11 +235,6 @@ func isHexSegment(s string) bool {
 
 var datetimeIDAnchorPat = regexp.MustCompile(`^\d{4}-(?:0\d|1[0-2])-(?:[0-2]\d|3[01])(?:[T ]|[-_/]|$)`)
 
-// isDatetimeIshSegment reports whether a delimiter-separated segment is benign
-// structure inside a timestamped identifier: a run of digits with optional ISO
-// markers (T/Z, e.g. "29T071742863", "0717"), a short hex chunk, or a short
-// version/type marker. A segment carrying the upper+lower+digit signature of a
-// random secret chunk (e.g. "aB3xKp9Qm2L") is NOT one, so it keeps the finding.
 func isDatetimeIshSegment(s string) bool {
 	if s == "" {
 		return false
@@ -264,12 +256,6 @@ func isDatetimeIshSegment(s string) bool {
 	return isHexSegment(s) || isShortStructuralSegment(s)
 }
 
-// IsDatetimePrefixedID reports whether v is an identifier that begins with an ISO
-// date and is composed only of structural segments — a build/log/trace id like
-// "2026-06-29T071742863-7a34fad0-v2", not a secret. It is recall-safe: if any
-// segment after the date has the high-entropy signature of a secret chunk (mixed
-// case + digits, or a long non-hex run) the value is kept, so a real secret split
-// into chunks after a timestamp (2026-06-29T0717-aB3xKp9Qm2L) still reports.
 func IsDatetimePrefixedID(v string) bool {
 	if !datetimeIDAnchorPat.MatchString(v) {
 		return false
@@ -294,21 +280,12 @@ func IsJWTComponent(v string) bool {
 	if err != nil {
 		return false
 	}
-	// A standard JWT header/payload carries only short claim values. If the decoded
-	// JSON embeds a long high-entropy token, or a credential-named field with a
-	// secret-shaped value, treat it as a base64-wrapped secret (not a benign JWT
-	// segment) and keep it scannable.
 	return len(decoded) > 0 && decoded[0] == '{' && json.Valid(decoded) &&
 		!hasLongToken(decoded) && !jsonHasCredentialValue(decoded)
 }
 
 var jsonCredentialFieldPat = regexp.MustCompile(`(?i)"(?:api[_-]?key|apikey|secret|token|password|passwd|passphrase|credential|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|bearer)"\s*:\s*"([^"]{8,})"`)
 
-// jsonHasCredentialValue reports whether decoded JSON assigns a credential-named
-// field a secret-shaped value (mixed letters+digits, or >=16 chars). Such a value
-// vetoes base64-JSON/JWT suppression even when it is shorter than hasLongToken's
-// 20-byte run, so a wrapped credential like {"apiKey":"aB3xKp9Qm2Lr7TzW"} stays
-// scannable instead of being treated as benign config.
 func jsonHasCredentialValue(b []byte) bool {
 	for _, m := range jsonCredentialFieldPat.FindAllSubmatch(b, -1) {
 		v := m[1]
@@ -328,12 +305,6 @@ func jsonHasCredentialValue(b []byte) bool {
 	return false
 }
 
-// IsBase64EncodedText suppresses only base64 that decodes to a COMPLETE JSON
-// object/array whose values are all short config data (no embedded secret).
-// Decoded "name:value" forms are intentionally NOT suppressed: they collide with
-// base64 basic-auth credentials (e.g. "user:deadbeef"). A decoded JSON containing
-// a long high-entropy token (e.g. a service-account private key or API key) is
-// also NOT suppressed, so base64-wrapped secrets stay scannable. Recall wins.
 func IsBase64EncodedText(v string) bool {
 	if len(v) < 16 {
 		return false
@@ -348,8 +319,6 @@ func IsBase64EncodedText(v string) bool {
 	return json.Valid(decoded) && !hasLongToken(decoded) && !jsonHasCredentialValue(decoded)
 }
 
-// hasLongToken reports whether b contains a run of >=20 secret-alphabet bytes —
-// the signature of an embedded credential (API key, hex digest, PEM body).
 func hasLongToken(b []byte) bool {
 	run := 0
 	for _, c := range b {
@@ -389,10 +358,6 @@ func IsPaddedHexDigest(v string) bool {
 
 var hexDigestLabelPat = regexp.MustCompile(`(?i)(md5|sha-?1|sha-?224|sha-?256|sha-?384|sha-?512|sha3-?224|sha3-?256|sha3-?384|sha3-?512|sha3|blake2b|blake2s|blake3|ripemd-?160)[:=-] ?$`)
 
-// digestHexLen maps a normalized digest algorithm (lowercase, no dashes) to its
-// hex-encoded length. A labeled digest must be exactly this long; anything else
-// (e.g. a 32-hex key sitting next to a `sha256:` label) is NOT a real digest and
-// stays reportable.
 var digestHexLen = map[string]int{
 	"md5": 32, "sha1": 40, "sha224": 56, "sha256": 64, "sha384": 96, "sha512": 128,
 	"sha3224": 56, "sha3256": 64, "sha3384": 96, "sha3512": 128,
@@ -410,7 +375,7 @@ func IsHexDigestInContext(value, before string) bool {
 	algo := strings.ReplaceAll(strings.ToLower(m[1]), "-", "")
 	want, known := digestHexLen[algo]
 	if !known {
-		return true // "sha3" bare has no fixed width; trust the label
+		return true
 	}
 	return len(value) == want
 }
@@ -419,24 +384,12 @@ var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)
 
 var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|secret|passwd|password|token|credential|access[_-]?key|private[_-]?key|client[_-]?secret)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
 
-// IsCredentialAssignment reports whether the bytes immediately preceding a value
-// assign it to a credential-named key (e.g. "api_key=", "client_secret: ").
-// Used to veto context-based hex suppression: if any occurrence of a value is
-// assigned to a credential, it must be reported even when another occurrence sits
-// in a benign trace/digest context.
 func IsCredentialAssignment(before string) bool {
 	return credentialAssignPat.MatchString(before)
 }
 
 var credentialContextPat = regexp.MustCompile("(?i)\\b(?:secret|api[_-]?key|apikey|password|passwd|private[_-]?key|signing|credential|access[_-]?key|auth[_-]?token|bearer|keys?)\\b")
 
-// IsCredentialContext reports whether a credential keyword appears in the bytes
-// shortly before a value even without an explicit "key=value" assignment (e.g.
-// prose "the signing key is <hex>"). Vetoes trace-context suppression so a secret
-// described in prose is not dropped merely because the same bytes also appear in a
-// benign span_id/trace position. Word-boundaried so "partition_key"/"monkey" do
-// not match. Since a veto only forces the finding to be reported, over-matching is
-// recall-safe.
 func IsCredentialContext(before string) bool {
 	return credentialContextPat.MatchString(before)
 }

@@ -187,14 +187,6 @@ const (
 	credentialKeywordWindow = 16
 )
 
-// suppressByContext decides context-based suppression by scanning EVERY occurrence
-// of the value (offsets() only anchors a finding to the first one). Any occurrence
-// assigned to a credential key or sitting near a credential keyword vetoes
-// suppression outright, so a crafted benign-labeled duplicate cannot hide a real
-// secret. When requireAll is true every occurrence must be benign (used where no
-// legitimate reuse exists: digest/checksum/vendor-embedded); when false a single
-// benign occurrence suffices (the trace path, since W3C tracestate legitimately
-// echoes a span-id that also appears bare).
 func suppressByContext(data []byte, raw string, requireAll bool, benignAt func(data []byte, start int) bool) bool {
 	rb := []byte(raw)
 	if len(rb) == 0 {
@@ -207,12 +199,6 @@ func suppressByContext(data []byte, raw string, requireAll bool, benignAt func(d
 			break
 		}
 		pos := off + i
-		// Skip a match that is mid-run inside a longer alphanumeric token (e.g. a
-		// 64-hex digest that also appears inside a 128-hex blob): it is not a real
-		// standalone occurrence, so it must neither veto nor satisfy the benign
-		// check. Only a boundary where the value's own edge char is alphanumeric AND
-		// its neighbour is too counts as mid-run — a value delimited by '-'/'_' (a
-		// Fastly PAT embedded as "fastly-<tok>-exporter") is a real occurrence.
 		end := pos + len(rb)
 		if (isAlnumByte(rb[0]) && pos > 0 && isAlnumByte(data[pos-1])) ||
 			(isAlnumByte(rb[len(rb)-1]) && end < len(data) && isAlnumByte(data[end])) {
@@ -230,9 +216,6 @@ func suppressByContext(data []byte, raw string, requireAll bool, benignAt func(d
 		if klo < 0 {
 			klo = 0
 		}
-		// A bare credential keyword (no "=") must sit close to the value to veto;
-		// a wider window would catch an unrelated keyword elsewhere on a trace line
-		// (e.g. "the api_key call shows span_id=<hex>").
 		if classify.IsCredentialContext(string(data[klo:pos])) {
 			return false
 		}
@@ -246,20 +229,14 @@ func suppressByContext(data []byte, raw string, requireAll bool, benignAt func(d
 	return anyBenign
 }
 
-// contextSuppressed requires every occurrence to be benign (no legitimate-reuse
-// scenario). Used for digest/checksum/vendor-embedded suppression.
 func contextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
 	return suppressByContext(data, raw, true, benignAt)
 }
 
-// traceContextSuppressed accepts a single benign occurrence, since real W3C
-// tracestate echoes the span-id that may also appear bare in the same document.
 func traceContextSuppressed(data []byte, raw string, benignAt func(data []byte, start int) bool) bool {
 	return suppressByContext(data, raw, false, benignAt)
 }
 
-// isChecksumRowAt reports whether the n-byte token at start is immediately
-// followed by whitespace and a filename-like token (checksum-file row).
 func isChecksumRowAt(data []byte, start, n int) bool {
 	off := start + n
 	if off > len(data) {
@@ -285,12 +262,6 @@ func isChecksumRowAt(data []byte, start, n int) bool {
 	return len(token) > 0 && (bytes.IndexByte(token, '/') >= 0 || bytes.IndexByte(token, '.') >= 0)
 }
 
-// hexInTraceContextAt reports whether the pure-hex value at start is benign: it
-// carries a distributed-tracing/observability label (IsHexIDInContext) OR is an
-// interior "-hex-" segment of an all-hex dash chain (e.g. W3C traceparent
-// 00-<hex>-<hex>-01). The chain check requires the neighbouring dash-delimited
-// segments to be hex too, so an arbitrary dashed slug (word-<hex>-word) is NOT
-// treated as trace data. A real credential is neither, so this is recall-safe.
 func hexInTraceContextAt(data []byte, start int, raw string) bool {
 	lo := start - hexIDContextWindow
 	if lo < 0 {
@@ -312,10 +283,6 @@ func isHexByte(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
-// hexChainNeighbor reports whether the dash-delimited segment next to the dash at
-// dashPos (dir -1 = left, +1 = right) is a non-empty run of hex digits ending at a
-// delimiter — not cut short by a non-hex letter that would make it part of a wider
-// word token. This distinguishes an all-hex chain (traceparent) from a slug.
 func hexChainNeighbor(data []byte, dashPos, dir int) bool {
 	i := dashPos + dir
 	n := 0
