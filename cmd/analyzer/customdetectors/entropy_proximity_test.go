@@ -559,6 +559,19 @@ func TestCounterDenylistDoesNotSuppressAccessToken(t *testing.T) {
 		"a value adjacent to 'api_token' must still fire; got: %v", entropyRawStrings(results))
 }
 
+func TestCounterDenylistSuppressesCamelCaseParam(t *testing.T) {
+	for _, input := range []string{
+		`maxOutputTokens: aB3xKp9Qm2Lr7TzWqDvNcXY`,
+		`maxTokens=aB3xKp9Qm2Lr7TzWqDvNcXY`,
+		`max_tokens: aB3xKp9Qm2Lr7TzWqDvNcXY`,
+	} {
+		results := filterByName(runEntropyDetector(t, input), EntropyName)
+		require.Empty(t, results,
+			"a token-counter param must not act as a support word; got: %v for %q",
+			entropyRawStrings(results), input)
+	}
+}
+
 func TestProximityScoreEmittedNonGating(t *testing.T) {
 	cases := []struct {
 		input    string

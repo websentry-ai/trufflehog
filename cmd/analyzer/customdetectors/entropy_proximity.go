@@ -163,7 +163,7 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 		if j == idx && !tokens[j].KeywordFromIdent {
 			continue
 		}
-		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
+		neighbor := reduceToAlnumUnderscore(strings.ToLower(tokens[j].Keyword))
 		if _, denied := counterParams[neighbor]; denied {
 			continue
 		}
@@ -229,7 +229,7 @@ func nearHashLabel(tokens []tokenizer.Token, idx, hexLen int) bool {
 		lo = 0
 	}
 	for j := lo; j <= idx; j++ {
-		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
+		neighbor := reduceToAlnumUnderscore(strings.ToLower(tokens[j].Keyword))
 		for _, stem := range hashLabelStems {
 			if !strings.Contains(neighbor, stem) {
 				continue
