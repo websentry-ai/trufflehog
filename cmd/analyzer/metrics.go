@@ -85,6 +85,30 @@ var (
 		Buckets:   prometheus.ExponentialBuckets(256, 2, 13),
 	})
 
+	// Concurrency/saturation signal: /analyze requests currently in flight.
+	inflightRequests = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: metricsNamespace,
+		Name:      "inflight_requests",
+		Help:      "In-flight /analyze requests currently being served.",
+	})
+
+	// Distribution of findings returned per request — a detection-volume signal
+	// (count only; never the findings themselves).
+	findingsPerRequest = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Name:      "findings_per_request",
+		Help:      "Number of findings emitted per /analyze request.",
+		Buckets:   []float64{0, 1, 2, 3, 5, 10, 25, 50, 100, 250},
+	})
+
+	// Scans that hit the scan deadline before completing. Broken out from
+	// detector_errors so deadline pressure is visible on its own.
+	scanTimeoutsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "scan_timeouts_total",
+		Help:      "Total scans that exceeded the scan deadline before completing.",
+	})
+
 	// Static build metadata. Constant value 1; the deployed version/commit/go
 	// version ride on the labels so a single board can show what's running in
 	// each environment. Labels are build-time constants, never request data.
