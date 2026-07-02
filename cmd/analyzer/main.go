@@ -107,6 +107,8 @@ func main() {
 		port = n
 	}
 
+	recordBuildInfo()
+
 	cfg, err := scannerConfigFromEnv()
 	if err != nil {
 		log.Fatalf("invalid scanner config: %v", err)
@@ -149,7 +151,9 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		status := http.StatusOK
+		inflightRequests.Inc()
 		defer func() {
+			inflightRequests.Dec()
 			analyzeRequestDuration.Observe(time.Since(start).Seconds())
 			analyzeRequestsTotal.WithLabelValues(strconv.Itoa(status)).Inc()
 		}()
@@ -232,6 +236,10 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	deduped := s.applySuppression(ctx, dedupeOverlapping(out), data)
 	for _, res := range deduped {
 		detectionsTotal.WithLabelValues(res.EntityType).Inc()
+	}
+	findingsPerRequest.Observe(float64(len(deduped)))
+	if ctx.Err() == context.DeadlineExceeded {
+		scanTimeoutsTotal.Inc()
 	}
 	return deduped
 }

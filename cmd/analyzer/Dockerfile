@@ -4,10 +4,16 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
+# Stamped into trufflehog_build_info (.dockerignore excludes .git, so there is
+# no VCS fallback in-image — these args are the only source of build metadata).
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GIT_SHA}" \
     -o /out/trufflehog-analyzer ./cmd/analyzer
 
 FROM gcr.io/distroless/static-debian12:nonroot

@@ -1,11 +1,24 @@
 package main
 
 import (
+	"runtime"
+	"runtime/debug"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const metricsNamespace = "trufflehog"
+
+// version and commit are stamped at build time via
+// -ldflags "-X main.version=<ref> -X main.commit=<sha>" (see cmd/analyzer/Dockerfile,
+// wired from CI in deploy-eks.yml). They default to "dev"/"unknown" for local builds.
+// .dockerignore excludes .git, so the image has no VCS info to fall back on —
+// the ldflag stamp is the source of truth in deployed builds.
+var (
+	version = "dev"
+	commit  = "unknown"
+)
 
 var (
 	analyzeRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -71,4 +84,56 @@ var (
 		Help:      "Size of scanned request bodies in bytes.",
 		Buckets:   prometheus.ExponentialBuckets(256, 2, 13),
 	})
+
+	// Concurrency/saturation signal: /analyze requests currently in flight.
+	inflightRequests = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: metricsNamespace,
+		Name:      "inflight_requests",
+		Help:      "In-flight /analyze requests currently being served.",
+	})
+
+	// Distribution of findings returned per request — a detection-volume signal
+	// (count only; never the findings themselves).
+	findingsPerRequest = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Name:      "findings_per_request",
+		Help:      "Number of findings emitted per /analyze request.",
+		Buckets:   []float64{0, 1, 2, 3, 5, 10, 25, 50, 100, 250},
+	})
+
+	// Scans that hit the scan deadline before completing. Broken out from
+	// detector_errors so deadline pressure is visible on its own.
+	scanTimeoutsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: metricsNamespace,
+		Name:      "scan_timeouts_total",
+		Help:      "Total scans that exceeded the scan deadline before completing.",
+	})
+
+	// Static build metadata. Constant value 1; the deployed version/commit/go
+	// version ride on the labels so a single board can show what's running in
+	// each environment. Labels are build-time constants, never request data.
+	buildInfo = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: metricsNamespace,
+		Name:      "build_info",
+		Help:      "Build metadata, constant 1, labelled by version, commit, and go_version.",
+	}, []string{"version", "commit", "go_version"})
 )
+
+// recordBuildInfo sets the trufflehog_build_info gauge to 1 with the build's
+// version, VCS commit, and Go runtime version. The commit prefers the ldflag
+// stamp; for un-stamped local builds it falls back to the embedded VCS revision
+// (`go build` from a git tree) and finally "unknown" (e.g. `go test`).
+func recordBuildInfo() {
+	c := commit
+	if c == "unknown" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, s := range info.Settings {
+				if s.Key == "vcs.revision" && s.Value != "" {
+					c = s.Value
+					break
+				}
+			}
+		}
+	}
+	buildInfo.WithLabelValues(version, c, runtime.Version()).Set(1)
+}
