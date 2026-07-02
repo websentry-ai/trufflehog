@@ -292,7 +292,7 @@ func entityRank(name string) int {
 	}
 }
 
-var exposedMetadataKeys = []string{"support_words"}
+var exposedMetadataKeys = []string{"support_words", "proximity_score"}
 
 func exposedMetadata(extra map[string]string) map[string]string {
 	if len(extra) == 0 {

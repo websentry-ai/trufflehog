@@ -26,6 +26,32 @@ const (
 
 var keywordStems = classify.KeywordStems()
 
+var counterParams = map[string]struct{}{
+	"max_tokens":                  {},
+	"max_completion_tokens":       {},
+	"max_output_tokens":           {},
+	"prompt_tokens":               {},
+	"completion_tokens":           {},
+	"input_tokens":                {},
+	"output_tokens":               {},
+	"total_tokens":                {},
+	"cached_tokens":               {},
+	"reasoning_tokens":            {},
+	"cache_read_input_tokens":     {},
+	"cache_creation_input_tokens": {},
+	"prompt_token_count":          {},
+	"candidates_token_count":      {},
+	"total_token_count":           {},
+	"maxtokens":                   {},
+	"maxcompletiontokens":         {},
+	"maxoutputtokens":             {},
+	"prompttokens":                {},
+	"completiontokens":            {},
+	"inputtokens":                 {},
+	"outputtokens":                {},
+	"totaltokens":                 {},
+}
+
 type entropyProximityDetector struct {
 	threshold float64
 	tok       tokenizer.Tokenizer
@@ -94,7 +120,7 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if classify.IsKnownFalsePositive(v) {
 			continue
 		}
-		words := nearbyKeywords(tokens, i)
+		words, score := nearbyKeywords(tokens, i)
 		if len(words) == 0 {
 			continue
 		}
@@ -106,7 +132,10 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
 			DetectorName: EntropyName,
 			Raw:          []byte(v),
-			ExtraData:    map[string]string{"support_words": strings.Join(words, ",")},
+			ExtraData: map[string]string{
+				"support_words":   strings.Join(words, ","),
+				"proximity_score": strconv.FormatFloat(score, 'f', 2, 64),
+			},
 		})
 	}
 
@@ -114,10 +143,11 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 }
 
 func hasNearbyKeyword(tokens []tokenizer.Token, idx int) bool {
-	return len(nearbyKeywords(tokens, idx)) > 0
+	words, _ := nearbyKeywords(tokens, idx)
+	return len(words) > 0
 }
 
-func nearbyKeywords(tokens []tokenizer.Token, idx int) []string {
+func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 	lo := idx - entropyWindow
 	if lo < 0 {
 		lo = 0
@@ -127,23 +157,46 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) []string {
 		hi = len(tokens) - 1
 	}
 	var words []string
+	var score float64
 	seen := make(map[string]struct{})
 	for j := lo; j <= hi; j++ {
 		if j == idx && !tokens[j].KeywordFromIdent {
 			continue
 		}
-		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
-		for _, stem := range keywordStems {
-			if strings.Contains(neighbor, stem) {
-				if _, ok := seen[stem]; !ok {
-					seen[stem] = struct{}{}
-					words = append(words, stem)
-				}
-				break
-			}
+		neighbor := reduceToAlnumUnderscore(strings.ToLower(tokens[j].Keyword))
+		if _, denied := counterParams[neighbor]; denied {
+			continue
+		}
+		stem := matchingStem(neighbor)
+		if stem == "" {
+			continue
+		}
+		if w := proximityWeight(idx, j); w > score {
+			score = w
+		}
+		if _, ok := seen[stem]; !ok {
+			seen[stem] = struct{}{}
+			words = append(words, stem)
 		}
 	}
-	return words
+	return words, score
+}
+
+func matchingStem(neighbor string) string {
+	for _, stem := range keywordStems {
+		if strings.Contains(neighbor, stem) {
+			return stem
+		}
+	}
+	return ""
+}
+
+func proximityWeight(idx, j int) float64 {
+	d := idx - j
+	if d < 0 {
+		d = -d
+	}
+	return 1.0 / float64(1+d)
 }
 
 var hashLabelStems = []string{
@@ -176,7 +229,7 @@ func nearHashLabel(tokens []tokenizer.Token, idx, hexLen int) bool {
 		lo = 0
 	}
 	for j := lo; j <= idx; j++ {
-		neighbor := reduceToAlnumUnderscore(tokens[j].Keyword)
+		neighbor := reduceToAlnumUnderscore(strings.ToLower(tokens[j].Keyword))
 		for _, stem := range hashLabelStems {
 			if !strings.Contains(neighbor, stem) {
 				continue

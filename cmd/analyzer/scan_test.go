@@ -205,10 +205,11 @@ func TestExposedMetadataAllowlist(t *testing.T) {
 		"built-in detector ExtraData must not leak into the response")
 
 	got := exposedMetadata(map[string]string{
-		"support_words":  "secret,token",
-		"rotation_guide": "https://example.com",
-		"account":        "acme",
+		"support_words":   "secret,token",
+		"proximity_score": "0.50",
+		"rotation_guide":  "https://example.com",
+		"account":         "acme",
 	})
-	require.Equal(t, map[string]string{"support_words": "secret,token"}, got,
+	require.Equal(t, map[string]string{"support_words": "secret,token", "proximity_score": "0.50"}, got,
 		"only allowlisted keys may be exposed")
 }

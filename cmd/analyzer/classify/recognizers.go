@@ -60,6 +60,8 @@ var (
 	lowerPathPat    = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
 	oktaIDPat       = regexp.MustCompile(`^(?:0[0o][a-z]|aus|fwf)[a-zA-Z0-9]{17}$`)
 	aiObjectIDPat   = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
+	anthropicIDPat  = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
+	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
@@ -102,6 +104,8 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"lower_path", lowerPathPat},
 	{"okta_id", oktaIDPat},
 	{"ai_object_id", aiObjectIDPat},
+	{"anthropic_provider_id", anthropicIDPat},
+	{"prefixed_uuid", prefixedUUIDPat},
 }
 
 func MaskPatterns() []string { return copyOf(maskPatternStrings) }
