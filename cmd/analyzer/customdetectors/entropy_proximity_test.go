@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -487,4 +488,105 @@ func entropyRawStrings(results []detectors.Result) []string {
 		out[i] = string(r.Raw)
 	}
 	return out
+}
+
+func TestNoFireOnPrefixedUUIDNearAuth(t *testing.T) {
+	input := "| project_id | auth |\n| pj-327046ef-1f60-4a2d-80a3-3a1989a987f9 | enabled |"
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+
+	require.Empty(t, results,
+		"a prefixed UUID in a markdown table near 'auth' must not produce a finding; got: %v",
+		entropyRawStrings(results))
+}
+
+func TestFiresOnCredentialPrefixedUUID(t *testing.T) {
+	cases := map[string]string{
+		"sk":  "sk-327046ef-1f60-4a2d-80a3-3a1989a987f9",
+		"api": "api-327046ef-1f60-4a2d-80a3-3a1989a987f9",
+		"pat": "pat-327046ef-1f60-4a2d-80a3-3a1989a987f9",
+	}
+	for name, secret := range cases {
+		t.Run(name, func(t *testing.T) {
+			input := "api_key=" + secret
+			results := filterByName(runEntropyDetector(t, input), EntropyName)
+			require.NotEmpty(t, results,
+				"a credential-prefixed UUID assigned to api_key must still fire; got zero for %q", secret)
+			require.True(t, entropyRawSet(results)[secret],
+				"expected Raw == %q; got: %v", secret, entropyRawStrings(results))
+		})
+	}
+}
+
+func TestNoFireOnToolUseIDNearMaxTokens(t *testing.T) {
+	input := `"max_tokens": 4000, "tool_use_id": "toolu_bdrk_01UjX4GYBs89QVzKNLexZAW4"`
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+
+	require.Empty(t, results,
+		"a Bedrock tool_use_id near 'max_tokens' must not produce a finding; got: %v",
+		entropyRawStrings(results))
+}
+
+func TestFiresOnSecretAdjacentToCredentialKeyword(t *testing.T) {
+	input := `password=aB3xKp9Qm2Lr7TzWqDv`
+	want := "aB3xKp9Qm2Lr7TzWqDv"
+
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	require.NotEmpty(t, results,
+		"a high-entropy value assigned to 'password' must fire; got zero")
+	require.True(t, entropyRawSet(results)[want],
+		"expected Raw == %q; got: %v", want, entropyRawStrings(results))
+}
+
+func TestFiresOnSecretAtWindowEdge(t *testing.T) {
+	input := `password alpha bravo delta omega aB3xKp9Qm2Lr7TzWqDv`
+	want := "aB3xKp9Qm2Lr7TzWqDv"
+
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	require.NotEmpty(t, results,
+		"a keyword exactly %d tokens away must still fire; distance must never gate", entropyWindow)
+	require.True(t, entropyRawSet(results)[want],
+		"expected Raw == %q; got: %v", want, entropyRawStrings(results))
+}
+
+func TestCounterDenylistDoesNotSuppressAccessToken(t *testing.T) {
+	input := `access_token aB3xKp9Qm2Lr7TzWqDv api_token cD4yLq0Rn3Ms8UaXrEw`
+
+	results := filterByName(runEntropyDetector(t, input), EntropyName)
+	raws := entropyRawSet(results)
+	require.True(t, raws["aB3xKp9Qm2Lr7TzWqDv"],
+		"a value adjacent to 'access_token' must still fire; got: %v", entropyRawStrings(results))
+	require.True(t, raws["cD4yLq0Rn3Ms8UaXrEw"],
+		"a value adjacent to 'api_token' must still fire; got: %v", entropyRawStrings(results))
+}
+
+func TestProximityScoreEmittedNonGating(t *testing.T) {
+	cases := []struct {
+		input    string
+		wantRaws []string
+	}{
+		{`rotate this secret: aB3xKp9Qm2Lr7TzWqDv`, []string{"aB3xKp9Qm2Lr7TzWqDv"}},
+		{`API_KEY=aB3xKp9Qm2Lr7TzWqDv`, []string{"aB3xKp9Qm2Lr7TzWqDv"}},
+		{`config['SECRET_KEY'] = "aB3xKp9Qm2Lr7TzWqDvNm"`, []string{"aB3xKp9Qm2Lr7TzWqDvNm"}},
+		{`the build artifact aB3xKp9Qm2Lr7TzWqDv shipped`, nil},
+	}
+
+	for _, tc := range cases {
+		results := filterByName(runEntropyDetector(t, tc.input), EntropyName)
+		require.Len(t, results, len(tc.wantRaws),
+			"firing behavior must be unchanged by scoring for input %q; got: %v",
+			tc.input, entropyRawStrings(results))
+		raws := entropyRawSet(results)
+		for _, want := range tc.wantRaws {
+			require.True(t, raws[want],
+				"expected Raw %q for input %q; got: %v", want, tc.input, entropyRawStrings(results))
+		}
+		for _, r := range results {
+			raw := r.ExtraData["proximity_score"]
+			require.NotEmpty(t, raw, "every finding must carry proximity_score in ExtraData")
+			score, err := strconv.ParseFloat(raw, 64)
+			require.NoError(t, err, "proximity_score %q must parse as a float", raw)
+			require.Greater(t, score, 0.0, "proximity_score must be positive when a finding fires")
+			require.LessOrEqual(t, score, 1.0, "proximity_score must not exceed 1.0")
+		}
+	}
 }

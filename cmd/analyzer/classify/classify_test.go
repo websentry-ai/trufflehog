@@ -81,6 +81,16 @@ func TestRecognizerShapes(t *testing.T) {
 		{IsExcludedEntropyValue, "okta-user-id", "00u17b72efigJqKEG0x8", true},
 		{IsExcludedEntropyValue, "okta-shape-uppercase-prefix-not-excluded", "00G1llyjisuNcGj420x8", false},
 		{IsExcludedEntropyValue, "anthropic-tool-id", "toolu_01YXrC1ZjRxiouSyo3pTshgj", true},
+		{IsExcludedEntropyValue, "anthropic-tool-id-bedrock-infix", "toolu_bdrk_01UjX4GYBs89QVzKNLexZAW4", true},
+		{IsExcludedEntropyValue, "anthropic-tool-id-vertex-infix", "toolu_vrtx_01UjX4GYBs89QVzKNLexZAW4", true},
+		{IsExcludedEntropyValue, "anthropic-msg-id-bedrock-infix", "msg_bdrk_01UjX4GYBs89QVzKNLexZAW4", true},
+		{IsExcludedEntropyValue, "secret-with-bedrock-infix-kept", "secret_bdrk_01UjX4GYBs89QVzKNLexZAW4", false},
+		{IsExcludedEntropyValue, "prefixed-uuid", "pj-327046ef-1f60-4a2d-80a3-3a1989a987f9", true},
+		{IsExcludedEntropyValue, "prefixed-uuid-pt", "pt-327046ef-1f60-4a2d-80a3-3a1989a987f9", true},
+		{IsExcludedEntropyValue, "prefixed-random-tail-kept", "pj-aB3xKp9Qm2Lr7TzWqDvNc1", false},
+		{IsExcludedEntropyValue, "credential-prefixed-uuid-sk-kept", "sk-327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{IsExcludedEntropyValue, "credential-prefixed-uuid-api-kept", "api-327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{IsExcludedEntropyValue, "credential-prefixed-uuid-key-kept", "key_327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
 		{IsExcludedEntropyValue, "anthropic-msg-id", "msg_01YXrC1ZjRxiouSyo3pTshgj", true},
 		{IsExcludedEntropyValue, "openai-chatcmpl-id", "chatcmpl-8P20za0jPV7KbW5zQW5", true},
 		{IsExcludedEntropyValue, "openai-assistant-id", "asst_abc1234567890CDEF9012", true},
@@ -114,6 +124,47 @@ func TestRecognizerShapes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := c.fn(c.in); got != c.want {
 				t.Fatalf("%s(%q) = %v, want %v", c.name, c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestEntropyExclusionRecognizerPatterns(t *testing.T) {
+	byName := map[string]Recognizer{}
+	for _, r := range EntropyExclusionRecognizers() {
+		byName[r.Name] = r
+	}
+	cases := []struct {
+		rec  string
+		name string
+		in   string
+		want bool
+	}{
+		{"prefixed_uuid", "dash-prefix", "pj-327046ef-1f60-4a2d-80a3-3a1989a987f9", true},
+		{"prefixed_uuid", "underscore-prefix", "pt_327046ef-1f60-4a2d-80a3-3a1989a987f9", true},
+		{"prefixed_uuid", "four-char-prefix", "proj-327046ef-1f60-4a2d-80a3-3a1989a987f9", true},
+		{"prefixed_uuid", "non-allowlisted-prefix-rejected", "admin-327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{"prefixed_uuid", "credential-prefix-sk-rejected", "sk-327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{"prefixed_uuid", "credential-prefix-api-rejected", "api-327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{"prefixed_uuid", "credential-prefix-key-rejected", "key_327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{"prefixed_uuid", "non-uuid-tail-rejected", "pj-aB3xKp9Qm2Lr7TzWqDvNc1", false},
+		{"prefixed_uuid", "bare-base62-rejected", "aB3xKp9Qm2Lr7TzWqDvNc1", false},
+		{"prefixed_uuid", "bare-uuid-rejected", "327046ef-1f60-4a2d-80a3-3a1989a987f9", false},
+		{"anthropic_provider_id", "toolu-bdrk", "toolu_bdrk_01UjX4GYBs89QVzKNLexZAW4", true},
+		{"anthropic_provider_id", "toolu-vrtx", "toolu_vrtx_01UjX4GYBs89QVzKNLexZAW4", true},
+		{"anthropic_provider_id", "msg-bdrk", "msg_bdrk_01UjX4GYBs89QVzKNLexZAW4", true},
+		{"anthropic_provider_id", "arbitrary-prefix-rejected", "secret_bdrk_01UjX4GYBs89QVzKNLexZAW4", false},
+		{"anthropic_provider_id", "double-infix-rejected", "toolu_bdrk_bdrk_x", false},
+		{"ai_object_id", "plain-toolu-still-matches", "toolu_01YXrC1ZjRxiouSyo3pTshgj", true},
+	}
+	for _, c := range cases {
+		t.Run(c.rec+"/"+c.name, func(t *testing.T) {
+			r, ok := byName[c.rec]
+			if !ok {
+				t.Fatalf("recognizer %q not registered", c.rec)
+			}
+			if got := r.Match(c.in); got != c.want {
+				t.Fatalf("%s.Match(%q) = %v, want %v", c.rec, c.in, got, c.want)
 			}
 		})
 	}
