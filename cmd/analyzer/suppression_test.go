@@ -207,9 +207,9 @@ func TestDecideVendorSuppression(t *testing.T) {
 		wantSup    bool
 		wantReason string
 	}{
-		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralUUID},
+		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralNoise},
 		{"jira real token kept", "JiraToken", "n27p22cchdt2k3kxabcd1234", false, ""},
-		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralUUID},
+		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralNoise},
 		{"azure code fragment with backslash", "Azure", "sameShapeToken(i))\\n\\t}\\n\\treturn", true, reasonVendorStructuralCode},
 		{"azure code fragment with space", "Azure", "map[string]string{ continue }", true, reasonVendorStructuralCode},
 		{"azure v1 punctuation secret kept", "Azure", "Abc@def*ghi;jkl:mno[pqr]stu^vwx1", false, ""},
@@ -225,7 +225,7 @@ func TestDecideVendorSuppression(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, nil)
+			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, []byte(tc.raw))
 			require.Equal(t, tc.wantSup, sup)
 			require.Equal(t, tc.wantReason, reason)
 		})
@@ -239,7 +239,9 @@ func TestApplySuppressionVendorMode(t *testing.T) {
 		{EntityType: "Azure", raw: "Abc@def*ghi;jkl:mno[pqr]stu^vwx1"},
 		{EntityType: "Github", raw: "ghp_0123456789abcdefghijklmnopqrstuvwxyz"},
 	}
-	data := []byte("")
+	// JiraToken is vetoable, so its value must be present in the document with no
+	// credential context for structural suppression to apply.
+	data := []byte("ref a1d976ec-a095-46eb-a163- end")
 
 	off := (&scanner{mode: suppressionOff, vendorMode: suppressionOff}).applySuppression(context.Background(), findings, data)
 	require.Equal(t, len(findings), len(off), "vendor off must not change findings")

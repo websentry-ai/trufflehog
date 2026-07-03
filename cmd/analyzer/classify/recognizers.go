@@ -65,6 +65,16 @@ var (
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+
+	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
+	modelAtVerPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)*@20\d{6}$`)
+	pkgVersionPat   = regexp.MustCompile(`^@?[a-z0-9][a-z0-9._\-]*@\d+\.\d+\.\d+(?:[.\-+][A-Za-z0-9.]+)?$`)
+	cliDateFlagPat  = regexp.MustCompile(`^--?[A-Za-z][A-Za-z0-9\-]*=\d{4}-\d{2}-\d{2}$`)
+	pkLangfusePat   = regexp.MustCompile(`^pk-lf-[A-Za-z0-9\-]{8,}$`)
+	cuidPat         = regexp.MustCompile(`^c[a-z0-9]{24}$`)
+	affixedUUIDPat  = regexp.MustCompile(`^[A-Za-z0-9]{1,4}[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	orgDigestPat    = regexp.MustCompile(`^[a-zA-Z][a-zA-Z]*[.\-]+(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+	uuidFragmentPat = regexp.MustCompile(`^-?[0-9a-fA-F]{2,8}(?:-[0-9a-fA-F]{1,12}){1,4}-?$`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -106,6 +116,11 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"ai_object_id", aiObjectIDPat},
 	{"anthropic_provider_id", anthropicIDPat},
 	{"prefixed_uuid", prefixedUUIDPat},
+	{"email", emailPat},
+	{"model_id_at_version", modelAtVerPat},
+	{"pkg_version", pkgVersionPat},
+	{"cli_date_flag", cliDateFlagPat},
+	{"langfuse_public_key", pkLangfusePat},
 }
 
 func MaskPatterns() []string { return copyOf(maskPatternStrings) }
@@ -384,12 +399,28 @@ func IsHexDigestInContext(value, before string) bool {
 	return len(value) == want
 }
 
-var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)?|trace[_-]?id|parent[_-]?id|segment[_-]?id|correlation[_-]?id|event[_-]?id|session[_-]?id|x-?ray|x-amzn-trace(?:[_-]?id)?|build ?hash|content[_-]?hash|debug[_-]?id)[\s=:@/-]*$|(?i)(?:self|root)\s*=\s*$`)
+var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)?|trace[_-]?id|parent[_-]?id|segment[_-]?id|correlation[_-]?id|event[_-]?id|session[_-]?id|request[_-]?id|x-?ray|x-amzn-trace(?:[_-]?id)?|build ?hash|content[_-]?hash|debug[_-]?id)[\s=:@/-]*$|(?i)(?:self|root)\s*=\s*$`)
+
+var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$")
+
+func IsBenignIDContext(before string) bool {
+	return benignIDContextPat.MatchString(before)
+}
 
 var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|secret|passwd|password|token|credential|access[_-]?key|private[_-]?key|client[_-]?secret)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
 
 func IsCredentialAssignment(before string) bool {
 	return credentialAssignPat.MatchString(before)
+}
+
+// credSuffixLabelPat matches a field whose delimited tail is a credential word
+// (privacy_key=, lithicApiToken:, client-secret:), which "\bkeys?\b" style checks
+// miss because the word is embedded. Used to keep vendor UUID findings that are
+// labelled as a real key; a benign "Jira Cloud ID:" tail (ends in id) does not match.
+var credSuffixLabelPat = regexp.MustCompile("(?i)[a-z0-9]+[_-](?:api[_-]?key|key|token|secret|credential|password|passwd)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
+
+func IsCredentialSuffixLabel(before string) bool {
+	return credSuffixLabelPat.MatchString(before)
 }
 
 var credentialContextPat = regexp.MustCompile("(?i)\\b(?:secret|api[_-]?key|apikey|password|passwd|private[_-]?key|signing|credential|access[_-]?key|auth[_-]?token|bearer|keys?)\\b")
@@ -524,3 +555,177 @@ func IsHex32(s string) bool { return hex32Pat.MatchString(s) }
 func IsUUIDish(s string) bool { return uuidishPat.MatchString(s) }
 
 func IsSecretAlphabet(s string) bool { return secretCharPat.MatchString(s) }
+
+func IsVetoableStructural(v string) bool {
+	return cuidPat.MatchString(v) || orgDigestPat.MatchString(v) ||
+		affixedUUIDPat.MatchString(v) || IsHyphenatedLabel(v)
+}
+
+func isAlnumASCII(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// IsHyphenatedLabel matches lowercase, short-segment resource labels
+// (eks-use1-dev-gen-a, grc-audit-LEAA720) that carry at least one dictionary
+// word. Every segment must be <=8 chars so a real key with a long random
+// segment never matches, and the dictionary-word requirement keeps random
+// dash-delimited tokens (Xk9-Qm2-Lr7) out.
+func IsHyphenatedLabel(v string) bool {
+	if len(v) < 5 || v[0] < 'a' || v[0] > 'z' {
+		return false
+	}
+	segs := strings.Split(v, "-")
+	if len(segs) < 3 {
+		return false
+	}
+	hasWord := false
+	for _, s := range segs {
+		if len(s) == 0 || len(s) > 8 {
+			return false
+		}
+		for i := 0; i < len(s); i++ {
+			if !isAlnumASCII(s[i]) {
+				return false
+			}
+		}
+		if isLowerWordSeg(s) {
+			hasWord = true
+		}
+	}
+	return hasWord
+}
+
+func isLowerWordSeg(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 'a' || s[i] > 'z' {
+			return false
+		}
+	}
+	return isPronounceableSeg(s)
+}
+
+// IsPlaceholderURI matches basic-auth URIs whose userinfo is a well-known dummy
+// credential pair (user:pass@host). It keys ONLY on the userinfo — never the host —
+// so real credentials embedded on a local/example host are not suppressed.
+func IsPlaceholderURI(v string) bool {
+	i := strings.Index(v, "://")
+	if i < 0 {
+		return false
+	}
+	rest := v[i+3:]
+	at := strings.Index(rest, "@")
+	if at < 0 {
+		return false
+	}
+	return placeholderUserinfo[strings.ToLower(rest[:at])]
+}
+
+var placeholderUserinfo = map[string]bool{
+	"user:pass": true, "user:password": true, "username:password": true,
+	"user:secret": true, "admin:admin": true, "admin:password": true,
+	"user:pass123": true, "username:pass": true, "root:root": true,
+}
+
+// IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken
+// built-in detectors: UUIDs and UUID fragments, mongo/hex object ids, all-lowercase
+// dictionary kebab keys, and dictionary camelCase identifiers. Real Atlassian tokens
+// (base64url, mixed case + digits, may contain '-'/'_') do not match any of these,
+// so they are never suppressed.
+func IsAtlassianNoise(v string) bool {
+	if uuidFragmentPat.MatchString(v) {
+		return true
+	}
+	if len(v) >= 20 && isAllHex(v) {
+		return true
+	}
+	return isKebabDictionary(v) || isWordConcatToken(v)
+}
+
+func isKebabDictionary(v string) bool {
+	if !strings.Contains(v, "-") {
+		return false
+	}
+	segs := strings.Split(v, "-")
+	if len(segs) < 2 {
+		return false
+	}
+	for _, s := range segs {
+		if !isLowerWordSeg(s) {
+			return false
+		}
+	}
+	return true
+}
+
+func isWordConcatToken(v string) bool {
+	if len(v) < 8 {
+		return false
+	}
+	hasLower, hasUpper := false, false
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		default:
+			return false
+		}
+	}
+	if !hasLower || !hasUpper {
+		return false
+	}
+	segs := splitCamel(v)
+	if len(segs) < 3 {
+		return false
+	}
+	good := 0
+	for _, s := range segs {
+		if isPronounceableSeg(s) {
+			good++
+		}
+	}
+	return good*5 >= len(segs)*3
+}
+
+func splitCamel(v string) []string {
+	var segs []string
+	start := 0
+	for i := 1; i < len(v); i++ {
+		prev, cur := v[i-1], v[i]
+		if prev >= 'a' && prev <= 'z' && cur >= 'A' && cur <= 'Z' {
+			segs = append(segs, v[start:i])
+			start = i
+		}
+	}
+	return append(segs, v[start:])
+}
+
+func isPronounceableSeg(s string) bool {
+	if len(s) < 2 {
+		return false
+	}
+	run := 0
+	vowel := false
+	for i := 0; i < len(s); i++ {
+		c := s[i] | 0x20
+		if c < 'a' || c > 'z' {
+			return false
+		}
+		switch c {
+		case 'a', 'e', 'i', 'o', 'u', 'y':
+			vowel = true
+			run = 0
+		default:
+			run++
+			if run > 4 {
+				return false
+			}
+		}
+	}
+	return vowel
+}

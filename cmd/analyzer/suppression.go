@@ -26,12 +26,17 @@ const (
 )
 
 const (
-	reasonBulkList    = "bulk_list"
-	reasonStripeObjID = "structural_stripe_object_id"
-	reasonHexHash     = "structural_hex_hash"
-	reasonHexTraceID  = "structural_hex_trace_id"
-	reasonStructural  = "structural_nonsecret"
+	reasonBulkList           = "bulk_list"
+	reasonStripeObjID        = "structural_stripe_object_id"
+	reasonHexHash            = "structural_hex_hash"
+	reasonHexTraceID         = "structural_hex_trace_id"
+	reasonStructural         = "structural_nonsecret"
+	reasonPemPublicBlock     = "structural_pem_public_block"
+	reasonStructuralVetoable = "structural_vetoable_id"
+	reasonBenignIDContext    = "structural_benign_id_context"
 )
+
+const benignIDContextWindow = 24
 
 const hexIDContextWindow = 24
 
@@ -179,7 +184,159 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	if f.EntityType == customdetectors.GenericSecretName && classify.IsStructuralNonSecret(f.raw) {
 		return true, reasonStructural
 	}
+	if f.EntityType == customdetectors.EntropyName {
+		if insidePublicPEMBlock(data, f.raw) {
+			return true, reasonPemPublicBlock
+		}
+		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) &&
+			!credentialSuffixLabeled(data, f.raw) {
+			return true, reasonStructuralVetoable
+		}
+		if contextSuppressed(data, f.raw, benignIDContextAt) {
+			return true, reasonBenignIDContext
+		}
+	}
 	return false, ""
+}
+
+func benignIDContextAt(data []byte, start int) bool {
+	lo := start - benignIDContextWindow
+	if lo < 0 {
+		lo = 0
+	}
+	return classify.IsBenignIDContext(string(data[lo:start]))
+}
+
+func alwaysBenignAt(_ []byte, _ int) bool { return true }
+
+// insidePublicPEMBlock reports whether raw is a base64 body line of a public PEM
+// armor (CERTIFICATE / PUBLIC KEY) and never a PRIVATE KEY. To avoid a stray or
+// truncated "-----BEGIN CERTIFICATE-----" header suppressing an unrelated secret
+// that happens to follow it, the token itself must be pure base64 and everything
+// between the header and the token must be PEM body (base64 + line separators).
+func insidePublicPEMBlock(data []byte, raw string) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 || !isBase64Body(rb) {
+		return false
+	}
+	// Require EVERY occurrence to sit inside a public PEM body. If the same
+	// base64 string also appears elsewhere (e.g. as a real secret, or before the
+	// armor), we do not suppress — the identical value at a non-PEM position keeps
+	// recall intact.
+	found := false
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		if !publicPEMAt(data, pos) {
+			return false
+		}
+		found = true
+		off = pos + 1
+	}
+	return found
+}
+
+func publicPEMAt(data []byte, pos int) bool {
+	beginMarker := []byte("-----BEGIN ")
+	b := bytes.LastIndex(data[:pos], beginMarker)
+	if b < 0 {
+		return false
+	}
+	if bytes.Contains(data[b:pos], []byte("-----END ")) {
+		return false
+	}
+	labelStart := b + len(beginMarker)
+	dash := bytes.Index(data[labelStart:], []byte("-----"))
+	if dash < 0 {
+		return false
+	}
+	label := strings.ToUpper(string(data[labelStart : labelStart+dash]))
+	if strings.Contains(label, "PRIVATE") {
+		return false
+	}
+	if !strings.Contains(label, "CERTIFICATE") && !strings.Contains(label, "PUBLIC KEY") {
+		return false
+	}
+	bodyStart := labelStart + dash + len("-----")
+	if bodyStart > pos {
+		return false
+	}
+	if !isPEMBodySpan(data[bodyStart:pos]) {
+		return false
+	}
+	return pemBodyStartsWithDERSequence(data, bodyStart)
+}
+
+// pemBodyStartsWithDERSequence checks that the armor body begins with 'M', the
+// base64 encoding of an ASN.1 SEQUENCE tag (0x30). Every real X.509 certificate
+// and SubjectPublicKeyInfo public key is a DER SEQUENCE, so this rejects a stray
+// public header followed by a non-DER base64 secret.
+func pemBodyStartsWithDERSequence(data []byte, bodyStart int) bool {
+	for i := bodyStart; i < len(data); {
+		c := data[i]
+		if c == '\n' || c == '\r' {
+			i++
+			continue
+		}
+		if c == '\\' && i+1 < len(data) && (data[i+1] == 'n' || data[i+1] == 'r') {
+			i += 2
+			continue
+		}
+		return c == 'M'
+	}
+	return false
+}
+
+func isBase64Body(b []byte) bool {
+	for _, c := range b {
+		if !isBase64Byte(c) {
+			return false
+		}
+	}
+	return len(b) > 0
+}
+
+func isBase64Byte(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
+}
+
+// isPEMBodySpan reports whether s is genuine PEM armor body between the header and
+// the candidate: base64-only lines of at most 64 chars, delimited by newlines (real
+// or the literal "\n"/"\r" escapes present in JSON-encoded prompts), with at least
+// one separator so the header is newline-terminated. This rejects prose (spaces,
+// punctuation) and un-wrapped runs, so a crafted PEM-like block cannot hide a secret.
+func isPEMBodySpan(s []byte) bool {
+	if len(s) == 0 {
+		return false
+	}
+	lineLen := 0
+	sawSeparator := false
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '\n' || c == '\r' {
+			lineLen, sawSeparator = 0, true
+			i++
+			continue
+		}
+		if c == '\\' && i+1 < len(s) && (s[i+1] == 'n' || s[i+1] == 'r') {
+			lineLen, sawSeparator = 0, true
+			i += 2
+			continue
+		}
+		if !isBase64Byte(c) {
+			return false
+		}
+		lineLen++
+		if lineLen > 64 {
+			return false
+		}
+		i++
+	}
+	return sawSeparator
 }
 
 const (
