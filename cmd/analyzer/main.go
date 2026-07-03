@@ -119,6 +119,8 @@ func main() {
 	}
 	if cfg.genericSecretsEnabled {
 		log.Printf("generic-secret + db-connection-uri detectors ENABLED (score=%.2f)", cfg.genericSecretScore)
+	}
+	if cfg.privateKeyEnabled {
 		log.Printf("private-key detector ENABLED (score=%.2f)", unverifiedScore)
 	}
 	if cfg.entropyProximityEnabled {
