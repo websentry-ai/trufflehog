@@ -14,6 +14,7 @@ import (
 type scannerConfig struct {
 	genericSecretsEnabled   bool
 	genericSecretScore      float64
+	privateKeyEnabled       bool
 	entropyProximityEnabled bool
 	entropyThreshold        float64
 	tokenizerName           string
@@ -25,6 +26,7 @@ func defaultScannerConfig() scannerConfig {
 	return scannerConfig{
 		genericSecretsEnabled:   true,
 		genericSecretScore:      defaultGenericSecretScore,
+		privateKeyEnabled:       true,
 		entropyProximityEnabled: true,
 		entropyThreshold:        customdetectors.DefaultEntropyThreshold,
 		tokenizerName:           "",
@@ -37,6 +39,7 @@ func scannerConfigFromEnv() (scannerConfig, error) {
 	cfg := scannerConfig{
 		genericSecretsEnabled:   envEnabled("ENABLE_GENERIC_SECRETS"),
 		genericSecretScore:      defaultGenericSecretScore,
+		privateKeyEnabled:       envEnabledDefault("ENABLE_PRIVATE_KEY", true),
 		entropyProximityEnabled: envEnabled("ENABLE_ENTROPY_PROXIMITY"),
 		entropyThreshold:        customdetectors.DefaultEntropyThreshold,
 		tokenizerName:           os.Getenv("ANALYZER_TOKENIZER"),
@@ -69,6 +72,17 @@ func envEnabled(name string) bool {
 	}
 }
 
+func envEnabledDefault(name string, def bool) bool {
+	switch os.Getenv(name) {
+	case "true", "1":
+		return true
+	case "false", "0":
+		return false
+	default:
+		return def
+	}
+}
+
 func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	dets := defaults.DefaultDetectors()
 	if cfg.genericSecretsEnabled {
@@ -80,11 +94,14 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 		if err != nil {
 			return nil, err
 		}
+		dets = append(dets, gs, dbURI)
+	}
+	if cfg.privateKeyEnabled {
 		privKey, err := customdetectors.NewPrivateKey()
 		if err != nil {
 			return nil, err
 		}
-		dets = append(dets, gs, dbURI, privKey)
+		dets = append(dets, privKey)
 	}
 	if cfg.entropyProximityEnabled {
 		tok, err := tokenizer.Select(cfg.tokenizerName)

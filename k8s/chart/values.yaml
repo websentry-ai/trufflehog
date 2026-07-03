@@ -47,7 +47,8 @@ ingress:
 # exits with `log.Fatal("TRUFFLEHOG_API_KEY is required")` (CrashLoopBackOff).
 #
 # The non-sensitive detection-tuning flags (ENABLE_GENERIC_SECRETS,
-# ENABLE_ENTROPY_PROXIMITY, GENERIC_SECRET_SCORE, ENTROPY_THRESHOLD) are NOT in
+# ENABLE_PRIVATE_KEY, ENABLE_ENTROPY_PROXIMITY, GENERIC_SECRET_SCORE,
+# ENTROPY_THRESHOLD) are NOT in
 # SM — they live in the per-overlay `env:` block (staging/ + prod/values.yaml)
 # so they're version-controlled and reviewable. On key collision env: wins over
 # envFrom: secretRef, so an overlay `env:` value always takes precedence.

@@ -43,6 +43,8 @@ env:
     value: "0.7"
   - name: ENABLE_GENERIC_SECRETS
     value: "false"
+  - name: ENABLE_PRIVATE_KEY
+    value: "true"
   - name: ENABLE_ENTROPY_PROXIMITY
     value: "true"
   - name: FP_SUPPRESSION_MODE
