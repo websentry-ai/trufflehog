@@ -24,6 +24,11 @@ func TestInsidePublicPEMBlock(t *testing.T) {
 	// follows it through non-base64 prose (bypass guard).
 	bypass := []byte("-----BEGIN CERTIFICATE-----\\nnote to self: AKIAIOSFODNN7EXAMPLE")
 	require.False(t, insidePublicPEMBlock(bypass, "AKIAIOSFODNN7EXAMPLE"))
+
+	// If the same base64 string appears inside the cert AND again outside it,
+	// suppression must NOT fire (the out-of-armor occurrence keeps recall).
+	dup := []byte("k: -----BEGIN CERTIFICATE-----\\n" + line + "\\n also seen here: " + line)
+	require.False(t, insidePublicPEMBlock(dup, line))
 }
 
 func TestDecideSuppression_EntropyStructural(t *testing.T) {

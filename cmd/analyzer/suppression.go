@@ -218,10 +218,27 @@ func insidePublicPEMBlock(data []byte, raw string) bool {
 	if len(rb) == 0 || !isBase64Body(rb) {
 		return false
 	}
-	pos := bytes.Index(data, rb)
-	if pos < 0 {
-		return false
+	// Require EVERY occurrence to sit inside a public PEM body. If the same
+	// base64 string also appears elsewhere (e.g. as a real secret, or before the
+	// armor), we do not suppress — the identical value at a non-PEM position keeps
+	// recall intact.
+	found := false
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		if !publicPEMAt(data, pos) {
+			return false
+		}
+		found = true
+		off = pos + 1
 	}
+	return found
+}
+
+func publicPEMAt(data []byte, pos int) bool {
 	beginMarker := []byte("-----BEGIN ")
 	b := bytes.LastIndex(data[:pos], beginMarker)
 	if b < 0 {
