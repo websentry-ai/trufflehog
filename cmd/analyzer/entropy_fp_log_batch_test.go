@@ -66,3 +66,16 @@ func TestDecideSuppression_EntropyStructural(t *testing.T) {
 		nil, []byte("api_key="+tok))
 	require.False(t, supTok)
 }
+
+func TestVendorVetoPrivacy(t *testing.T) {
+	uuid := "0d4cd6d5-0b95-49af-9e47-0687c26f8bf7"
+	// Benign identifier label -> suppressed (the corpus FP: "Jira Cloud ID: <uuid>").
+	sup, _ := decideVendorSuppression(analyzeResult{EntityType: "Privacy", raw: uuid}, []byte("- Jira Cloud ID: "+uuid))
+	require.True(t, sup)
+	// Credential-suffix label -> kept (a real Privacy key).
+	supKey, _ := decideVendorSuppression(analyzeResult{EntityType: "Privacy", raw: uuid}, []byte("privacy_key="+uuid))
+	require.False(t, supKey)
+	// Standard credential assignment -> kept.
+	supStd, _ := decideVendorSuppression(analyzeResult{EntityType: "Privacy", raw: uuid}, []byte("api_key: "+uuid))
+	require.False(t, supStd)
+}

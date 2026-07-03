@@ -1,6 +1,10 @@
 package main
 
-import "github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
+import (
+	"bytes"
+
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
+)
 
 const (
 	reasonVendorStructuralUUID       = "vendor_structural_uuid"
@@ -71,8 +75,37 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	if !rule.match(f.raw) {
 		return false, ""
 	}
-	if rule.vetoable && !contextSuppressed(data, f.raw, alwaysBenignAt) {
-		return false, ""
+	if rule.vetoable {
+		if !contextSuppressed(data, f.raw, alwaysBenignAt) || credentialSuffixLabeled(data, f.raw) {
+			return false, ""
+		}
 	}
 	return true, rule.reason
+}
+
+// credentialSuffixLabeled reports whether any occurrence of raw is preceded by a
+// credential-suffix label (privacy_key=, lithic_token:) that the standalone-word
+// credential checks miss. Used to keep vendor UUID findings that are labelled as
+// a real key.
+func credentialSuffixLabeled(data []byte, raw string) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
+		return false
+	}
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		lo := pos - credentialContextWindow
+		if lo < 0 {
+			lo = 0
+		}
+		if classify.IsCredentialSuffixLabel(string(data[lo:pos])) {
+			return true
+		}
+		off = pos + 1
+	}
+	return false
 }

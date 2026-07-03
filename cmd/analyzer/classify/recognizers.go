@@ -413,6 +413,16 @@ func IsCredentialAssignment(before string) bool {
 	return credentialAssignPat.MatchString(before)
 }
 
+// credSuffixLabelPat matches a field whose delimited tail is a credential word
+// (privacy_key=, lithicApiToken:, client-secret:), which "\bkeys?\b" style checks
+// miss because the word is embedded. Used to keep vendor UUID findings that are
+// labelled as a real key; a benign "Jira Cloud ID:" tail (ends in id) does not match.
+var credSuffixLabelPat = regexp.MustCompile("(?i)[a-z0-9]+[_-](?:api[_-]?key|key|token|secret|credential|password|passwd)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
+
+func IsCredentialSuffixLabel(before string) bool {
+	return credSuffixLabelPat.MatchString(before)
+}
+
 var credentialContextPat = regexp.MustCompile("(?i)\\b(?:secret|api[_-]?key|apikey|password|passwd|private[_-]?key|signing|credential|access[_-]?key|auth[_-]?token|bearer|keys?)\\b")
 
 func IsCredentialContext(before string) bool {

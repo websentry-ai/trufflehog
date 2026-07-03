@@ -102,6 +102,17 @@ func TestHexIDInContext_RequestID(t *testing.T) {
 	require.False(t, IsHexIDInContext(reqID, "api_key = "))
 }
 
+func TestIsCredentialSuffixLabel(t *testing.T) {
+	yes := []string{"privacy_key=", "lithic_token: ", "client-secret: ", "app_api_key = "}
+	for _, v := range yes {
+		require.True(t, IsCredentialSuffixLabel(v), "expected credential label: %q", v)
+	}
+	no := []string{"Jira Cloud ID: ", "monkey: ", "user_id=", "parentId: "}
+	for _, v := range no {
+		require.False(t, IsCredentialSuffixLabel(v), "must not treat as credential: %q", v)
+	}
+}
+
 func TestIsPlaceholderURI_LogBatch(t *testing.T) {
 	require.True(t, IsPlaceholderURI("https://user:pass@host"))
 	require.True(t, IsPlaceholderURI("http://username:password@localhost"))
