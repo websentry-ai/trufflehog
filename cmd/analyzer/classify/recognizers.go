@@ -597,37 +597,26 @@ func isLowerWordSeg(s string) bool {
 	return isPronounceableSeg(s)
 }
 
+// IsPlaceholderURI matches basic-auth URIs whose userinfo is a well-known dummy
+// credential pair (user:pass@host). It keys ONLY on the userinfo — never the host —
+// so real credentials embedded on a local/example host are not suppressed.
 func IsPlaceholderURI(v string) bool {
 	i := strings.Index(v, "://")
 	if i < 0 {
 		return false
 	}
 	rest := v[i+3:]
-	userinfo, hostpart := "", rest
-	if at := strings.Index(rest, "@"); at >= 0 {
-		userinfo, hostpart = rest[:at], rest[at+1:]
+	at := strings.Index(rest, "@")
+	if at < 0 {
+		return false
 	}
-	host := hostpart
-	for _, sep := range []string{"/", ":", "?", "#"} {
-		if j := strings.Index(host, sep); j >= 0 {
-			host = host[:j]
-		}
-	}
-	if placeholderUserinfo[strings.ToLower(userinfo)] {
-		return true
-	}
-	return placeholderHost[strings.ToLower(host)]
+	return placeholderUserinfo[strings.ToLower(rest[:at])]
 }
 
 var placeholderUserinfo = map[string]bool{
 	"user:pass": true, "user:password": true, "username:password": true,
 	"user:secret": true, "admin:admin": true, "admin:password": true,
 	"user:pass123": true, "username:pass": true, "root:root": true,
-}
-
-var placeholderHost = map[string]bool{
-	"host": true, "hostname": true, "localhost": true, "your-host": true,
-	"your_host": true, "myhost": true, "example.com": true, "example.org": true,
 }
 
 // IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken

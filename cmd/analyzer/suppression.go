@@ -280,16 +280,39 @@ func isBase64Byte(c byte) bool {
 		(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
 }
 
-// isPEMBodySpan reports whether s contains only base64 characters and PEM line
-// separators (including the literal "\n" escapes present in JSON-encoded prompts).
+// isPEMBodySpan reports whether s is genuine PEM armor body between the header and
+// the candidate: base64-only lines of at most 64 chars, delimited by newlines (real
+// or the literal "\n"/"\r" escapes present in JSON-encoded prompts), with at least
+// one separator so the header is newline-terminated. This rejects prose (spaces,
+// punctuation) and un-wrapped runs, so a crafted PEM-like block cannot hide a secret.
 func isPEMBodySpan(s []byte) bool {
-	for _, c := range s {
-		if isBase64Byte(c) || c == '\n' || c == '\r' || c == '\t' || c == ' ' || c == '\\' {
-			continue
-		}
+	if len(s) == 0 {
 		return false
 	}
-	return true
+	lineLen := 0
+	sawSeparator := false
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '\n' || c == '\r' {
+			lineLen, sawSeparator = 0, true
+			i++
+			continue
+		}
+		if c == '\\' && i+1 < len(s) && (s[i+1] == 'n' || s[i+1] == 'r') {
+			lineLen, sawSeparator = 0, true
+			i += 2
+			continue
+		}
+		if !isBase64Byte(c) {
+			return false
+		}
+		lineLen++
+		if lineLen > 64 {
+			return false
+		}
+		i++
+	}
+	return sawSeparator
 }
 
 const (

@@ -106,4 +106,7 @@ func TestIsPlaceholderURI_LogBatch(t *testing.T) {
 	require.True(t, IsPlaceholderURI("https://user:pass@host"))
 	require.True(t, IsPlaceholderURI("http://username:password@localhost"))
 	require.False(t, IsPlaceholderURI("https://admin:S3cr3tP4ss@db.prod.internal:5432"))
+	// Real credentials on a local/example host must NOT be suppressed (host is not a signal).
+	require.False(t, IsPlaceholderURI("https://realUser:realSecret@localhost:5432"))
+	require.False(t, IsPlaceholderURI("postgres://svc:9fKx2Lr7Pw@example.com/db"))
 }
