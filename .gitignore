@@ -15,3 +15,6 @@ tmp/go-test.json
 # Python
 __pycache__/
 *.pyc
+
+# Local agent memory / tooling
+.claude/
