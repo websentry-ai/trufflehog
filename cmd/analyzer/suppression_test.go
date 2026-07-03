@@ -207,9 +207,9 @@ func TestDecideVendorSuppression(t *testing.T) {
 		wantSup    bool
 		wantReason string
 	}{
-		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralUUID},
+		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralNoise},
 		{"jira real token kept", "JiraToken", "n27p22cchdt2k3kxabcd1234", false, ""},
-		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralUUID},
+		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralNoise},
 		{"azure code fragment with backslash", "Azure", "sameShapeToken(i))\\n\\t}\\n\\treturn", true, reasonVendorStructuralCode},
 		{"azure code fragment with space", "Azure", "map[string]string{ continue }", true, reasonVendorStructuralCode},
 		{"azure v1 punctuation secret kept", "Azure", "Abc@def*ghi;jkl:mno[pqr]stu^vwx1", false, ""},

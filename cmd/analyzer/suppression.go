@@ -26,12 +26,17 @@ const (
 )
 
 const (
-	reasonBulkList    = "bulk_list"
-	reasonStripeObjID = "structural_stripe_object_id"
-	reasonHexHash     = "structural_hex_hash"
-	reasonHexTraceID  = "structural_hex_trace_id"
-	reasonStructural  = "structural_nonsecret"
+	reasonBulkList           = "bulk_list"
+	reasonStripeObjID        = "structural_stripe_object_id"
+	reasonHexHash            = "structural_hex_hash"
+	reasonHexTraceID         = "structural_hex_trace_id"
+	reasonStructural         = "structural_nonsecret"
+	reasonPemPublicBlock     = "structural_pem_public_block"
+	reasonStructuralVetoable = "structural_vetoable_id"
+	reasonBenignIDContext    = "structural_benign_id_context"
 )
+
+const benignIDContextWindow = 24
 
 const hexIDContextWindow = 24
 
@@ -179,7 +184,57 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	if f.EntityType == customdetectors.GenericSecretName && classify.IsStructuralNonSecret(f.raw) {
 		return true, reasonStructural
 	}
+	if f.EntityType == customdetectors.EntropyName {
+		if insidePublicPEMBlock(data, f.raw) {
+			return true, reasonPemPublicBlock
+		}
+		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) {
+			return true, reasonStructuralVetoable
+		}
+		if contextSuppressed(data, f.raw, benignIDContextAt) {
+			return true, reasonBenignIDContext
+		}
+	}
 	return false, ""
+}
+
+func benignIDContextAt(data []byte, start int) bool {
+	lo := start - benignIDContextWindow
+	if lo < 0 {
+		lo = 0
+	}
+	return classify.IsBenignIDContext(string(data[lo:start]))
+}
+
+func alwaysBenignAt(_ []byte, _ int) bool { return true }
+
+func insidePublicPEMBlock(data []byte, raw string) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
+		return false
+	}
+	pos := bytes.Index(data, rb)
+	if pos < 0 {
+		return false
+	}
+	beginMarker := []byte("-----BEGIN ")
+	b := bytes.LastIndex(data[:pos], beginMarker)
+	if b < 0 {
+		return false
+	}
+	if bytes.Contains(data[b:pos], []byte("-----END ")) {
+		return false
+	}
+	labelStart := b + len(beginMarker)
+	dash := bytes.Index(data[labelStart:], []byte("-----"))
+	if dash < 0 {
+		return false
+	}
+	label := strings.ToUpper(string(data[labelStart : labelStart+dash]))
+	if strings.Contains(label, "PRIVATE") {
+		return false
+	}
+	return strings.Contains(label, "CERTIFICATE") || strings.Contains(label, "PUBLIC KEY")
 }
 
 const (

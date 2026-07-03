@@ -8,6 +8,7 @@ const (
 	reasonVendorStructuralConnString = "vendor_structural_connstring"
 	reasonVendorStructuralDigest     = "vendor_structural_digest"
 	reasonVendorStructuralEmbedded   = "vendor_structural_embedded"
+	reasonVendorStructuralNoise      = "vendor_structural_noise"
 )
 
 const digestContextWindow = 16
@@ -18,8 +19,11 @@ type vendorRule struct {
 }
 
 var vendorStructuralRules = map[string]vendorRule{
-	"JiraToken": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
-	"Atlassian": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
+	"JiraToken": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise},
+	"Atlassian": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise},
+	"Privacy":   {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
+	"Onesignal": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
+	"URI":       {match: classify.IsPlaceholderURI, reason: reasonVendorStructuralNoise},
 	"Azure":     {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
 	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 }
