@@ -25,6 +25,11 @@ func TestInsidePublicPEMBlock(t *testing.T) {
 	bypass := []byte("-----BEGIN CERTIFICATE-----\\nnote to self: AKIAIOSFODNN7EXAMPLE")
 	require.False(t, insidePublicPEMBlock(bypass, "AKIAIOSFODNN7EXAMPLE"))
 
+	// Even a base64-only token right after a stray header is kept unless the body
+	// begins with a DER SEQUENCE ('M'); a real secret rarely does.
+	nonDER := []byte("-----BEGIN CERTIFICATE-----\\nAKIAIOSFODNN7EXAMPLE")
+	require.False(t, insidePublicPEMBlock(nonDER, "AKIAIOSFODNN7EXAMPLE"))
+
 	// If the same base64 string appears inside the cert AND again outside it,
 	// suppression must NOT fire (the out-of-armor occurrence keeps recall).
 	dup := []byte("k: -----BEGIN CERTIFICATE-----\\n" + line + "\\n also seen here: " + line)

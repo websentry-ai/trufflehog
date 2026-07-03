@@ -263,7 +263,30 @@ func publicPEMAt(data []byte, pos int) bool {
 	if bodyStart > pos {
 		return false
 	}
-	return isPEMBodySpan(data[bodyStart:pos])
+	if !isPEMBodySpan(data[bodyStart:pos]) {
+		return false
+	}
+	return pemBodyStartsWithDERSequence(data, bodyStart)
+}
+
+// pemBodyStartsWithDERSequence checks that the armor body begins with 'M', the
+// base64 encoding of an ASN.1 SEQUENCE tag (0x30). Every real X.509 certificate
+// and SubjectPublicKeyInfo public key is a DER SEQUENCE, so this rejects a stray
+// public header followed by a non-DER base64 secret.
+func pemBodyStartsWithDERSequence(data []byte, bodyStart int) bool {
+	for i := bodyStart; i < len(data); {
+		c := data[i]
+		if c == '\n' || c == '\r' {
+			i++
+			continue
+		}
+		if c == '\\' && i+1 < len(data) && (data[i+1] == 'n' || data[i+1] == 'r') {
+			i += 2
+			continue
+		}
+		return c == 'M'
+	}
+	return false
 }
 
 func isBase64Body(b []byte) bool {

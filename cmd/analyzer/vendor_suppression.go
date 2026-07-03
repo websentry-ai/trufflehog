@@ -16,13 +16,19 @@ const digestContextWindow = 16
 type vendorRule struct {
 	match  func(string) bool
 	reason string
+	// vetoable rules match a shape that can overlap a real credential for that
+	// detector (e.g. Privacy keys are UUIDs by design), so they suppress only
+	// outside a credential-assignment context. Rules whose shape is decisively
+	// non-secret (Atlassian noise, code fragments, benign conn strings,
+	// placeholder URIs) are unconditional.
+	vetoable bool
 }
 
 var vendorStructuralRules = map[string]vendorRule{
 	"JiraToken": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise},
 	"Atlassian": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise},
-	"Privacy":   {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
-	"Onesignal": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID},
+	"Privacy":   {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
+	"Onesignal": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
 	"URI":       {match: classify.IsPlaceholderURI, reason: reasonVendorStructuralNoise},
 	"Azure":     {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
 	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
@@ -62,8 +68,11 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	if !ok {
 		return false, ""
 	}
-	if rule.match(f.raw) {
-		return true, rule.reason
+	if !rule.match(f.raw) {
+		return false, ""
 	}
-	return false, ""
+	if rule.vetoable && !contextSuppressed(data, f.raw, alwaysBenignAt) {
+		return false, ""
+	}
+	return true, rule.reason
 }
