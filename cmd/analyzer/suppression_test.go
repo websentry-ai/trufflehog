@@ -225,7 +225,7 @@ func TestDecideVendorSuppression(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, nil)
+			sup, reason := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, []byte(tc.raw))
 			require.Equal(t, tc.wantSup, sup)
 			require.Equal(t, tc.wantReason, reason)
 		})
@@ -239,7 +239,9 @@ func TestApplySuppressionVendorMode(t *testing.T) {
 		{EntityType: "Azure", raw: "Abc@def*ghi;jkl:mno[pqr]stu^vwx1"},
 		{EntityType: "Github", raw: "ghp_0123456789abcdefghijklmnopqrstuvwxyz"},
 	}
-	data := []byte("")
+	// JiraToken is vetoable, so its value must be present in the document with no
+	// credential context for structural suppression to apply.
+	data := []byte("ref a1d976ec-a095-46eb-a163- end")
 
 	off := (&scanner{mode: suppressionOff, vendorMode: suppressionOff}).applySuppression(context.Background(), findings, data)
 	require.Equal(t, len(findings), len(off), "vendor off must not change findings")

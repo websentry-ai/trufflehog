@@ -21,16 +21,16 @@ type vendorRule struct {
 	match  func(string) bool
 	reason string
 	// vetoable rules match a shape that can overlap a real credential for that
-	// detector (e.g. Privacy keys are UUIDs by design), so they suppress only
-	// outside a credential-assignment context. Rules whose shape is decisively
-	// non-secret (Atlassian noise, code fragments, benign conn strings,
-	// placeholder URIs) are unconditional.
+	// detector (Privacy keys are UUIDs by design; an Atlassian token can be an
+	// all-hex run), so they suppress only outside a credential context / label.
+	// Rules whose shape is decisively non-secret (code fragments, benign conn
+	// strings, placeholder URIs) are unconditional.
 	vetoable bool
 }
 
 var vendorStructuralRules = map[string]vendorRule{
-	"JiraToken": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise},
-	"Atlassian": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise},
+	"JiraToken": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
+	"Atlassian": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
 	"Privacy":   {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
 	"Onesignal": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
 	"URI":       {match: classify.IsPlaceholderURI, reason: reasonVendorStructuralNoise},

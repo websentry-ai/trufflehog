@@ -188,7 +188,8 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 		if insidePublicPEMBlock(data, f.raw) {
 			return true, reasonPemPublicBlock
 		}
-		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) {
+		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) &&
+			!credentialSuffixLabeled(data, f.raw) {
 			return true, reasonStructuralVetoable
 		}
 		if contextSuppressed(data, f.raw, benignIDContextAt) {

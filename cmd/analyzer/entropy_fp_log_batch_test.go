@@ -65,6 +65,27 @@ func TestDecideSuppression_EntropyStructural(t *testing.T) {
 		analyzeResult{EntityType: customdetectors.EntropyName, raw: tok},
 		nil, []byte("api_key="+tok))
 	require.False(t, supTok)
+
+	// A structural value labelled by a credential-suffix field is kept.
+	label := "eks-use1-dev-gen-a"
+	supBenign, _ := decideSuppression(
+		analyzeResult{EntityType: customdetectors.EntropyName, raw: label},
+		nil, []byte("envs (`"+label+"`)"))
+	require.True(t, supBenign)
+	supLabelled, _ := decideSuppression(
+		analyzeResult{EntityType: customdetectors.EntropyName, raw: label},
+		nil, []byte("cluster_key="+label))
+	require.False(t, supLabelled)
+}
+
+func TestVendorVetoAtlassianHex(t *testing.T) {
+	hex := "620b8b51eb29780068913b4d" // 24-hex, matches IsAtlassianNoise
+	// Benign actionerId url param (the corpus FP) -> suppressed.
+	sup, _ := decideVendorSuppression(analyzeResult{EntityType: "Atlassian", raw: hex}, []byte("?actionerId="+hex))
+	require.True(t, sup)
+	// Credential-suffix label -> kept (could be a real hex token).
+	supKey, _ := decideVendorSuppression(analyzeResult{EntityType: "Atlassian", raw: hex}, []byte("jira_token="+hex))
+	require.False(t, supKey)
 }
 
 func TestVendorVetoPrivacy(t *testing.T) {
