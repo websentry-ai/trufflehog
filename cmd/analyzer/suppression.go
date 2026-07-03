@@ -208,9 +208,14 @@ func benignIDContextAt(data []byte, start int) bool {
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }
 
+// insidePublicPEMBlock reports whether raw is a base64 body line of a public PEM
+// armor (CERTIFICATE / PUBLIC KEY) and never a PRIVATE KEY. To avoid a stray or
+// truncated "-----BEGIN CERTIFICATE-----" header suppressing an unrelated secret
+// that happens to follow it, the token itself must be pure base64 and everything
+// between the header and the token must be PEM body (base64 + line separators).
 func insidePublicPEMBlock(data []byte, raw string) bool {
 	rb := []byte(raw)
-	if len(rb) == 0 {
+	if len(rb) == 0 || !isBase64Body(rb) {
 		return false
 	}
 	pos := bytes.Index(data, rb)
@@ -234,7 +239,40 @@ func insidePublicPEMBlock(data []byte, raw string) bool {
 	if strings.Contains(label, "PRIVATE") {
 		return false
 	}
-	return strings.Contains(label, "CERTIFICATE") || strings.Contains(label, "PUBLIC KEY")
+	if !strings.Contains(label, "CERTIFICATE") && !strings.Contains(label, "PUBLIC KEY") {
+		return false
+	}
+	bodyStart := labelStart + dash + len("-----")
+	if bodyStart > pos {
+		return false
+	}
+	return isPEMBodySpan(data[bodyStart:pos])
+}
+
+func isBase64Body(b []byte) bool {
+	for _, c := range b {
+		if !isBase64Byte(c) {
+			return false
+		}
+	}
+	return len(b) > 0
+}
+
+func isBase64Byte(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
+}
+
+// isPEMBodySpan reports whether s contains only base64 characters and PEM line
+// separators (including the literal "\n" escapes present in JSON-encoded prompts).
+func isPEMBodySpan(s []byte) bool {
+	for _, c := range s {
+		if isBase64Byte(c) || c == '\n' || c == '\r' || c == '\t' || c == ' ' || c == '\\' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 const (

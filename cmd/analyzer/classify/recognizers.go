@@ -66,14 +66,15 @@ var (
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
-	emailPat       = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
-	modelAtVerPat  = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)*@20\d{6}$`)
-	pkgVersionPat  = regexp.MustCompile(`^@?[a-z0-9][a-z0-9._\-]*@\d+\.\d+\.\d+(?:[.\-+][A-Za-z0-9.]+)?$`)
-	cliDateFlagPat = regexp.MustCompile(`^--?[A-Za-z][A-Za-z0-9\-]*=\d{4}-\d{2}-\d{2}$`)
-	pkLangfusePat  = regexp.MustCompile(`^pk-lf-[A-Za-z0-9\-]{8,}$`)
-	cuidPat        = regexp.MustCompile(`^c[a-z0-9]{24}$`)
-	affixedUUIDPat = regexp.MustCompile(`^[A-Za-z0-9]{1,4}[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	orgDigestPat   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z]*[.\-]+(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
+	modelAtVerPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)*@20\d{6}$`)
+	pkgVersionPat   = regexp.MustCompile(`^@?[a-z0-9][a-z0-9._\-]*@\d+\.\d+\.\d+(?:[.\-+][A-Za-z0-9.]+)?$`)
+	cliDateFlagPat  = regexp.MustCompile(`^--?[A-Za-z][A-Za-z0-9\-]*=\d{4}-\d{2}-\d{2}$`)
+	pkLangfusePat   = regexp.MustCompile(`^pk-lf-[A-Za-z0-9\-]{8,}$`)
+	cuidPat         = regexp.MustCompile(`^c[a-z0-9]{24}$`)
+	affixedUUIDPat  = regexp.MustCompile(`^[A-Za-z0-9]{1,4}[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	orgDigestPat    = regexp.MustCompile(`^[a-zA-Z][a-zA-Z]*[.\-]+(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+	uuidFragmentPat = regexp.MustCompile(`^-?[0-9a-fA-F]{2,8}(?:-[0-9a-fA-F]{1,12}){1,4}-?$`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -550,6 +551,15 @@ func IsVetoableStructural(v string) bool {
 		affixedUUIDPat.MatchString(v) || IsHyphenatedLabel(v)
 }
 
+func isAlnumASCII(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// IsHyphenatedLabel matches lowercase, short-segment resource labels
+// (eks-use1-dev-gen-a, grc-audit-LEAA720) that carry at least one dictionary
+// word. Every segment must be <=8 chars so a real key with a long random
+// segment never matches, and the dictionary-word requirement keeps random
+// dash-delimited tokens (Xk9-Qm2-Lr7) out.
 func IsHyphenatedLabel(v string) bool {
 	if len(v) < 5 || v[0] < 'a' || v[0] > 'z' {
 		return false
@@ -558,18 +568,33 @@ func IsHyphenatedLabel(v string) bool {
 	if len(segs) < 3 {
 		return false
 	}
+	hasWord := false
 	for _, s := range segs {
 		if len(s) == 0 || len(s) > 8 {
 			return false
 		}
 		for i := 0; i < len(s); i++ {
-			c := s[i]
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			if !isAlnumASCII(s[i]) {
 				return false
 			}
 		}
+		if isLowerWordSeg(s) {
+			hasWord = true
+		}
 	}
-	return true
+	return hasWord
+}
+
+func isLowerWordSeg(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 'a' || s[i] > 'z' {
+			return false
+		}
+	}
+	return isPronounceableSeg(s)
 }
 
 func IsPlaceholderURI(v string) bool {
@@ -605,14 +630,35 @@ var placeholderHost = map[string]bool{
 	"your_host": true, "myhost": true, "example.com": true, "example.org": true,
 }
 
+// IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken
+// built-in detectors: UUIDs and UUID fragments, mongo/hex object ids, all-lowercase
+// dictionary kebab keys, and dictionary camelCase identifiers. Real Atlassian tokens
+// (base64url, mixed case + digits, may contain '-'/'_') do not match any of these,
+// so they are never suppressed.
 func IsAtlassianNoise(v string) bool {
-	if strings.ContainsAny(v, "-_") {
+	if uuidFragmentPat.MatchString(v) {
 		return true
 	}
 	if len(v) >= 20 && isAllHex(v) {
 		return true
 	}
-	return isWordConcatToken(v)
+	return isKebabDictionary(v) || isWordConcatToken(v)
+}
+
+func isKebabDictionary(v string) bool {
+	if !strings.Contains(v, "-") {
+		return false
+	}
+	segs := strings.Split(v, "-")
+	if len(segs) < 2 {
+		return false
+	}
+	for _, s := range segs {
+		if !isLowerWordSeg(s) {
+			return false
+		}
+	}
+	return true
 }
 
 func isWordConcatToken(v string) bool {

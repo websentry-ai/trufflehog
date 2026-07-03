@@ -19,6 +19,11 @@ func TestInsidePublicPEMBlock(t *testing.T) {
 
 	// No PEM armor at all.
 	require.False(t, insidePublicPEMBlock([]byte("plain text "+line), line))
+
+	// A stray/truncated public header must NOT suppress an unrelated secret that
+	// follows it through non-base64 prose (bypass guard).
+	bypass := []byte("-----BEGIN CERTIFICATE-----\\nnote to self: AKIAIOSFODNN7EXAMPLE")
+	require.False(t, insidePublicPEMBlock(bypass, "AKIAIOSFODNN7EXAMPLE"))
 }
 
 func TestDecideSuppression_EntropyStructural(t *testing.T) {

@@ -17,10 +17,12 @@ func TestIsAtlassianNoise_LogBatch(t *testing.T) {
 	for _, v := range noise {
 		require.True(t, IsAtlassianNoise(v), "expected noise: %q", v)
 	}
-	// Recall guards: real random 24-char tokens must survive.
+	// Recall guards: real tokens must survive, including base64url-style
+	// Atlassian tokens that legitimately contain '-' and '_'.
 	real := []string{
 		"n27p22cchdt2k3kxabcd1234",
 		"aB3xKp9Qm2Lr7TzWqDvNcEd1",
+		"ATATT3xFfGF0abcDEF-ghi_jkl12",
 	}
 	for _, v := range real {
 		require.False(t, IsAtlassianNoise(v), "must keep real token: %q", v)
@@ -66,6 +68,7 @@ func TestIsVetoableStructural_LogBatch(t *testing.T) {
 		"UY4UtWrY9Tp7zZoS-xye3QX8VIaCJOzChp8gCiBMYjk", // real token, long segments
 		"svc-tok-api03-9aQxYzLongRandomSecretValue00", // vendor-key style, long final segment
 		"3be99690b46828acf0a50b21e67c8ef687783c7f9",   // bare 40-hex, no word prefix
+		"xk9-qm2-lr7-tz8", // random dash token, no dictionary word
 	}
 	for _, v := range no {
 		require.False(t, IsVetoableStructural(v), "must keep: %q", v)
