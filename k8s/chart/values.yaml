@@ -83,6 +83,20 @@ autoscaling:
   targetCPUUtilizationPercentage: 75
   targetMemoryUtilizationPercentage: 75
 
+# KEDA autoscaling. When keda.enabled=true, the chart renders a ScaledObject
+# (templates/scaledobject.yaml) and SUPPRESSES the HPA (templates/hpa.yaml) so the
+# two never fight over the same Deployment. KEDA owns the HPA it generates.
+# Enabled per-overlay (currently staging only); prod keeps the plain HPA above.
+# NOTE: the ScaledObject's triggers are the ONLY scaling metrics — enabling KEDA on
+# an overlay drops the HPA's memory metric there. Off by default.
+keda:
+  enabled: false
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  pollingInterval: 30
+  cooldownPeriod: 300
+  triggers: []
+
 strategy:
   type: RollingUpdate
   rollingUpdate:

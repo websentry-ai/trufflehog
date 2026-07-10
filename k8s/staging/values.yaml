@@ -21,6 +21,34 @@ autoscaling:
   targetCPUUtilizationPercentage: 75
   targetMemoryUtilizationPercentage: 75
 
+# KEDA on staging only. This suppresses the HPA above (including its memory
+# metric) and scales via the ScaledObject instead. This near-idle service's win
+# is the min-1 floor + KEDA-managed scaling. Scales on the real scan-job-rate
+# metric (trufflehog_analyze_requests_total, incremented once per /analyze scan
+# in cmd/analyzer/main.go). Prod keeps its HPA.
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  triggers:
+    # Scale on scan/request rate. THRESHOLD "2" per pod is a PLACEHOLDER (near-idle
+    # service) — CALIBRATE vs real peak in Grafana before prod.
+    # trufflehog_analyze_requests_total is a CounterVec created lazily on the first
+    # /analyze request, so the series is absent until traffic flows; KEDA's fallback
+    # (3 failures -> minReplicaCount) covers the no-data window.
+    - type: prometheus
+      metadata:
+        serverAddress: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+        query: sum(rate(trufflehog_analyze_requests_total{namespace="staging"}[2m]))
+        threshold: "2"
+
+# Prometheus must scrape /metrics for the KEDA prometheus trigger above to have
+# data. Inherited from base values (enabled: true) but pinned here explicitly
+# since the ScaledObject query depends on it. The cluster's kube-prometheus-stack
+# runs serviceMonitorSelectorNilUsesHelmValues=false, so no release label needed.
+serviceMonitor:
+  enabled: true
+
 resources:
   requests:
     cpu: 250m
