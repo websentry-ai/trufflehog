@@ -1,4 +1,4 @@
-{{- if not .Values.keda.enabled }}
+{{- if not (and .Values.keda.enabled .Values.keda.triggers) }}
 {{- if .Values.autoscaling.enabled }}
 {{- if not (or .Values.autoscaling.targetCPUUtilizationPercentage .Values.autoscaling.targetMemoryUtilizationPercentage) -}}
 {{- fail "autoscaling.enabled=true requires at least one of targetCPUUtilizationPercentage or targetMemoryUtilizationPercentage" -}}
