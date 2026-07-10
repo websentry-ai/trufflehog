@@ -25,6 +25,21 @@ autoscaling:
   targetCPUUtilizationPercentage: 75
   targetMemoryUtilizationPercentage: 75
 
+# KEDA on prod. Floor 2 (HA), ceiling 4. Scales on scan request rate.
+# THRESHOLD "2" scan-rps/pod (prod peaks ~4.3). Near-idle service.
+keda:
+  enabled: true
+  minReplicaCount: 2
+  maxReplicaCount: 4
+  pollingInterval: 30
+  cooldownPeriod: 300
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+        query: sum(rate(trufflehog_analyze_requests_total{namespace="prod"}[2m]))
+        threshold: "2"
+
 resources:
   requests:
     cpu: 250m
