@@ -21,6 +21,21 @@ autoscaling:
   targetCPUUtilizationPercentage: 75
   targetMemoryUtilizationPercentage: 75
 
+# KEDA on staging only. This suppresses the HPA above (including its memory
+# metric) and scales via the ScaledObject instead. This near-idle service's win
+# is the min-1 floor + KEDA-managed scaling; the CPU trigger is an INTERIM stand-in
+# until the real scan-job-rate metric is exposed (follow-up). Prod keeps its HPA.
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  triggers:
+    # INTERIM CPU trigger — real scan-job-rate metric is a follow-up.
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+
 resources:
   requests:
     cpu: 250m

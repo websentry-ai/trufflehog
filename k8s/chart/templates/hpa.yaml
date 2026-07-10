@@ -1,3 +1,4 @@
+{{- if not .Values.keda.enabled }}
 {{- if .Values.autoscaling.enabled }}
 {{- if not (or .Values.autoscaling.targetCPUUtilizationPercentage .Values.autoscaling.targetMemoryUtilizationPercentage) -}}
 {{- fail "autoscaling.enabled=true requires at least one of targetCPUUtilizationPercentage or targetMemoryUtilizationPercentage" -}}
@@ -32,4 +33,5 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
     {{- end }}
+{{- end }}
 {{- end }}
