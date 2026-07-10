@@ -6,7 +6,7 @@ metadata:
     app: {{ .Release.Name }}
 spec:
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit | default 3 }}
-  {{- if not .Values.autoscaling.enabled }}
+  {{- if not (or .Values.autoscaling.enabled .Values.keda.enabled) }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:

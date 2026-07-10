@@ -39,7 +39,7 @@ keda:
     - type: prometheus
       metadata:
         serverAddress: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
-        query: sum(rate(trufflehog_analyze_requests_total[2m]))
+        query: sum(rate(trufflehog_analyze_requests_total{namespace="staging"}[2m]))
         threshold: "2"
 
 # Prometheus must scrape /metrics for the KEDA prometheus trigger above to have
