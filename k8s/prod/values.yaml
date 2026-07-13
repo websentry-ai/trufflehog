@@ -66,3 +66,8 @@ env:
     value: "enforce"
   - name: VENDOR_STRUCTURAL_SUPPRESSION
     value: "enforce"
+# PodDisruptionBudget: keep <=1 replica unavailable so a Karpenter one-at-a-time
+# node drain never takes the service below N-1 (cross-service calls stay served).
+pdb:
+  enabled: true
+  maxUnavailable: 1
