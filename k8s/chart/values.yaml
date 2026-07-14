@@ -144,3 +144,8 @@ serviceMonitor:
   interval: 30s
   scrapeTimeout: 10s
   releaseLabel: ""
+
+# PodDisruptionBudget — off by default; enabled per-env (prod). See prod values.
+pdb:
+  enabled: false
+  maxUnavailable: 1
