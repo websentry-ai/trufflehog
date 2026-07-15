@@ -12,7 +12,7 @@ externalSecret:
 # pointing at the nginx ingress LB before cert-manager can issue the TLS cert.
 ingress:
   enabled: true
-  host: trufflehog-staging.getunbound.ai
+  host: trufflehog-staging.unboundsecurity.ai
   # Served behind the Cloudflare proxy (Full Strict): the origin cert is a
   # Cloudflare Origin CA cert delivered by ESO from AWS SM (tlsExternalSecret
   # below) into trufflehog-staging-origin-tls, NOT the cert-manager -tls secret.
