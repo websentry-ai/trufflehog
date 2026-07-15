@@ -28,6 +28,7 @@ service:
 ingress:
   enabled: false
   className: nginx
+  tlsSecretName: ""
   host: ""
   tls: true
   annotations:
@@ -149,3 +150,15 @@ serviceMonitor:
 pdb:
   enabled: false
   maxUnavailable: 1
+
+# TLS cert sourced from AWS Secrets Manager via ESO instead of cert-manager (a
+# Cloudflare Origin CA cert for hosts behind the Cloudflare proxy). Off by
+# default; enable per env with ingress.tlsSecretName set and the
+# cert-manager.io/cluster-issuer annotation removed. remoteKey = the AWS SM path.
+tlsExternalSecret:
+  enabled: false
+  remoteKey: ""
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
