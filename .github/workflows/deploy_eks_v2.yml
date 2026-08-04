@@ -1,0 +1,682 @@
+name: Build and Deploy EKS (v2 — GitOps)
+
+# ---------------------------------------------------------------------------
+# v2: ArgoCD-driven deploys. This workflow does NOT talk to the cluster.
+# ---------------------------------------------------------------------------
+# WHY: the EKS API endpoints are being closed to public CIDRs — only VPN
+# traffic will be allowed. GitHub-hosted runners are not on the VPN and have
+# dynamic egress IPs, so they cannot be allowlisted. CI permanently loses its
+# route to the Kubernetes API, which is exactly what v1 (deploy-eks.yml)
+# depends on for `kubectl rollout restart`, `rollout status`, and its
+# ECR-repoint rollback.
+#
+# So "deploy" here means: push the image to ECR (a normal AWS API, still
+# reachable) and commit `image.tag: <sha>` into k8s/<env>/values.yaml on the
+# deploy branch. The hub ArgoCD — running in-cluster on dev, reaching the
+# spokes from the allowlisted dev NAT EIP — sees the git change and rolls it
+# out. Every Application in unbound-infra/argocd-apps/ already runs
+# syncPolicy.automated{prune,selfHeal}; until now image.tag was pinned to the
+# immutable string "staging"/"prod", so git never changed and ArgoCD never had
+# anything to sync.
+#
+# Env → what it deploys:
+#   staging → branch `staging`, k8s/staging/values.yaml  (Application tracks `staging`)
+#   prod    → branch `main`,    k8s/prod/values.yaml     (Application tracks HEAD)
+#   dev     → build + push only; there is no dev Application (argocd-apps/dev
+#             is a README), so there is no tag to commit.
+#
+# The three prod safety properties from v1 are preserved, re-expressed in git:
+#   1. Slack approval gate — now gates the COMMIT. No approval, no commit, so
+#      ArgoCD never sees a change and nothing rolls out. Fails closed.
+#   2. 2h soak — unchanged.
+#   3. Rollback — `git revert` of the tag commit instead of repointing the ECR
+#      :prod tag and restarting pods (both needed cluster access). ArgoCD
+#      reconciles prod back to the previous tag. :prod-previous is gone.
+#
+# Consequence, deliberately accepted: CI cannot verify the rollout landed, so
+# it does not claim to. The Slack notice reports a handoff to ArgoCD; the soak
+# is the verification window.
+#
+# COEXISTENCE WITH v1: deploy-eks.yml is still live and still auto-deploys on
+# push. This workflow is workflow_dispatch-only so the two cannot race (two
+# gates, two soaks, two tag writes). To deprecate v1: uncomment the
+# push/schedule triggers below and delete deploy-eks.yml.
+#
+# ⚠️ COEXISTENCE IS ONE-WAY PER ENVIRONMENT. The first v2 deploy to an env
+# retires v1 for that env, permanently and silently:
+#
+#   Once values.yaml pins an immutable :<sha>, ArgoCD's selfHeal holds the
+#   Deployment at that image. v1 then still builds, still moves its mutable
+#   :<env> tag, still runs `kubectl rollout restart`, and still reports green —
+#   but ArgoCD reconciles the pod template straight back to the pinned sha, so
+#   the running image never changes. v1 becomes a no-op that looks like a
+#   successful deploy.
+#
+# So do NOT treat v1 as a live fallback after cutting an env over. To hand an
+# env back to v1, revert k8s/<env>/values.yaml to the mutable string tag
+# ("staging"/"prod") and let ArgoCD sync that first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        required: true
+        default: staging
+        options: [staging, prod]
+      deploy:
+        description: Commit the image tag (ArgoCD then rolls it out). Off = build + push only.
+        type: boolean
+        default: true
+  # --- Enable these when deprecating v1 (deploy-eks.yml) ---
+  # NOT a pure uncomment: `resolve` and `concurrency` below both read
+  # inputs.environment, which only exists on workflow_dispatch. Enabling these
+  # triggers ALSO requires deriving env from the ref (main→prod, staging→staging,
+  # schedule→by cron expression) the way v1's resolve job does — otherwise every
+  # push resolves to an empty env and lands in one shared concurrency group.
+  # push:
+  #   branches: [main, staging]
+  #   # k8s/** MUST stay ignored: without it, the tag commit this workflow makes
+  #   # would re-trigger the workflow and build in a loop.
+  #   paths-ignore: ['k8s/**', 'docs/**', '**.md']
+  # schedule:
+  #   - cron: '0 6 * * *'      # daily — staging
+  #   - cron: '0 10 * * 2,4'   # Tue & Thu — prod (gated)
+
+concurrency:
+  # Keyed on the target env, not the dispatch ref: two runs against the same env
+  # would both commit image.tag into the same k8s/<env>/values.yaml, and the
+  # loser's rebase would replay its (older) sha on top of the winner's — leaving
+  # the soak holding a revert target that is no longer what HEAD pins.
+  # Staging and prod are independent (different files, different branches), so
+  # they get separate groups and can run simultaneously.
+  # Never cancel in progress: a cancelled prod run drops a live soak, leaving
+  # prod deployed with no rollback watchdog.
+  group: deploy-eks-v2-trufflehog-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # ECR push via OIDC
+  contents: read    # the tag commit is pushed with DEPLOY_AUTOMATION_SECRET, not GITHUB_TOKEN
+
+env:
+  AWS_REGION: us-west-2
+  ECR_NAME: k8s/trufflehog
+  ECR_REPO: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
+  # How long to give ArgoCD before this workflow reports the handoff.
+  #
+  # A GitHub org webhook (websentry-ai -> https://argo.getunbound.ai/api/webhook)
+  # makes ArgoCD sync on the push itself, so in the normal case the rollout has
+  # already started well before this elapses. 30s matches the cluster's
+  # timeout.reconciliation floor (unbound-infra addons argocd-cm), which is what
+  # catches a push that produced no webhook delivery.
+  #
+  # This is still a blind wait, not a check — CI has no route to the Kubernetes
+  # API. It exists so the Slack notice and the prod soak don't open before the
+  # rollout has plausibly begun.
+  ARGO_RECONCILE_SECONDS: '30'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Resolve what this run does from the chosen environment.
+  # ---------------------------------------------------------------------------
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.r.outputs.env }}
+      branch: ${{ steps.r.outputs.branch }}
+      values_file: ${{ steps.r.outputs.values_file }}
+      deploy: ${{ steps.r.outputs.deploy }}
+      gate: ${{ steps.r.outputs.gate }}
+      soak: ${{ steps.r.outputs.soak }}
+    steps:
+      - id: r
+        env:
+          INPUT_ENV: ${{ inputs.environment }}
+          INPUT_DEPLOY: ${{ inputs.deploy }}
+        run: |
+          ENV="$INPUT_ENV"; DEPLOY="$INPUT_DEPLOY"; GATE=false; SOAK=false
+          case "$ENV" in
+            # NOTE: unlike ai-gateway, BOTH ArgoCD Applications for this repo
+            # track HEAD (= main) and differ only in which values file they
+            # read (../staging/values.yaml vs ../prod/values.yaml). There is no
+            # `staging` branch. So a staging deploy commits k8s/staging/values.yaml
+            # ON MAIN — same branch as prod, different file. They cannot collide.
+            staging) BRANCH=main ;;
+            prod)    BRANCH=main; GATE=true ;;
+            *)       echo "::error::unknown environment '${ENV}'"; exit 1 ;;
+          esac
+          # Soak only when a tag is actually committed: a build-only run
+          # (deploy=off) changed nothing in git, so there is nothing to watch
+          # and nothing to revert.
+          [ "$ENV" = "prod" ] && [ "$DEPLOY" = "true" ] && SOAK=true || true
+          # A gate with nothing to approve is noise — skip it on a build-only
+          # prod run. Nothing can reach the cluster either way.
+          [ "$DEPLOY" != "true" ] && GATE=false || true
+          {
+            echo "env=$ENV"; echo "branch=$BRANCH"; echo "deploy=$DEPLOY"
+            echo "gate=$GATE"; echo "soak=$SOAK"
+            echo "values_file=k8s/${ENV}/values.yaml"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved: env=$ENV branch=$BRANCH deploy=$DEPLOY gate=$GATE soak=$SOAK"
+
+  # ---------------------------------------------------------------------------
+  # Slack approval gate — prod only. Runs BEFORE the tag commit, so a denial or
+  # a timeout leaves git untouched and ArgoCD idle: nothing to undo.
+  # ---------------------------------------------------------------------------
+  gate:
+    needs: resolve
+    if: needs.resolve.outputs.gate == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      decision: ${{ steps.g.outputs.decision }}
+      ts: ${{ steps.g.outputs.ts }}
+    steps:
+      - id: g
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
+          TITLE: ':rotating_light: *Deploying trufflehog* `[PROD]` _(v2 — GitOps)_'
+          # Show WHO asked and WHICH ref's workflow definition is running, not
+          # just the branch being deployed. A dispatch runs the workflow file
+          # from the ref it was fired from, so `workflow from` can differ from
+          # `deploying` — and an approver needs to see that before approving.
+          # DETAILS is assembled in-script because the requester is resolved to a
+          # real Slack mention at runtime (see REQUESTER below).
+          ACTOR: ${{ github.actor }}
+          SLACK_USER_MAP: ${{ vars.DEPLOY_SLACK_USER_MAP }}
+          WORKFLOW_REF: ${{ github.ref_name }}
+          DEPLOY_BRANCH: ${{ needs.resolve.outputs.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QUOTE: '> Gilfoyle says — Someone wants to put this in production. On purpose, allegedly.'
+          TIMEOUT_SECONDS: '3600'
+          POLL_SECONDS: '25'
+        run: |
+          set -uo pipefail
+          # Resolve the GitHub actor to a real Slack mention so the person who
+          # triggered the deploy is actually pinged, not just named in text —
+          # they are the one who needs this approved, and a prod deploy should
+          # not sit unnoticed in a channel.
+          #
+          # vars.DEPLOY_SLACK_USER_MAP is a JSON object of GitHub login ->
+          # Slack member id, e.g. {"sumit-badsara":"U0AGGCQ62RY"}. Set it at the
+          # ORG level so every repo shares one map as v2 is mirrored out.
+          #
+          # Deliberately a static map rather than users.lookupByEmail: the
+          # actor's email is usually private on GitHub, and the lookup would need
+          # users:read.email on the bot token. Unmapped actors (new joiners, bots,
+          # scheduled runs) fall back to their GitHub handle, so the message is
+          # always correct — just not clickable.
+          REQUESTER="\`${ACTOR}\`"
+          if [ -n "${SLACK_USER_MAP:-}" ]; then
+            SLACK_UID="$(printf '%s' "$SLACK_USER_MAP" | jq -r --arg a "$ACTOR" '.[$a] // empty' 2>/dev/null || true)"
+            if [ -n "${SLACK_UID:-}" ]; then
+              REQUESTER="<@${SLACK_UID}>"
+            else
+              echo "::notice::${ACTOR} is not in DEPLOY_SLACK_USER_MAP — falling back to a plain-text name (no ping)"
+            fi
+          fi
+          DETAILS="$(printf 'Requested by %s · workflow from `%s` · deploying `%s` — <%s|run log>' \
+            "$REQUESTER" "$WORKFLOW_REF" "$DEPLOY_BRANCH" "$RUN_URL")"
+          api() { local m="$1"; shift; curl -sS -X POST "https://slack.com/api/${m}" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-type: application/x-www-form-urlencoded" "$@"; }
+          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then
+            echo "::error::Slack not configured — failing closed (no approval)."
+            echo "decision=denied" >> "$GITHUB_OUTPUT"; exit 1; fi
+          BOT_ID="$(api auth.test | jq -r '.user_id // empty')"
+          # Without the bot's own user id the poll can't tell the pre-seeded
+          # reactions from a human's — an empty BOT_ID would let the bot's own
+          # ✅ self-approve the deploy on the first poll. Fail closed.
+          if [ -z "$BOT_ID" ]; then
+            echo "::error::Slack auth.test returned no user_id — cannot filter the bot's own seeded reactions; failing closed."
+            echo "decision=denied" >> "$GITHUB_OUTPUT"; exit 1; fi
+          TEXT="$(printf '%s\n%s\n%s\n\n*React one of the following:*\n•   :white_check_mark:  approve\n•   :x:  decline' "$TITLE" "$QUOTE" "$DETAILS")"
+          POST="$(api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "text=${TEXT}")"
+          [ "$(echo "$POST" | jq -r '.ok')" = "true" ] || { echo "::error::postMessage failed"; echo "decision=denied" >> "$GITHUB_OUTPUT"; exit 1; }
+          TS="$(echo "$POST" | jq -r '.ts')"
+          echo "ts=$TS" >> "$GITHUB_OUTPUT"
+          for e in white_check_mark x; do api reactions.add --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}" --data-urlencode "name=$e" >/dev/null || true; done
+          human() { echo "$2" | jq -r --arg e "$1" --arg bot "$BOT_ID" '(.message.reactions // []) | map(select(.name==$e)) | .[0].users // [] | map(select(. != $bot)) | .[0] // empty'; }
+          name_of() { api users.info --data-urlencode "user=$1" | jq -r '.user.profile.real_name // .user.name // "someone"'; }
+          reply() { api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "thread_ts=${TS}" --data-urlencode "text=$1" >/dev/null || true; }
+          DEADLINE=$(( SECONDS + TIMEOUT_SECONDS ))
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            R="$(api reactions.get --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}")"
+            if [ "$(echo "$R" | jq -r '.ok')" = "true" ]; then
+              D="$(human x "$R")";  if [ -n "$D" ]; then N="$(name_of "$D")"; reply "⛔ ${N} denied it. Finally, a correct decision in this channel. Standing down."; echo "decision=denied" >> "$GITHUB_OUTPUT"; echo "::notice::Denied by ${N}"; exit 0; fi
+              A="$(human white_check_mark "$R")"; if [ -n "$A" ]; then N="$(name_of "$A")"; reply "✅ Approved by ${N}. Their name's on it now, not mine. Deploying."; echo "decision=approved" >> "$GITHUB_OUTPUT"; echo "::notice::Approved by ${N}"; exit 0; fi
+            else
+              echo "::warning::Slack reactions.get failed ($(echo "$R" | jq -r '.error // "unknown"')) — retrying"
+            fi
+            sleep "$POLL_SECONDS"
+          done
+          reply "⏳ Nobody reacted for an hour. I'll take your silence as the cowardice it is. Cancelled."
+          echo "decision=timeout" >> "$GITHUB_OUTPUT"; echo "::error::Approval timed out"; exit 1
+
+  # ---------------------------------------------------------------------------
+  # Build + push to ECR, then commit image.tag=<sha> for ArgoCD to pick up.
+  # No cluster access — see the note at the top of this file.
+  # ---------------------------------------------------------------------------
+  build-deploy:
+    needs: [resolve, gate]
+    # Ungated envs run always; gated prod only when approved.
+    if: |
+      always() && needs.resolve.result == 'success' &&
+      (needs.resolve.outputs.gate != 'true' || needs.gate.outputs.decision == 'approved')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image_sha: ${{ steps.meta.outputs.sha }}
+      bump_commit: ${{ steps.bump.outputs.commit }}
+      previous_tag: ${{ steps.bump.outputs.previous_tag }}
+      bump_changed: ${{ steps.bump.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Always build and commit from the target env's deploy branch, whatever
+          # ref the dispatch was fired from — ArgoCD tracks that branch, so a tag
+          # commit anywhere else would never be seen. The dispatch ref only
+          # selects which version of this file runs. dev has no branch of its own
+          # and builds whatever was dispatched.
+          ref: ${{ needs.resolve.outputs.branch && format('refs/heads/{0}', needs.resolve.outputs.branch) || github.ref }}
+          fetch-depth: 0
+          # The PAT (unbound-auto) is what gets the tag commit past branch
+          # protection — that account is in the bypass list for main AND
+          # staging, which matters because main also has enforce_admins: true.
+          # Runs that never push (dev, deploy=off) use the default GITHUB_TOKEN
+          # so the PAT isn't handed to builds with no use for it.
+          token: ${{ needs.resolve.outputs.deploy == 'true' && secrets.DEPLOY_AUTOMATION_SECRET || github.token }}
+
+      - name: Resolve tags
+        id: meta
+        env:
+          ENV: ${{ needs.resolve.outputs.env }}
+          DEPLOY: ${{ needs.resolve.outputs.deploy }}
+          ECR_REPO: ${{ env.ECR_REPO }}
+        run: |
+          GIT_SHA="$(git rev-parse HEAD)"
+          # ONLY the immutable :<sha> tag. v2 deliberately does NOT move the
+          # mutable :<env> tag, even as a convenience marker.
+          #
+          # Moving it breaks rollback. On the first v2 deploy to an env,
+          # values.yaml still pins the literal string "prod"/"staging". If this
+          # run also repointed ECR's :prod at the new image, the soak's
+          # `git revert` would restore `tag: "prod"` — which now resolves to the
+          # very image we are trying to roll away from. The rollback would look
+          # like it succeeded and change nothing. The same trap reappears any
+          # time values.yaml is manually reset to the env string.
+          #
+          # Nothing needs it either: ArgoCD deploys the sha from git. v1 moves
+          # :<env> itself when it runs, so leaving it alone here does not affect
+          # v1 during coexistence.
+          TAGS="${ECR_REPO}:${GIT_SHA}"
+          { echo "sha=$GIT_SHA"; echo "tags<<EOF"; echo "$TAGS"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          echo "env=$ENV deploy=$DEPLOY sha=$GIT_SHA"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            GIT_SHA=${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=trufflehog
+          cache-to: type=gha,scope=trufflehog,mode=max
+          provenance: false
+
+      - name: Verify ECR image manifest
+        if: needs.resolve.outputs.deploy == 'true'
+        env:
+          GIT_SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          # Fails closed. This is the LAST guard before the tag is committed: CI
+          # has no cluster access, so if the manifest isn't really in ECR we'd
+          # commit a tag that ArgoCD faithfully rolls out into ImagePullBackOff,
+          # with nothing in this workflow able to notice. Better to stop here
+          # with git untouched and the environment unchanged.
+          #
+          # Uses batch-get-image, NOT describe-images. The CI role
+          # (unbound-dev-gha-ci) is granted ecr:BatchGetImage but NOT
+          # ecr:DescribeImages, so describe-images returns AccessDenied on every
+          # call — it has never once succeeded. v1 carries the same check and
+          # has been printing "manifest not visible after 60s — proceeding" on
+          # every deploy since it shipped, burning 60s and continuing anyway, so
+          # nobody noticed. Escalating this step to fail-closed turned that
+          # latent gap into a hard stop on the first v2 run.
+          #
+          # stderr is captured and surfaced instead of discarded: an auth or API
+          # error must never again be indistinguishable from "not pushed yet".
+          for i in $(seq 1 12); do
+            if OUT="$(aws ecr batch-get-image --repository-name "$ECR_NAME" \
+                        --image-ids imageTag="$GIT_SHA" --region "$AWS_REGION" \
+                        --query 'images[0].imageId.imageDigest' --output text 2>&1)"; then
+              # A missing tag is a successful call returning "None", which is
+              # why the emptiness check is separate from the exit status.
+              if [ -n "$OUT" ] && [ "$OUT" != "None" ]; then
+                echo "✓ Image manifest in ECR: ${OUT}"; exit 0
+              fi
+              echo "Waiting for ECR manifest ($i/12)..."
+            else
+              # The AWS CLI writes multi-line errors that start with a blank
+              # line; a ::warning:: annotation only renders its first line, so
+              # flatten to one line or the annotation shows up empty — which is
+              # the same invisibility this whole change exists to remove.
+              LAST_ERR="$(printf '%s' "$OUT" | tr '\n' ' ' | tr -s ' ')"
+              echo "::warning::ECR lookup failed (attempt ${i}/12): ${LAST_ERR}"
+            fi
+            sleep 5
+          done
+          echo "::error::${ECR_NAME}:${GIT_SHA} not confirmed in ECR after 60s — refusing to commit a tag that would deploy a missing image. Last error: ${LAST_ERR:-none (tag simply absent)}"
+          exit 1
+
+      - name: Commit image tag for ArgoCD
+        id: bump
+        if: needs.resolve.outputs.deploy == 'true'
+        env:
+          ENV: ${{ needs.resolve.outputs.env }}
+          BRANCH: ${{ needs.resolve.outputs.branch }}
+          VALUES_FILE: ${{ needs.resolve.outputs.values_file }}
+          GIT_SHA: ${{ steps.meta.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          [ -f "$VALUES_FILE" ] || { echo "::error::${VALUES_FILE} not found"; exit 1; }
+          command -v yq >/dev/null || { echo "::error::yq not on the runner — cannot read ${VALUES_FILE} safely"; exit 1; }
+
+          PREV="$(yq -r '.image.tag' "$VALUES_FILE")"
+          # Reject anything that isn't a single-line container tag before it
+          # reaches $GITHUB_OUTPUT. A multi-line YAML scalar would otherwise
+          # inject extra output lines and could forge the `commit`/`changed`
+          # outputs the soak's revert targeting depends on.
+          case "$PREV" in
+            ''|*[!A-Za-z0-9._-]*)
+              echo "::error::image.tag in ${VALUES_FILE} is not a plain container tag: '${PREV}'"
+              exit 1 ;;
+          esac
+          echo "previous_tag=${PREV}" >> "$GITHUB_OUTPUT"
+          if [ "$PREV" = "$GIT_SHA" ]; then
+            # Same commit redeployed. Writing nothing is correct — but say so,
+            # because it also means the soak has no commit to revert.
+            echo "::warning::${VALUES_FILE} already pins ${GIT_SHA} — no commit made, so a soak rollback will have nothing to revert"
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Locate the `tag:` line inside the top-level `image:` block.
+          LINE="$(awk '/^image:/{inblock=1; next} inblock && /^[^[:space:]#]/{inblock=0} inblock && /^[[:space:]]+tag:[[:space:]]*/{print NR; exit}' "$VALUES_FILE")"
+          [ -n "$LINE" ] || { echo "::error::could not locate the image.tag line in ${VALUES_FILE}"; exit 1; }
+
+          # Surgical single-line rewrite, preserving the original indentation.
+          # Deliberately NOT `yq -i`: yq reserialises the whole document — it
+          # strips every blank line and re-indents trailing comment blocks — so
+          # each deploy would commit a whole-file rewrite that buries the one
+          # line that actually changed and quietly reflows the comments. On prod
+          # that would also make the soak's revert diff unreadable.
+          awk -v ln="$LINE" -v sha="$GIT_SHA" 'NR==ln { match($0, /^[[:space:]]*/); printf "%stag: \"%s\"\n", substr($0, 1, RLENGTH), sha; next } {print}' "$VALUES_FILE" > "${VALUES_FILE}.tmp"
+          mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
+
+          # Two independent confirmations: the document parses back to the sha,
+          # and the edit touched exactly one line. A silent no-op or an
+          # over-broad rewrite would otherwise sail through as success — and it
+          # would be ArgoCD, not this workflow, that applied the damage.
+          NOW="$(yq -r '.image.tag' "$VALUES_FILE")"
+          [ "$NOW" = "$GIT_SHA" ] || { echo "::error::failed to write image.tag into ${VALUES_FILE} (still '${NOW}')"; exit 1; }
+          STAT="$(git diff --numstat -- "$VALUES_FILE" | awk '{print $1"/"$2}')"
+          if [ "$STAT" != "1/1" ]; then
+            echo "::error::expected exactly a 1-line change to ${VALUES_FILE}, got ${STAT:-no-change}"
+            git diff -- "$VALUES_FILE" || true
+            exit 1
+          fi
+
+          git config user.name 'Unbound Automation'
+          git config user.email 'engg@unboundsecurity.ai'
+          git add "$VALUES_FILE"
+          git commit -m "chore(${ENV}): deploy trufflehog ${GIT_SHA}" \
+                     -m "Pins image.tag in ${VALUES_FILE}; ArgoCD rolls it out. ${RUN_URL}"
+
+          # Rebase-retry: sync-staging-with-main.yml (and any human push) can
+          # land on this branch between our fetch and our push. Our commit only
+          # touches k8s/<env>/values.yaml, so a rebase is conflict-free in
+          # practice; a genuine conflict fails loudly rather than force-pushing
+          # over someone else's work.
+          for i in 1 2 3 4 5; do
+            if git push origin "HEAD:${BRANCH}"; then
+              COMMIT="$(git rev-parse HEAD)"
+              { echo "commit=${COMMIT}"; echo "changed=true"; } >> "$GITHUB_OUTPUT"
+              echo "✓ ${VALUES_FILE}: ${PREV} → ${GIT_SHA} (${COMMIT}) on ${BRANCH}"
+              exit 0
+            fi
+            echo "push rejected (attempt ${i}/5) — rebasing on origin/${BRANCH}"
+            # Explicit refspec: actions/checkout narrows remote.origin.fetch, so
+            # a bare `git fetch origin <branch>` may leave the origin/<branch>
+            # remote-tracking ref stale and the rebase below a silent no-op —
+            # which would then retry the same rejected push five times.
+            git fetch origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" || true
+            git rebase "origin/${BRANCH}" || {
+              git rebase --abort || true
+              echo "::error::rebase onto origin/${BRANCH} conflicted — resolve manually; no tag committed"
+              exit 1
+            }
+          done
+          echo "::error::could not push the tag commit to ${BRANCH} after 5 attempts"
+          exit 1
+
+      - name: Wait for ArgoCD to pick up the commit
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          # Unattended wait, not a poll: there is no route from this runner to
+          # the Kubernetes API (VPN-only), so nothing here can observe the
+          # rollout. The org webhook should already have triggered the sync on
+          # our push; this just keeps the notice below and the prod soak from
+          # opening before the rollout has plausibly begun.
+          #
+          # Deliberately NOT `argocd app wait`: that needs an inbound path from
+          # the runner to the ArgoCD API plus a stored token, and GitHub Actions
+          # runner egress IPs are broad and rotating, so it cannot be allowlisted
+          # if the ArgoCD ingress is ever locked down the way the EKS API is.
+          # (GitHub's *webhook* source ranges are published and stable, which is
+          # why the push direction is the one we depend on.) If CI ever needs
+          # real rollout status, the durable answer is argocd-notifications
+          # posting a commit status outbound — not CI polling inbound.
+          echo "Waiting ${ARGO_RECONCILE_SECONDS}s for ArgoCD to act on the push..."
+          sleep "$ARGO_RECONCILE_SECONDS"
+
+      - name: Notify Slack channel
+        if: always() && needs.resolve.outputs.deploy == 'true'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ needs.resolve.outputs.env == 'prod' && vars.SLACK_PROD_CHANNEL_ID || vars.SLACK_STAGING_CHANNEL_ID }}
+          ENV: ${{ needs.resolve.outputs.env }}
+          GATE_TS: ${{ needs.gate.outputs.ts }}
+          SHA: ${{ steps.meta.outputs.sha }}
+          BUMP: ${{ steps.bump.outputs.commit }}
+          CHANGED: ${{ steps.bump.outputs.changed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -z "${SLACK_BOT_TOKEN:-}" ] && exit 0
+          ENVU=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
+          if [ "$ENV" = "prod" ]; then NOTE="It is on its way to production. Try to look surprised."; else NOTE="Staging — where your mistakes go to be discovered. By me."; fi
+          # Deliberately NOT "Deployed": this workflow handed the tag to ArgoCD
+          # and has no way to confirm the rollout. Claiming otherwise would be a
+          # green message for an unverified state.
+          if [ "$CHANGED" = "true" ]; then
+            HEAD_LINE="$(printf ':large_blue_circle: *Handed trufflehog to ArgoCD* `[%s]` _(v2)_' "$ENVU")"
+            TAIL_LINE="$(printf 'SHA `%s`  ·  tag commit `%s`  ·  <%s|run log>' "$SHA" "$BUMP" "$RUN_URL")"
+          elif [ "$CHANGED" = "false" ]; then
+            HEAD_LINE="$(printf ':white_circle: *trufflehog image pushed, no tag change* `[%s]` _(v2)_' "$ENVU")"
+            TAIL_LINE="$(printf 'SHA `%s` was already pinned — nothing for ArgoCD to sync  ·  <%s|run log>' "$SHA" "$RUN_URL")"
+            NOTE="Nothing changed. The best kind of deploy."
+          else
+            HEAD_LINE="$(printf ':x: *trufflehog deploy failed before the tag commit* `[%s]` _(v2)_' "$ENVU")"
+            TAIL_LINE="$(printf 'SHA `%s` — %s is unchanged  ·  <%s|run log>' "$SHA" "$ENV" "$RUN_URL")"
+            NOTE="It broke before it could reach anything important. Small mercies."
+          fi
+          TEXT="$(printf '%s\n> Gilfoyle says — %s\n%s' "$HEAD_LINE" "$NOTE" "$TAIL_LINE")"
+          ARGS=(--data-urlencode "channel=${CHANNEL}" --data-urlencode "text=${TEXT}")
+          [ -n "${GATE_TS:-}" ] && ARGS+=(--data-urlencode "thread_ts=${GATE_TS}")
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" -H "Content-type: application/x-www-form-urlencoded" "${ARGS[@]}" >/dev/null || true
+
+  # ---------------------------------------------------------------------------
+  # 2h soak (prod only): post to #prod-eks-deployments, poll for 🚨; on react,
+  # `git revert` the tag commit and push — ArgoCD reconciles prod back to the
+  # previous tag.
+  # ---------------------------------------------------------------------------
+  soak:
+    needs: [resolve, gate, build-deploy]
+    # bump_changed guards the case where the sha was already pinned: nothing was
+    # committed, so there is nothing to watch and nothing to revert.
+    if: |
+      always() && needs.resolve.outputs.soak == 'true' &&
+      needs.build-deploy.result == 'success' &&
+      needs.build-deploy.outputs.bump_changed == 'true'
+    runs-on: ubuntu-latest
+    # 2h reaction poll + a late 🚨 revert + the Slack confirmation must all fit.
+    timeout-minutes: 150
+    steps:
+      - id: soak
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
+          GATE_TS: ${{ needs.gate.outputs.ts }}
+          TITLE: ':large_green_circle: *Soaking trufflehog* `[PROD]` — 2h _(v2)_'
+          # Same audit line as the gate, and the same actor->Slack resolution:
+          # whoever is deciding whether to roll back should see who put this in
+          # prod without scrolling the thread, and the requester should be pinged
+          # while their change is the one soaking.
+          ACTOR: ${{ github.actor }}
+          SLACK_USER_MAP: ${{ vars.DEPLOY_SLACK_USER_MAP }}
+          IMAGE_SHA: ${{ needs.build-deploy.outputs.image_sha }}
+          BUMP_COMMIT: ${{ needs.build-deploy.outputs.bump_commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QUOTE: '> Gilfoyle says — It works. For now. I will be watching it for two hours like it owes me money.'
+          TIMEOUT_SECONDS: '7200'
+          POLL_SECONDS: '60'
+        run: |
+          set -uo pipefail
+          # Same actor -> Slack mention resolution as the gate; see that step for
+          # why this is a static map rather than users.lookupByEmail.
+          REQUESTER="\`${ACTOR}\`"
+          if [ -n "${SLACK_USER_MAP:-}" ]; then
+            SLACK_UID="$(printf '%s' "$SLACK_USER_MAP" | jq -r --arg a "$ACTOR" '.[$a] // empty' 2>/dev/null || true)"
+            [ -n "${SLACK_UID:-}" ] && REQUESTER="<@${SLACK_UID}>"
+          fi
+          DETAILS="$(printf 'SHA `%s` · requested by %s · tag commit `%s` — <%s|run log>' \
+            "$IMAGE_SHA" "$REQUESTER" "$BUMP_COMMIT" "$RUN_URL")"
+          api() { local m="$1"; shift; curl -sS -X POST "https://slack.com/api/${m}" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-type: application/x-www-form-urlencoded" "$@"; }
+          # Fail visibly (unlike the gate, the tag is already committed and
+          # ArgoCD is rolling it out, so we can't fail closed — but a soak with
+          # no watchdog must not look green).
+          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then echo "::error::Slack not configured — soak has no rollback watchdog (deploy stays live)"; exit 1; fi
+          BOT_ID="$(api auth.test | jq -r '.user_id // empty')"
+          # An empty BOT_ID would let the bot's own pre-seeded ✅ self-release
+          # the soak on the first poll. The deploy is already live, so fail
+          # visibly rather than silently dropping the watchdog.
+          if [ -z "$BOT_ID" ]; then echo "::error::Slack auth.test returned no user_id — the bot's own seeded ✅ would self-release the soak; failing (deploy stays live)"; exit 1; fi
+          TEXT="$(printf '%s\n%s\n%s\n\n*React one of the following:*\n•   :white_check_mark:  release stable early\n•   :rotating_light:  roll back' "$TITLE" "$QUOTE" "$DETAILS")"
+          PARGS=(--data-urlencode "channel=${CHANNEL}" --data-urlencode "text=${TEXT}")
+          [ -n "${GATE_TS:-}" ] && PARGS+=(--data-urlencode "thread_ts=${GATE_TS}")
+          POST="$(api chat.postMessage "${PARGS[@]}")"
+          [ "$(echo "$POST" | jq -r '.ok')" = "true" ] || { echo "::error::postMessage failed ($(echo "$POST" | jq -r '.error // "unknown"')) — soak has no rollback watchdog (deploy stays live)"; exit 1; }
+          TS="$(echo "$POST" | jq -r '.ts')"
+          for e in white_check_mark rotating_light; do api reactions.add --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}" --data-urlencode "name=$e" >/dev/null || true; done
+          human() { echo "$2" | jq -r --arg e "$1" --arg bot "$BOT_ID" '(.message.reactions // []) | map(select(.name==$e)) | .[0].users // [] | map(select(. != $bot)) | .[0] // empty'; }
+          name_of() { api users.info --data-urlencode "user=$1" | jq -r '.user.profile.real_name // .user.name // "someone"'; }
+          reply() { api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "thread_ts=${TS}" --data-urlencode "text=$1" >/dev/null || true; }
+          DEADLINE=$(( SECONDS + TIMEOUT_SECONDS ))
+          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            R="$(api reactions.get --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}")"
+            if [ "$(echo "$R" | jq -r '.ok')" = "true" ]; then
+              # 🚨 outranks ✅: if both reactions land within one poll window,
+              # an explicit rollback request must never lose to early-stable
+              # (mirrors the gate, which checks deny before approve).
+              X="$(human rotating_light "$R")"; if [ -n "$X" ]; then N="$(name_of "$X")"; reply "↩️ ${N} hit the panic button. Reverting the tag commit — ArgoCD will put back the last version that didn't embarrass us."; echo "decision=rollback" >> "$GITHUB_OUTPUT"; echo "actor=${N}" >> "$GITHUB_OUTPUT"; echo "::notice::Rollback by ${N}"; exit 0; fi
+              S="$(human white_check_mark "$R")"; if [ -n "$S" ]; then N="$(name_of "$S")"; reply "✅ Released as *stable* by ${N}. Calling it early. Bold. If it breaks now, it breaks on your name."; echo "decision=stable" >> "$GITHUB_OUTPUT"; echo "::notice::Released stable early by ${N}"; exit 0; fi
+            else
+              echo "::warning::Slack reactions.get failed ($(echo "$R" | jq -r '.error // "unknown"')) — retrying"
+            fi
+            sleep "$POLL_SECONDS"
+          done
+          reply "✅ Two hours, no rollback. It's stable. Don't get used to the praise."
+          echo "decision=stable" >> "$GITHUB_OUTPUT"; echo "::notice::Stable"
+
+      - uses: actions/checkout@v4
+        if: steps.soak.outputs.decision == 'rollback'
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          token: ${{ secrets.DEPLOY_AUTOMATION_SECRET }}
+
+      - name: Roll back (revert the tag commit)
+        if: steps.soak.outputs.decision == 'rollback'
+        env:
+          BUMP_COMMIT: ${{ needs.build-deploy.outputs.bump_commit }}
+          PREVIOUS_TAG: ${{ needs.build-deploy.outputs.previous_tag }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
+          GATE_TS: ${{ needs.gate.outputs.ts }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          notify() {
+            NARGS=(--data-urlencode "channel=${CHANNEL}" --data-urlencode "text=$1")
+            # Thread the confirmation under the gate message, where operators
+            # are already watching the deploy and soak updates.
+            [ -n "${GATE_TS:-}" ] && NARGS+=(--data-urlencode "thread_ts=${GATE_TS}")
+            curl -sS -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" -H "Content-type: application/x-www-form-urlencoded" "${NARGS[@]}" >/dev/null || true
+          }
+
+          # The job's `if:` guarantees bump_changed == 'true', so a missing
+          # commit sha here means the output was lost, not that there was
+          # nothing to do. Refuse rather than guess at a revert target.
+          if [ -z "${BUMP_COMMIT:-}" ]; then
+            notify ":x: Rollback requested but the tag commit sha is missing from the build job's outputs, so there is nothing safe to revert. Roll back by hand: revert the \`chore(prod): deploy\` commit on main. <${RUN_URL}|run log>"
+            echo "::error::bump_commit output is empty — cannot determine the revert target"
+            exit 1
+          fi
+
+          git config user.name 'Unbound Automation'
+          git config user.email 'engg@unboundsecurity.ai'
+
+          if ! git revert --no-edit "$BUMP_COMMIT"; then
+            git revert --abort || true
+            notify ":x: The rollback also failed. Of course it did. \`git revert ${BUMP_COMMIT}\` conflicted — \`k8s/prod/values.yaml\` moved since the deploy. Someone has to do this by hand. <${RUN_URL}|run log>"
+            echo "::error::git revert ${BUMP_COMMIT} conflicted"
+            exit 1
+          fi
+
+          # Same rebase-retry as the deploy push: main can move under us.
+          PUSHED=0
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then PUSHED=1; break; fi
+            echo "push rejected (attempt ${i}/5) — rebasing on origin/main"
+            git fetch origin '+refs/heads/main:refs/remotes/origin/main' || true
+            git rebase origin/main || { git rebase --abort || true; break; }
+          done
+
+          if [ "$PUSHED" != "1" ]; then
+            notify ":x: The rollback also failed. Of course it did. Couldn't push the revert of \`${BUMP_COMMIT}\` to main. Someone has to do this by hand. <${RUN_URL}|run log>"
+            echo "::error::could not push the revert to main"
+            exit 1
+          fi
+
+          REVERT="$(git rev-parse HEAD)"
+          notify ":leftwards_arrow_with_hook: Rolled back. Reverted \`${BUMP_COMMIT}\` (\`${REVERT}\`) — \`k8s/prod/values.yaml\` is back on \`${PREVIOUS_TAG}\` and ArgoCD is putting it live. We achieved nothing today. <${RUN_URL}|run log>"
+          echo "::notice::reverted ${BUMP_COMMIT} as ${REVERT}; ArgoCD will reconcile prod back to ${PREVIOUS_TAG}"
