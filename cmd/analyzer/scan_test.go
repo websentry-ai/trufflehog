@@ -17,6 +17,10 @@ import (
 
 const fakeGithubPAT = "ghp_0123456789abcdefghijklmnopqrstuvwxyz"
 
+// Cloudflare's prefixed format: prefix + 40 alphanumeric + an 8-character hex
+// checksum. Fabricated, not a real credential.
+const fakeCloudflareToken = "cfat_8M3kQ1pR7tYw2XzB5nV0dLcJ4hFsG9aTeUiO6yPma1b2c3d4"
+
 var (
 	testOnce sync.Once
 	testScan *scanner
@@ -212,4 +216,63 @@ func TestExposedMetadataAllowlist(t *testing.T) {
 	})
 	require.Equal(t, map[string]string{"support_words": "secret,token", "proximity_score": "0.50"}, got,
 		"only allowlisted keys may be exposed")
+}
+
+// Built through buildScanner, the same path main() takes. The shared
+// newScanner() helper constructs its core straight from DefaultDetectors(), so
+// it does not run buildDetectors and would not pick up the Cloudflare gates.
+func newBuiltScanner(t *testing.T) *scanner {
+	t.Helper()
+	cfg, err := scannerConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := buildScanner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// The cfat_ detector ships gated off upstream, so it was being deleted before
+// the scanner was built and a customer's token went through unflagged.
+func TestScanDetectsCloudflareApiToken(t *testing.T) {
+	// Quoted in a shell export, which is how the token actually reached us.
+	text := []byte(`export CF_TOKEN_PRODSEC="` + fakeCloudflareToken + `"`)
+	results := newBuiltScanner(t).scan(context.Background(), text, 0.75)
+
+	var hit bool
+	for _, r := range results {
+		if string(text[r.Start:r.End]) == fakeCloudflareToken {
+			hit = true
+			if r.Source != "trufflehog" {
+				t.Errorf("expected source trufflehog, got %s", r.Source)
+			}
+			if !strings.Contains(r.EntityType, "Cloudflare") {
+				t.Errorf("expected a Cloudflare entity, got %s", r.EntityType)
+			}
+			if r.Score < 0.75 {
+				t.Errorf("score %v below threshold", r.Score)
+			}
+		}
+	}
+	if !hit {
+		t.Fatalf("no finding matched the token, got %d results", len(results))
+	}
+}
+
+// The prefix alone is not a credential, and the legacy 40-character Cloudflare
+// shape is indistinguishable from any other identifier of that length.
+func TestScanIgnoresCloudflareLookalikes(t *testing.T) {
+	for _, text := range []string{
+		"the cfat_ prefix is new",
+		"cfat_8M3kQ1pR7tYw",
+		"8M3kQ1pR7tYw2XzB5nV0dLcJ4hFsG9aTeUiO6yPm",
+	} {
+		for _, r := range newBuiltScanner(t).scan(context.Background(), []byte(text), 0.75) {
+			if strings.Contains(r.EntityType, "Cloudflare") {
+				t.Errorf("%q flagged as %s, expected no Cloudflare finding", text, r.EntityType)
+			}
+		}
+	}
 }

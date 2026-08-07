@@ -9,6 +9,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/feature"
 )
 
 type scannerConfig struct {
@@ -84,6 +85,14 @@ func envEnabledDefault(name string, def bool) bool {
 }
 
 func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
+	// Cloudflare's prefixed credentials (cfat_/cfut_ tokens, cfk_ global keys)
+	// are detected by scanners that upstream gates behind feature flags. The
+	// flags default to false and only main.go sets them, so this service -- a
+	// separate entrypoint -- had them deleted from the detector list at startup.
+	// Must be set before DefaultDetectors() reads them.
+	feature.CloudflareApiTokenV2DetectorEnabled.Store(true)
+	feature.CloudflareGlobalApiKeyV2DetectorEnabled.Store(true)
+
 	dets := defaults.DefaultDetectors()
 	if cfg.genericSecretsEnabled {
 		gs, err := customdetectors.NewGenericSecret()
