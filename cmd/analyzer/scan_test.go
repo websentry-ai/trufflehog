@@ -17,6 +17,16 @@ import (
 
 const fakeGithubPAT = "ghp_0123456789abcdefghijklmnopqrstuvwxyz"
 
+// Prefix + 40 alphanumeric + 8 hex. Fabricated, not a real credential.
+const fakeCloudflareToken = "cfat_8M3kQ1pR7tYw2XzB5nV0dLcJ4hFsG9aTeUiO6yPma1b2c3d4"
+
+// Same detector as cfat_ (the pattern is cf[ua]t_), so narrowing that upstream
+// would drop user tokens silently.
+const fakeCloudflareUserToken = "cfut_7L2jP0oQ6sXv1WyA4mU9cKbI3gErF8zSdThN5xOl9f8e7d6c"
+
+// A separate detector and gate, reported as CloudflareGlobalApiKey.
+const fakeCloudflareGlobalKey = "cfk_5K1hN8mO4qVt9UwY2kS7aIzG1eCpD6xQbRfL3vMj7c6b5a4f"
+
 var (
 	testOnce sync.Once
 	testScan *scanner
@@ -212,4 +222,89 @@ func TestExposedMetadataAllowlist(t *testing.T) {
 	})
 	require.Equal(t, map[string]string{"support_words": "secret,token", "proximity_score": "0.50"}, got,
 		"only allowlisted keys may be exposed")
+}
+
+// Built the way main() does. The shared newScanner() skips buildDetectors, so
+// it would not pick up the gates.
+func newBuiltScanner(t *testing.T) *scanner {
+	t.Helper()
+	cfg, err := scannerConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := buildScanner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// Gated off upstream, so it was deleted at startup and a customer's token went
+// through unflagged.
+func TestScanDetectsCloudflareApiToken(t *testing.T) {
+	for _, token := range []string{fakeCloudflareToken, fakeCloudflareUserToken} {
+		// A shell export, which is how the token reached us.
+		text := []byte(`export CF_TOKEN_PRODSEC="` + token + `"`)
+		results := newBuiltScanner(t).scan(context.Background(), text, 0.75)
+
+		var hit bool
+		for _, r := range results {
+			if string(text[r.Start:r.End]) == token {
+				hit = true
+				if r.Source != "trufflehog" {
+					t.Errorf("expected source trufflehog, got %s", r.Source)
+				}
+				if !strings.Contains(r.EntityType, "Cloudflare") {
+					t.Errorf("expected a Cloudflare entity, got %s", r.EntityType)
+				}
+				if r.Score < 0.75 {
+					t.Errorf("score %v below threshold", r.Score)
+				}
+			}
+		}
+		if !hit {
+			t.Fatalf("no finding matched %s..., got %d results", token[:9], len(results))
+		}
+	}
+}
+
+// Its own gate: a regression there would leave the cfat_ test passing.
+func TestScanDetectsCloudflareGlobalApiKey(t *testing.T) {
+	text := []byte(`export CF_GLOBAL_KEY="` + fakeCloudflareGlobalKey + `"`)
+	results := newBuiltScanner(t).scan(context.Background(), text, 0.75)
+
+	var hit bool
+	for _, r := range results {
+		if string(text[r.Start:r.End]) == fakeCloudflareGlobalKey {
+			hit = true
+			if !strings.Contains(r.EntityType, "Cloudflare") {
+				t.Errorf("expected a Cloudflare entity, got %s", r.EntityType)
+			}
+			if r.Score < 0.75 {
+				t.Errorf("score %v below threshold", r.Score)
+			}
+		}
+	}
+	if !hit {
+		t.Fatalf("no finding matched the global key, got %d results", len(results))
+	}
+}
+
+// A bare prefix is not a credential, and the legacy 40-char shape is
+// indistinguishable from any other identifier that length.
+func TestScanIgnoresCloudflareLookalikes(t *testing.T) {
+	for _, text := range []string{
+		"the cfat_ prefix is new",
+		"cfat_8M3kQ1pR7tYw",
+		"8M3kQ1pR7tYw2XzB5nV0dLcJ4hFsG9aTeUiO6yPm",
+		"the cfk_ prefix identifies a global key",
+		"cfk_5K1hN8mO4qVt",
+		"cfut_7L2jP0oQ6sXv",
+	} {
+		for _, r := range newBuiltScanner(t).scan(context.Background(), []byte(text), 0.75) {
+			if strings.Contains(r.EntityType, "Cloudflare") {
+				t.Errorf("%q flagged as %s, expected no Cloudflare finding", text, r.EntityType)
+			}
+		}
+	}
 }
