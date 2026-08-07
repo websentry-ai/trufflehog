@@ -9,6 +9,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/feature"
 )
 
 type scannerConfig struct {
@@ -84,6 +85,12 @@ func envEnabledDefault(name string, def bool) bool {
 }
 
 func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
+	// Upstream gates these behind flags that default to false and are only set
+	// by main.go, which this service never runs -- so DefaultDetectors() was
+	// deleting both. Must be set before it reads them.
+	feature.CloudflareApiTokenV2DetectorEnabled.Store(true)
+	feature.CloudflareGlobalApiKeyV2DetectorEnabled.Store(true)
+
 	dets := defaults.DefaultDetectors()
 	if cfg.genericSecretsEnabled {
 		gs, err := customdetectors.NewGenericSecret()
