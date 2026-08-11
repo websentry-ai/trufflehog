@@ -504,24 +504,35 @@ jobs:
           SHA: ${{ steps.meta.outputs.sha }}
           BUMP: ${{ steps.bump.outputs.commit }}
           CHANGED: ${{ steps.bump.outputs.changed }}
+          ACTOR: ${{ github.actor }}
+          SLACK_USER_MAP: ${{ vars.DEPLOY_SLACK_USER_MAP }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -z "${SLACK_BOT_TOKEN:-}" ] && exit 0
           ENVU=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
+          # Same actor -> Slack mention resolution the prod gate uses. Applies to
+          # every env: the gate and soak are prod-only, so without this a staging
+          # deploy named nobody at all. Unmapped actors and an unset variable fall
+          # back to the GitHub handle, so the line is always correct.
+          REQUESTER="\`${ACTOR}\`"
+          if [ -n "${SLACK_USER_MAP:-}" ]; then
+            SLACK_UID="$(printf '%s' "$SLACK_USER_MAP" | jq -r --arg a "$ACTOR" '.[$a] // empty' 2>/dev/null || true)"
+            [ -n "${SLACK_UID:-}" ] && REQUESTER="<@${SLACK_UID}>"
+          fi
           if [ "$ENV" = "prod" ]; then NOTE="It is on its way to production. Try to look surprised."; else NOTE="Staging — where your mistakes go to be discovered. By me."; fi
           # Deliberately NOT "Deployed": this workflow handed the tag to ArgoCD
           # and has no way to confirm the rollout. Claiming otherwise would be a
           # green message for an unverified state.
           if [ "$CHANGED" = "true" ]; then
             HEAD_LINE="$(printf ':large_blue_circle: *Handed trufflehog to ArgoCD* `[%s]` _(v2)_' "$ENVU")"
-            TAIL_LINE="$(printf 'SHA `%s`  ·  tag commit `%s`  ·  <%s|run log>' "$SHA" "$BUMP" "$RUN_URL")"
+            TAIL_LINE="$(printf 'SHA `%s`  ·  tag commit `%s`  ·  by %s  ·  <%s|run log>' "$SHA" "$BUMP" "$REQUESTER" "$RUN_URL")"
           elif [ "$CHANGED" = "false" ]; then
             HEAD_LINE="$(printf ':white_circle: *trufflehog image pushed, no tag change* `[%s]` _(v2)_' "$ENVU")"
-            TAIL_LINE="$(printf 'SHA `%s` was already pinned — nothing for ArgoCD to sync  ·  <%s|run log>' "$SHA" "$RUN_URL")"
+            TAIL_LINE="$(printf 'SHA `%s` was already pinned — nothing for ArgoCD to sync  ·  by %s  ·  <%s|run log>' "$SHA" "$REQUESTER" "$RUN_URL")"
             NOTE="Nothing changed. The best kind of deploy."
           else
             HEAD_LINE="$(printf ':x: *trufflehog deploy failed before the tag commit* `[%s]` _(v2)_' "$ENVU")"
-            TAIL_LINE="$(printf 'SHA `%s` — %s is unchanged  ·  <%s|run log>' "$SHA" "$ENV" "$RUN_URL")"
+            TAIL_LINE="$(printf 'SHA `%s` — %s is unchanged  ·  by %s  ·  <%s|run log>' "$SHA" "$ENV" "$REQUESTER" "$RUN_URL")"
             NOTE="It broke before it could reach anything important. Small mercies."
           fi
           TEXT="$(printf '%s\n> Gilfoyle says — %s\n%s' "$HEAD_LINE" "$NOTE" "$TAIL_LINE")"
