@@ -1,0 +1,86 @@
+# Keeps the staging branch current with main, matching ai-gateway,
+# ai-gateway-data and unbound-fe.
+#
+# Why this repo needs it: deploy_eks_v2.yml resolves environment=staging to
+# BRANCH=staging and pins the built commit's SHA into
+# k8s/dlp-analyzer/staging/values.yaml. That is only correct if the staging
+# branch actually reflects what should run in staging. It had drifted 16
+# commits behind main, so a v2 staging deploy built July code and rolled the
+# environment backwards. v1 hid the drift by publishing a mutable :staging tag
+# that a main-branch build moved; pinning an immutable SHA removes that cover.
+#
+# Merge, not fast-forward: staging carries commits main does not — every v2
+# staging deploy appends a `chore(staging): deploy ...` tag commit. --ff-only
+# would refuse the moment the first one lands and stay broken forever. --no-ff
+# merges cleanly and preserves those pins, because main leaves
+# k8s/dlp-analyzer/staging/values.yaml untouched, so the merge takes staging's
+# side without a conflict.
+#
+# A genuine conflict (someone edits the same staging values file on main) fails
+# the job loudly rather than guessing. Resolve it with a PR into staging.
+
+name: Sync Staging with Main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Serialize. Two pushes to main in quick succession would otherwise race:
+# both check out staging, both merge, and the loser's push is rejected as
+# non-fast-forward — leaving staging holding only one of the two merges with
+# a red run to explain it. Never cancel: a cancelled run can leave staging
+# merged locally but unpushed, which looks identical to "never ran".
+concurrency:
+  group: sync-staging-with-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.DEPLOY_AUTOMATION_SECRET }}
+
+      - name: Configure Git
+        run: |
+          git config user.name 'Unbound Automation'
+          git config user.email 'engg@unboundsecurity.ai'
+
+      - name: Sync staging with main
+        run: |
+          set -euo pipefail
+          git checkout staging
+          git pull --ff-only origin staging
+
+          # Nothing to do when staging already contains main. Without this the
+          # job would create an empty merge commit on every unrelated push to
+          # main, and each one appends noise to the staging history that the
+          # deploy workflow then has to reason about.
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "staging already contains main ($(git rev-parse --short origin/main)) — nothing to do"
+            exit 0
+          fi
+
+          BEFORE="$(git rev-parse HEAD)"
+          if ! git merge origin/main --no-ff -m "Sync staging with main"; then
+            git merge --abort || true
+            echo "::error::Merge conflict syncing main into staging. Resolve manually with a PR into staging."
+            exit 1
+          fi
+
+          echo "merged $(git rev-parse --short "$BEFORE") + main -> $(git rev-parse --short HEAD)"
+          git push origin staging
+
+      - name: Report
+        run: |
+          echo "staging: $(git rev-parse --short origin/staging 2>/dev/null || git rev-parse --short HEAD)"
+          echo "main:    $(git rev-parse --short origin/main)"
