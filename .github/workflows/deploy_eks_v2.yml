@@ -28,7 +28,7 @@ name: Build and Deploy EKS (v2 — GitOps)
 # The three prod safety properties from v1 are preserved, re-expressed in git:
 #   1. Slack approval gate — now gates the COMMIT. No approval, no commit, so
 #      ArgoCD never sees a change and nothing rolls out. Fails closed.
-#   2. 2h soak — unchanged.
+#   2. 10m soak (15m job ceiling) — shortened from v1's 2h.
 #   3. Rollback — `git revert` of the tag commit instead of repointing the ECR
 #      :prod tag and restarting pods (both needed cluster access). ArgoCD
 #      reconciles prod back to the previous tag. :prod-previous is gone.
@@ -69,20 +69,22 @@ on:
         description: Commit the image tag (ArgoCD then rolls it out). Off = build + push only.
         type: boolean
         default: true
-  # --- Enable these when deprecating v1 (deploy-eks.yml) ---
-  # NOT a pure uncomment: `resolve` and `concurrency` below both read
-  # inputs.environment, which only exists on workflow_dispatch. Enabling these
-  # triggers ALSO requires deriving env from the ref (main→prod, staging→staging,
-  # schedule→by cron expression) the way v1's resolve job does — otherwise every
-  # push resolves to an empty env and lands in one shared concurrency group.
-  # push:
-  #   branches: [main, staging]
-  #   # k8s/** MUST stay ignored: without it, the tag commit this workflow makes
-  #   # would re-trigger the workflow and build in a loop.
-  #   paths-ignore: ['k8s/**', 'docs/**', '**.md']
-  # schedule:
-  #   - cron: '0 6 * * *'      # daily — staging
-  #   - cron: '0 10 * * 2,4'   # Tue & Thu — prod (gated)
+  # Automatic deploys. v1 (deploy-eks.yml) is now a manual-dispatch backup, so
+  # this workflow owns every automatic path. Both of v1's crons are dropped
+  # rather than carried over: ArgoCD selfHeal already corrects the drift the
+  # daily staging refresh predated, and nothing should reach prod unattended.
+  #
+  # k8s/** MUST stay ignored. The tag commit this workflow makes lands on the
+  # branch it watches, so without it every deploy re-triggers the workflow and
+  # builds in a loop.
+  push:
+    branches: [main, staging]
+    paths-ignore: ['k8s/**', 'docs/**', '**.md']
+  # Build-only validation, inherited from v1 so PRs keep their build check.
+  # resolve forces deploy=false for this event -- a PR can never commit a tag.
+  pull_request:
+    branches: [main, staging]
+    paths-ignore: ['k8s/**', 'docs/**', '**.md']
 
 concurrency:
   # Keyed on the target env, not the dispatch ref: two runs against the same env
@@ -93,8 +95,8 @@ concurrency:
   # they get separate groups and can run simultaneously.
   # Never cancel in progress: a cancelled prod run drops a live soak, leaving
   # prod deployed with no rollback watchdog.
-  group: deploy-eks-v2-trufflehog-${{ inputs.environment }}
-  cancel-in-progress: false
+  group: deploy-eks-v2-trufflehog-${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.event_name == 'pull_request' && github.ref || (github.ref == 'refs/heads/main' && 'prod' || 'staging')) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   id-token: write   # ECR push via OIDC
@@ -135,8 +137,41 @@ jobs:
         env:
           INPUT_ENV: ${{ inputs.environment }}
           INPUT_DEPLOY: ${{ inputs.deploy }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          ENV="$INPUT_ENV"; DEPLOY="$INPUT_DEPLOY"; GATE=false; SOAK=false
+          GATE=false; SOAK=false
+          # Derive the target env from the EVENT. inputs.* exist only on
+          # workflow_dispatch; on push and pull_request they expand to the empty
+          # string, so reading them unconditionally would resolve every
+          # automatic run to an empty env -- an unknown-environment failure at
+          # best, every branch sharing one concurrency group at worst.
+          case "$EVENT" in
+            workflow_dispatch)
+              ENV="$INPUT_ENV"; DEPLOY="$INPUT_DEPLOY" ;;
+            push)
+              # Mirrors the Applications: prod tracks main, staging tracks
+              # staging.
+              case "$REF" in
+                refs/heads/main)    ENV=prod ;;
+                refs/heads/staging) ENV=staging ;;
+                *) echo "::error::push from unexpected ref '${REF}' — the branches: filter should have prevented this"; exit 1 ;;
+              esac
+              DEPLOY=true ;;
+            pull_request)
+              # Build-only. Env follows the BASE branch so the PR builds the
+              # image the merge would produce -- which matters wherever the
+              # Dockerfile or build args differ per env. DEPLOY=false is pinned
+              # here rather than left to the caller: a PR must never be able to
+              # commit a tag, and that guarantee should not live in a filter.
+              case "$BASE_REF" in
+                staging) ENV=staging ;;
+                *) ENV=prod ;;
+              esac
+              DEPLOY=false ;;
+            *) echo "::error::unsupported event '${EVENT}'"; exit 1 ;;
+          esac
           case "$ENV" in
             # NOTE: unlike ai-gateway, BOTH ArgoCD Applications for this repo
             # track HEAD (= main) and differ only in which values file they
@@ -147,6 +182,18 @@ jobs:
             prod)    BRANCH=main; GATE=true ;;
             *)       echo "::error::unknown environment '${ENV}'"; exit 1 ;;
           esac
+          # A pull_request must build the PR, not the branch it targets.
+          # This MUST come after the switch above: that switch assigns BRANCH
+          # from ENV (prod -> main, staging -> staging) for deploy purposes, so
+          # blanking BRANCH inside the event case earlier was silently undone —
+          # PR runs still resolved BRANCH=main and built base-branch code, which
+          # is the defect this is meant to close.
+          #
+          # With BRANCH empty the sha step is skipped (its `if:` requires a
+          # branch) and both checkout forms fall through to github.ref, which on
+          # pull_request is refs/pull/N/merge. ENV is untouched, so per-env
+          # Dockerfile and build-arg selection still works.
+          if [ "$EVENT" = "pull_request" ]; then BRANCH=""; fi
           # Soak only when a tag is actually committed: a build-only run
           # (deploy=off) changed nothing in git, so there is nothing to watch
           # and nothing to revert.
@@ -319,12 +366,21 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Configure AWS credentials (OIDC)
+        # No AWS on a pull_request. GitHub mints the OIDC subject for PR
+        # events as `repo:<org>/<repo>:pull_request`, which matches neither the
+        # `ref:refs/heads/*` nor the `environment:deploy` patterns in the
+        # gha-ci trust policy — so this step cannot succeed on a PR and fails
+        # the whole build-only check with
+        #   Not authorized to perform sts:AssumeRoleWithWebIdentity
+        # A build that does not publish needs no registry credentials anyway.
+        if: github.event_name != 'pull_request'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
+        if: github.event_name != 'pull_request'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push
@@ -332,14 +388,17 @@ jobs:
         with:
           context: .
           file: cmd/analyzer/Dockerfile
-          push: true
+          # Build but do not publish on pull_request -- v1's PR runs were
+          # explicitly build-only. Without this, every PR writes a SHA-tagged
+          # image to ECR for code that may never merge.
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=trufflehog-analyzer
           cache-to: type=gha,scope=trufflehog-analyzer,mode=max
           provenance: false
 
       - name: Verify ECR image manifest
-        if: needs.resolve.outputs.deploy == 'true'
+        if: github.event_name != 'pull_request' && (needs.resolve.outputs.deploy == 'true')
         env:
           GIT_SHA: ${{ steps.meta.outputs.sha }}
         run: |
@@ -542,7 +601,7 @@ jobs:
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" -H "Content-type: application/x-www-form-urlencoded" "${ARGS[@]}" >/dev/null || true
 
   # ---------------------------------------------------------------------------
-  # 2h soak (prod only): post to #prod-eks-deployments, poll for 🚨; on react,
+  # 10m soak (prod only): post to #prod-eks-deployments, poll for 🚨; on react,
   # `git revert` the tag commit and push — ArgoCD reconciles prod back to the
   # previous tag.
   # ---------------------------------------------------------------------------
@@ -555,15 +614,15 @@ jobs:
       needs.build-deploy.result == 'success' &&
       needs.build-deploy.outputs.bump_changed == 'true'
     runs-on: ubuntu-latest
-    # 2h reaction poll + a late 🚨 revert + the Slack confirmation must all fit.
-    timeout-minutes: 150
+    # 10m reaction poll + 5m reserve for a late 🚨 revert = 15m total.
+    timeout-minutes: 15
     steps:
       - id: soak
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           CHANNEL: ${{ vars.SLACK_PROD_CHANNEL_ID }}
           GATE_TS: ${{ needs.gate.outputs.ts }}
-          TITLE: ':large_green_circle: *Soaking trufflehog* `[PROD]` — 2h _(v2)_'
+          TITLE: ':large_green_circle: *Soaking trufflehog* `[PROD]` — 10m _(v2)_'
           # Same audit line as the gate, and the same actor->Slack resolution:
           # whoever is deciding whether to roll back should see who put this in
           # prod without scrolling the thread, and the requester should be pinged
@@ -573,8 +632,8 @@ jobs:
           IMAGE_SHA: ${{ needs.build-deploy.outputs.image_sha }}
           BUMP_COMMIT: ${{ needs.build-deploy.outputs.bump_commit }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          QUOTE: '> Gilfoyle says — It works. For now. I will be watching it for two hours like it owes me money.'
-          TIMEOUT_SECONDS: '7200'
+          QUOTE: '> Gilfoyle says — It works. For now. I will be watching it for ten minutes like it owes me money.'
+          TIMEOUT_SECONDS: '600'
           POLL_SECONDS: '60'
         run: |
           set -uo pipefail
@@ -610,7 +669,21 @@ jobs:
           name_of() { api users.info --data-urlencode "user=$1" | jq -r '.user.profile.real_name // .user.name // "someone"'; }
           reply() { api chat.postMessage --data-urlencode "channel=${CHANNEL}" --data-urlencode "thread_ts=${TS}" --data-urlencode "text=$1" >/dev/null || true; }
           DEADLINE=$(( SECONDS + TIMEOUT_SECONDS ))
-          while [ "$SECONDS" -lt "$DEADLINE" ]; do
+          # 10m poll inside a 15m job = 5m reserve for the rollback path.
+          # The reserve is NOT slack: a 🚨 at 9:59 still has to run a
+          # fetch-depth:0 checkout and up to five fetch/rebase/push attempts
+          # against a branch that may have moved. At the original 12m/3m split a
+          # rollback could be killed mid-flight, leaving the bad deploy live with
+          # the operator believing they had reverted it — strictly worse than
+          # never offering the button.
+          #
+          # Poll FIRST, then test the deadline. Testing first meant the loop
+          # exited after the final sleep without reading reactions again, so a
+          # 🚨 in the last POLL_SECONDS was dropped and the deploy reported
+          # stable. At 10m/60s that is 10% of the window -- and it is the very
+          # interval an operator is most likely to use, having watched the whole
+          # soak before deciding.
+          while :; do
             R="$(api reactions.get --data-urlencode "channel=${CHANNEL}" --data-urlencode "timestamp=${TS}")"
             if [ "$(echo "$R" | jq -r '.ok')" = "true" ]; then
               # 🚨 outranks ✅: if both reactions land within one poll window,
@@ -621,9 +694,10 @@ jobs:
             else
               echo "::warning::Slack reactions.get failed ($(echo "$R" | jq -r '.error // "unknown"')) — retrying"
             fi
+            [ "$SECONDS" -ge "$DEADLINE" ] && break
             sleep "$POLL_SECONDS"
           done
-          reply "✅ Two hours, no rollback. It's stable. Don't get used to the praise."
+          reply "✅ Ten minutes, no rollback. It's stable. Don't get used to the praise."
           echo "decision=stable" >> "$GITHUB_OUTPUT"; echo "::notice::Stable"
 
       - uses: actions/checkout@v4

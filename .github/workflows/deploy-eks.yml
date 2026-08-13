@@ -20,13 +20,17 @@ name: Build and Deploy EKS
 # Prod rollback repoints :prod → :prod-previous (snapshotted before each deploy)
 # and restarts trufflehog-prod.
 
+# TRIGGERS REMOVED — v2 (deploy_eks_v2.yml) owns every automatic deploy now.
+# push/pull_request/schedule are gone deliberately; leaving any of them while v2
+# also fires would deploy twice per merge, racing two tag writes on one values
+# file and arming two independent soak watchdogs.
+#
+# Retained as a MANUAL backup: it still holds the one capability v2 deliberately
+# lacks — a direct `kubectl rollout restart` — the break-glass path for when
+# ArgoCD itself is what is broken. That path stops working once the cluster's
+# public endpoint is closed to GitHub runners, so this is a transitional safety
+# net, not a permanent second deploy system.
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['k8s/**', 'docs/**', '**.md']
-  pull_request:
-    branches: [main]
-    paths-ignore: ['k8s/**', 'docs/**', '**.md']
   workflow_dispatch:
     inputs:
       environment:
@@ -34,15 +38,20 @@ on:
         type: choice
         required: true
         default: dev
-        options: [dev, staging, prod]
+        options: [dev, prod]
       rollout:
         description: Run kubectl rollout restart after push
         type: boolean
         default: true
 
 concurrency:
-  group: deploy-trufflehog-${{ github.event.inputs.environment || 'dev' }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Deliberately the SAME group as deploy_eks_v2.yml. Both deploy this
+  # service to the same cluster, so they must serialize: a break-glass v1
+  # dispatch during a live v2 deploy or soak would move the mutable :prod
+  # tag while v2's soak still holds a revert target for its pinned SHA,
+  # and whichever finished last would silently win.
+  group: deploy-eks-v2-trufflehog-${{ inputs.environment }}
+  cancel-in-progress: false
 
 permissions:
   id-token: write
