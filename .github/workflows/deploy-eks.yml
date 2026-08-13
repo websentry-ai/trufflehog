@@ -20,13 +20,17 @@ name: Build and Deploy EKS
 # Prod rollback repoints :prod → :prod-previous (snapshotted before each deploy)
 # and restarts trufflehog-prod.
 
+# TRIGGERS REMOVED — v2 (deploy_eks_v2.yml) owns every automatic deploy now.
+# push/pull_request/schedule are gone deliberately; leaving any of them while v2
+# also fires would deploy twice per merge, racing two tag writes on one values
+# file and arming two independent soak watchdogs.
+#
+# Retained as a MANUAL backup: it still holds the one capability v2 deliberately
+# lacks — a direct `kubectl rollout restart` — the break-glass path for when
+# ArgoCD itself is what is broken. That path stops working once the cluster's
+# public endpoint is closed to GitHub runners, so this is a transitional safety
+# net, not a permanent second deploy system.
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['k8s/**', 'docs/**', '**.md']
-  pull_request:
-    branches: [main]
-    paths-ignore: ['k8s/**', 'docs/**', '**.md']
   workflow_dispatch:
     inputs:
       environment:
@@ -34,15 +38,20 @@ on:
         type: choice
         required: true
         default: dev
-        options: [dev, staging, prod]
+        options: [dev, prod]
       rollout:
         description: Run kubectl rollout restart after push
         type: boolean
         default: true
 
 concurrency:
-  group: deploy-trufflehog-${{ github.event.inputs.environment || 'dev' }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Deliberately the SAME group as deploy_eks_v2.yml. Both deploy this
+  # service to the same cluster, so they must serialize: a break-glass v1
+  # dispatch during a live v2 deploy or soak would move the mutable :prod
+  # tag while v2's soak still holds a revert target for its pinned SHA,
+  # and whichever finished last would silently win.
+  group: deploy-eks-v2-trufflehog-${{ inputs.environment }}
+  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -174,21 +183,21 @@ jobs:
     outputs:
       image_sha: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Configure AWS credentials (OIDC)
         if: needs.resolve.outputs.push == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
         if: needs.resolve.outputs.push == 'true'
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
 
       # Snapshot the CURRENT :prod image → :prod-previous BEFORE the build below
       # overwrites :prod. This is the soak's rollback target.
@@ -232,7 +241,7 @@ jobs:
       # `COPY go.mod go.sum` and `go build ./cmd/analyzer`, so it needs the
       # whole module tree, not the cmd/analyzer subdir.
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: cmd/analyzer/Dockerfile
@@ -409,7 +418,7 @@ jobs:
 
       - name: Configure AWS credentials (OIDC)
         if: steps.soak.outputs.decision == 'rollback'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
           aws-region: ${{ env.AWS_REGION }}
