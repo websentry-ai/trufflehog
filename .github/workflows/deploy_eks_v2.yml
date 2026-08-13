@@ -320,7 +320,7 @@ jobs:
       previous_tag: ${{ steps.bump.outputs.previous_tag }}
       bump_changed: ${{ steps.bump.outputs.changed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Always build and commit from the target env's deploy branch, whatever
           # ref the dispatch was fired from — ArgoCD tracks that branch, so a tag
@@ -363,7 +363,7 @@ jobs:
           echo "env=$ENV deploy=$DEPLOY sha=$GIT_SHA"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Configure AWS credentials (OIDC)
         # No AWS on a pull_request. GitHub mints the OIDC subject for PR
@@ -374,17 +374,17 @@ jobs:
         #   Not authorized to perform sts:AssumeRoleWithWebIdentity
         # A build that does not publish needs no registry credentials anyway.
         if: github.event_name != 'pull_request'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::228304386839:role/unbound-dev-gha-ci
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
         if: github.event_name != 'pull_request'
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: cmd/analyzer/Dockerfile
@@ -700,7 +700,7 @@ jobs:
           reply "✅ Ten minutes, no rollback. It's stable. Don't get used to the praise."
           echo "decision=stable" >> "$GITHUB_OUTPUT"; echo "::notice::Stable"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: steps.soak.outputs.decision == 'rollback'
         with:
           ref: refs/heads/main
