@@ -1,24 +1,3 @@
-# Keeps the staging branch current with main, matching ai-gateway,
-# ai-gateway-data and unbound-fe.
-#
-# Why this repo needs it: deploy_eks_v2.yml resolves environment=staging to
-# BRANCH=staging and pins the built commit's SHA into
-# k8s/dlp-analyzer/staging/values.yaml. That is only correct if the staging
-# branch actually reflects what should run in staging. It had drifted 16
-# commits behind main, so a v2 staging deploy built July code and rolled the
-# environment backwards. v1 hid the drift by publishing a mutable :staging tag
-# that a main-branch build moved; pinning an immutable SHA removes that cover.
-#
-# Merge, not fast-forward: staging carries commits main does not — every v2
-# staging deploy appends a `chore(staging): deploy ...` tag commit. --ff-only
-# would refuse the moment the first one lands and stay broken forever. --no-ff
-# merges cleanly and preserves those pins, because main leaves
-# k8s/dlp-analyzer/staging/values.yaml untouched, so the merge takes staging's
-# side without a conflict.
-#
-# A genuine conflict (someone edits the same staging values file on main) fails
-# the job loudly rather than guessing. Resolve it with a PR into staging.
-
 name: Sync Staging with Main
 
 on:
@@ -27,60 +6,135 @@ on:
       - main
   workflow_dispatch:
 
-# Serialize. Two pushes to main in quick succession would otherwise race:
-# both check out staging, both merge, and the loser's push is rejected as
-# non-fast-forward — leaving staging holding only one of the two merges with
-# a red run to explain it. Never cancel: a cancelled run can leave staging
-# merged locally but unpushed, which looks identical to "never ran".
-concurrency:
-  group: sync-staging-with-main
-  cancel-in-progress: false
-
-permissions:
-  contents: write
-
 jobs:
   sync-staging:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    environment: staging
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.DEPLOY_AUTOMATION_SECRET }}
-
-      - name: Configure Git
-        run: |
-          git config user.name 'Unbound Automation'
-          git config user.email 'engg@unboundsecurity.ai'
-
-      - name: Sync staging with main
-        run: |
-          set -euo pipefail
-          git checkout staging
-          git pull --ff-only origin staging
-
-          # Nothing to do when staging already contains main. Without this the
-          # job would create an empty merge commit on every unrelated push to
-          # main, and each one appends noise to the staging history that the
-          # deploy workflow then has to reason about.
-          if git merge-base --is-ancestor origin/main HEAD; then
-            echo "staging already contains main ($(git rev-parse --short origin/main)) — nothing to do"
-            exit 0
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.DEPLOY_AUTOMATION_SECRET }}
+    
+    - name: Configure Git
+      run: |
+        git config --global user.name 'Unbound Automation'
+        git config --global user.email 'engg@unboundsecurity.ai'
+    
+    - name: Sync staging with main
+      run: |
+        # Assert that everything on <ref> which is not on main is a deploy tag
+        # commit and nothing else. Called before the initial merge AND again on
+        # every push retry — a commit can land on staging mid-loop, and merging
+        # it without re-checking would launder an unreviewed change straight
+        # into ArgoCD.
+        check_divergence() {
+          REF="$1"
+          # Fail CLOSED on git errors. Every check below reads a command
+          # substitution, and an unchecked failure (missing ref, bad object,
+          # transient error) yields an empty string that reads as "nothing
+          # diverged" — the tripwire would wave through exactly the state it
+          # exists to catch.
+          FILES="$(git diff --name-only "origin/main...${REF}")" || {
+            echo "::error::could not diff origin/main...${REF} — refusing to sync rather than assume no divergence"
+            return 1
+          }
+          UNEXPECTED="$(printf '%s\n' "$FILES" | grep -v '^k8s/staging/values.yaml$' | grep -v '^$' || true)"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::${REF} diverges from main with changes OUTSIDE k8s/staging/values.yaml:"
+            printf '%s\n' "$UNEXPECTED" | awk '{print "::error::  " $0}'
+            echo "::error::These commits never went through a PR into main. Resolve manually — do not force-push staging."
+            return 1
           fi
 
-          BEFORE="$(git rev-parse HEAD)"
-          if ! git merge origin/main --no-ff -m "Sync staging with main"; then
+          # The path alone is not enough: replicas, env vars, resources and
+          # image.repository all live in that same file, and an unreviewed edit
+          # to any of them would pass a path-only check and be deployed by
+          # ArgoCD. Require every changed line to be the image tag line.
+          RAW="$(git diff -U0 "origin/main...${REF}" -- k8s/staging/values.yaml)" || {
+            echo "::error::could not diff k8s/staging/values.yaml on ${REF} — refusing to sync"
+            return 1
+          }
+          CHANGED="$(printf '%s\n' "$RAW" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' || true)"
+          [ -n "$CHANGED" ] || return 0
+
+          NONTAG="$(printf '%s\n' "$CHANGED" | grep -vE '^[+-][[:space:]]*tag:[[:space:]]' || true)"
+          if [ -n "$NONTAG" ]; then
+            echo "::error::${REF} changes k8s/staging/values.yaml beyond the image tag:"
+            printf '%s\n' "$NONTAG" | awk '{print "::error::  " $0}'
+            echo "::error::Only deploy tag commits may land directly on staging. Resolve manually."
+            return 1
+          fi
+
+          # And the tag it lands on must be an immutable sha — or "staging",
+          # the pre-cutover mutable string, which is what the first v2 deploy
+          # replaces and a v1 fallback would restore.
+          BADTAG="$(printf '%s\n' "$CHANGED" | grep -E '^\+' \
+                      | grep -vE '^\+[[:space:]]*tag:[[:space:]]*"?([0-9a-f]{40}|staging)"?[[:space:]]*$' || true)"
+          if [ -n "$BADTAG" ]; then
+            echo "::error::${REF} pins an image tag that is neither a 40-hex sha nor \"staging\":"
+            printf '%s\n' "$BADTAG" | awk '{print "::error::  " $0}'
+            return 1
+          fi
+          return 0
+        }
+
+        git checkout staging
+        git pull origin staging
+        # Fast-forward is still the expected and preferred outcome, so try it
+        # first — it keeps staging a strict descendant of main whenever nothing
+        # has landed on staging alone.
+        if git merge origin/main --ff-only; then
+          echo "Fast-forwarded staging to main"
+        else
+          # A non-ff state is now NORMAL, not an error. deploy_eks_v2.yml commits
+          # `image.tag: <sha>` into k8s/staging/values.yaml directly on the
+          # staging branch (ArgoCD tracks `staging`, so the tag has to live
+          # there), which makes staging diverge from main by design. Under the
+          # old --ff-only-or-die rule the very first v2 staging deploy would
+          # have broken this sync permanently.
+          #
+          # But "any divergence is fine" would throw away the tripwire --ff-only
+          # gave us: an unreviewed commit pushed straight to staging (bypass
+          # list or admin) would be merged forward and auto-deployed by ArgoCD
+          # selfHeal with nothing complaining. So allow ONLY the divergence we
+          # actually expect — deploy tag commits — and fail loudly on anything
+          # else, exactly as before.
+          check_divergence staging || exit 1
+          echo "::notice::staging diverges from main only by deploy tag commits — merging instead of fast-forwarding"
+          if ! git merge origin/main --no-edit; then
             git merge --abort || true
-            echo "::error::Merge conflict syncing main into staging. Resolve manually with a PR into staging."
+            echo "::error::Failed to sync staging with main: merge conflict between the branches."
+            echo "::error::Resolve manually — do not force-push staging."
             exit 1
           fi
-
-          echo "merged $(git rev-parse --short "$BEFORE") + main -> $(git rev-parse --short HEAD)"
-          git push origin staging
-
-      - name: Report
-        run: |
-          echo "staging: $(git rev-parse --short origin/staging 2>/dev/null || git rev-parse --short HEAD)"
-          echo "main:    $(git rev-parse --short origin/main)"
+        fi
+        # Retry the push: staging now receives automated deploy tag commits, so
+        # a v2 run can land between the merge above and this push. Without a
+        # retry that push is rejected and staging silently stays behind main
+        # until someone re-runs this workflow.
+        for i in 1 2 3 4 5; do
+          if git push origin staging; then exit 0; fi
+          echo "push rejected (attempt ${i}/5) — re-merging origin/staging"
+          git fetch origin '+refs/heads/staging:refs/remotes/origin/staging' || true
+          # Re-run the tripwire on what we are about to absorb. Whatever landed
+          # during the retry window has NOT been validated yet, and merging it
+          # unchecked would let an unreviewed change ride this workflow's push
+          # into ArgoCD — the exact hole the initial check exists to close.
+          check_divergence origin/staging || {
+            echo "::error::a commit that landed on staging during the retry window is not a deploy tag commit — refusing to merge it forward."
+            exit 1
+          }
+          if ! git merge origin/staging --no-edit; then
+            git merge --abort || true
+            echo "::error::conflict merging a concurrent staging push — resolve manually."
+            exit 1
+          fi
+        done
+        echo "::error::could not push staging after 5 attempts."
+        exit 1
+    
+    - name: Sync status
+      run: |
+        echo "✅ Staging branch has been synchronized with main" 
