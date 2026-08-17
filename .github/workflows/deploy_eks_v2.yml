@@ -178,7 +178,15 @@ jobs:
             # read (../staging/values.yaml vs ../prod/values.yaml). There is no
             # `staging` branch. So a staging deploy commits k8s/staging/values.yaml
             # ON MAIN — same branch as prod, different file. They cannot collide.
-            staging) BRANCH=main ;;
+            # staging now tracks its own branch, matching every other service.
+            # Was BRANCH=main, because trufflehog had no staging branch and the
+            # Application pointed at HEAD -- which meant a staging deploy and a
+            # prod deploy shipped the identical commit and staging could not act
+            # as a pre-prod check. Changing this REQUIRES the Application's
+            # targetRevision to move from HEAD to staging in the same rollout,
+            # or the workflow commits a tag to a branch ArgoCD is not watching
+            # and staging deploys stop landing silently.
+            staging) BRANCH=staging ;;
             prod)    BRANCH=main; GATE=true ;;
             *)       echo "::error::unknown environment '${ENV}'"; exit 1 ;;
           esac
