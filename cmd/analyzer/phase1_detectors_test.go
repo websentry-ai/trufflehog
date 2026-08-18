@@ -19,15 +19,13 @@ var phase1Entities = map[string]bool{
 	"NewRelicInsightsQueryKey": true, "NewRelicLicenseKey": true,
 }
 
-// Every fixture is split at its prefix boundary so no whole token exists as a
-// contiguous literal here: GitHub push protection scans this file, and a value
-// matching a vendor's published format is precisely what it blocks.
+// Fixtures are split at their prefix boundary so no whole token exists as a
+// contiguous literal: GitHub push protection blocks any value matching a
+// vendor's published format.
 //
-// Values are upstream's own detector fixtures wherever they survive our
-// pipeline. Two do not: upstream's duffel and shippo fixtures are 43 'a's and
-// 40 '1's, and scan() drops any value with a run of 8 identical characters as
-// an obvious placeholder. That suppression is correct -- a real token is not a
-// single repeated character -- so those two use a realistic value instead.
+// Values are upstream's own fixtures except duffel and shippo -- theirs are 43
+// 'a's and 40 '1's, which scan() correctly drops as repeated-character
+// placeholders.
 var phase1Positives = []struct {
 	name, entity, text string
 }{
@@ -136,27 +134,36 @@ func TestPhase1IgnoresProseAndPlaceholders(t *testing.T) {
 	}
 }
 
-type atomicBoolRef struct{ b *atomic.Bool }
-
 // The flags are package-level vars only main.go sets, so a detector in the list
-// is still deleted unless the flag is stored first. Toggling explicitly makes
-// the count independent of whichever test ran before this one.
+// is still deleted unless the flag is stored first. This toggles them directly,
+// so it saves and restores them -- otherwise the detector set every later test
+// sees would depend on execution order.
 func TestPhase1EnablementAddsDetectors(t *testing.T) {
-	flags := []*atomicBoolRef{
-		{&feature.CloudflareApiTokenV2DetectorEnabled}, {&feature.CloudflareGlobalApiKeyV2DetectorEnabled},
-		{&feature.PineconeDetectorEnabled}, {&feature.SonarCloudV2DetectorEnabled},
-		{&feature.OpenRouterDetectorEnabled}, {&feature.PgAnalyzeReadKeyDetectorEnabled},
-		{&feature.DuffelTokenDetectorEnabled}, {&feature.ShippoDetectorEnabled},
-		{&feature.GitLabOAuthDetectorEnabled}, {&feature.NewRelicUserKeyDetectorEnabled},
-		{&feature.NewRelicBrowserKeyDetectorEnabled}, {&feature.NewRelicInsightsInsertKeyDetectorEnabled},
-		{&feature.NewRelicInsightsQueryKeyDetectorEnabled}, {&feature.NewRelicLicenseKeyDetectorEnabled},
+	flags := []*atomic.Bool{
+		&feature.CloudflareApiTokenV2DetectorEnabled, &feature.CloudflareGlobalApiKeyV2DetectorEnabled,
+		&feature.PineconeDetectorEnabled, &feature.SonarCloudV2DetectorEnabled,
+		&feature.OpenRouterDetectorEnabled, &feature.PgAnalyzeReadKeyDetectorEnabled,
+		&feature.DuffelTokenDetectorEnabled, &feature.ShippoDetectorEnabled,
+		&feature.GitLabOAuthDetectorEnabled, &feature.NewRelicUserKeyDetectorEnabled,
+		&feature.NewRelicBrowserKeyDetectorEnabled, &feature.NewRelicInsightsInsertKeyDetectorEnabled,
+		&feature.NewRelicInsightsQueryKeyDetectorEnabled, &feature.NewRelicLicenseKeyDetectorEnabled,
 	}
+	prior := make([]bool, len(flags))
+	for i, f := range flags {
+		prior[i] = f.Load()
+	}
+	t.Cleanup(func() {
+		for i, f := range flags {
+			f.Store(prior[i])
+		}
+	})
+
 	for _, f := range flags {
-		f.b.Store(false)
+		f.Store(false)
 	}
 	off := len(defaults.DefaultDetectors())
 	for _, f := range flags {
-		f.b.Store(true)
+		f.Store(true)
 	}
 	on := len(defaults.DefaultDetectors())
 	if gained := on - off; gained != len(flags) {

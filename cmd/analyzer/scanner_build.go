@@ -85,17 +85,13 @@ func envEnabledDefault(name string, def bool) bool {
 }
 
 func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
-	// Upstream gates new detectors behind flags that default to false and are
-	// only set by main.go, which this service never runs -- so DefaultDetectors()
-	// deletes them. The gate is upstream's rollout mechanism for anything newly
-	// added, not a signal the detector is unsafe. Must be set before it reads them.
+	// Upstream gates new detectors behind flags that default to false and are only
+	// set by main.go, which this service never runs -- so DefaultDetectors() deletes
+	// them. Must be set before it reads them.
 	//
-	// Everything enabled here matches a unique vendor literal (a prefix such as
-	// pcsk_ / sqco_ / NRAK-, or the FFFFNRAL suffix) rather than a keyword near a
-	// generic run of characters, so none of them can fire on ordinary prose or
-	// identifiers. Detectors whose pattern is only a keyword plus a length -- Lob,
-	// Enigma, Tly, Wit, Rev, User, IPInfo, Cloudinary, Datadog, RedHat Pyxis, Duo --
-	// stay off until each has been measured on its own.
+	// Enable one here only when its pattern is a unique vendor literal (a prefix
+	// like pcsk_ / NRAK-, or the FFFFNRAL suffix). Detectors matching only a
+	// keyword near a generic run of characters need measuring on their own first.
 	feature.CloudflareApiTokenV2DetectorEnabled.Store(true)
 	feature.CloudflareGlobalApiKeyV2DetectorEnabled.Store(true)
 	feature.PineconeDetectorEnabled.Store(true)
