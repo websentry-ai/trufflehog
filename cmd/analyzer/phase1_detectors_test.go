@@ -16,7 +16,7 @@ var phase1Entities = map[string]bool{
 	"Pinecone": true, "SonarCloud": true, "OpenRouter": true, "PgAnalyzeReadKey": true,
 	"DuffelToken": true, "Shippo": true, "GitLabOauth2": true, "NewRelicUserKey": true,
 	"NewRelicBrowserKey": true, "NewRelicInsightsInsertKey": true,
-	"NewRelicInsightsQueryKey": true, "NewRelicLicenseKey": true,
+	"NewRelicInsightsQueryKey": true, "NewRelicLicenseKey": true, "Lob": true,
 }
 
 // Fixtures are split at their prefix boundary so no whole token exists as a
@@ -55,6 +55,8 @@ var phase1Positives = []struct {
 		"NEW_RELIC_LICENSE_KEY=72322bc2443d330cf29cde9f24fca105" + "FFFFNRAL"},
 	{"newrelic-license-eu", "NewRelicLicenseKey",
 		"NEW_RELIC_LICENSE_KEY=eu01xxb7e8b0dddc28ac051a64ffd583" + "FFFFNRAL"},
+	// Lob's own documented example key.
+	{"lob", "Lob", "LOB_API_KEY=test" + "_0dc8d51e0acffcb1880e0f19c79b2f5b0cc"},
 }
 
 func TestPhase1FiresOnUpstreamFixtures(t *testing.T) {
@@ -125,6 +127,12 @@ func TestPhase1IgnoresProseAndPlaceholders(t *testing.T) {
 		"https://api.newrelic.com/v2/applications.json",
 		"sk-or-v1-not-a-key",
 		"pcsk_short_key",
+		// Lob's pattern used to accept any alphanumeric-underscore run of 35,
+		// so identifiers of that exact length were the FP source it produced.
+		"def test_secret_fp_judge_hides_placeholder_x(db):",
+		"def test_calculate_total_price_with_tax_rate():",
+		"live_migration_of_tenant_records_batchhh(cursor)",
+		"token = 'live_pub_0979969b3f6cc23ed67e9b650bfaf64'",
 	}
 	s := newBuiltScanner(t)
 	for _, text := range benign {
@@ -147,6 +155,7 @@ func TestPhase1EnablementAddsDetectors(t *testing.T) {
 		&feature.GitLabOAuthDetectorEnabled, &feature.NewRelicUserKeyDetectorEnabled,
 		&feature.NewRelicBrowserKeyDetectorEnabled, &feature.NewRelicInsightsInsertKeyDetectorEnabled,
 		&feature.NewRelicInsightsQueryKeyDetectorEnabled, &feature.NewRelicLicenseKeyDetectorEnabled,
+		&feature.LobDetectorEnabled,
 	}
 	prior := make([]bool, len(flags))
 	for i, f := range flags {

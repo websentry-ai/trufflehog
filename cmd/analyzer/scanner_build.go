@@ -89,9 +89,10 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	// set by main.go, which this service never runs -- so DefaultDetectors() deletes
 	// them. Must be set before it reads them.
 	//
-	// Enable one here only when its pattern is a unique vendor literal (a prefix
-	// like pcsk_ / NRAK-, or the FFFFNRAL suffix). Detectors matching only a
-	// keyword near a generic run of characters need measuring on their own first.
+	// Enable one here only when its pattern pins both a literal and a fixed-width
+	// body -- a vendor prefix like pcsk_ / NRAK-, the FFFFNRAL suffix, or Lob's
+	// live_/test_ plus exactly 35 lowercase hex. Detectors matching only a keyword
+	// near a generic run of characters need measuring on their own first.
 	feature.CloudflareApiTokenV2DetectorEnabled.Store(true)
 	feature.CloudflareGlobalApiKeyV2DetectorEnabled.Store(true)
 	feature.PineconeDetectorEnabled.Store(true)
@@ -106,6 +107,7 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	feature.NewRelicInsightsInsertKeyDetectorEnabled.Store(true)
 	feature.NewRelicInsightsQueryKeyDetectorEnabled.Store(true)
 	feature.NewRelicLicenseKeyDetectorEnabled.Store(true)
+	feature.LobDetectorEnabled.Store(true)
 
 	dets := defaults.DefaultDetectors()
 	if cfg.genericSecretsEnabled {
