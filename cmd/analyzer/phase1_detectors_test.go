@@ -151,9 +151,7 @@ func TestPhase1IgnoresProseAndPlaceholders(t *testing.T) {
 }
 
 // gitlab-oauth2 and NRIQ nest their result loop inside a second match, so a
-// secret with no client id or account id nearby yields nothing. Pinned because
-// it is the difference between a lower FP rate and a silent miss when a key is
-// pasted on its own.
+// secret with no client id or account id nearby yields nothing.
 func TestPhase1PairedDetectorsNeedBothHalves(t *testing.T) {
 	halfOnly := map[string]string{
 		"GitLabOauth2":             "client_secret = gloas" + "-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
