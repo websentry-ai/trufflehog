@@ -133,11 +133,38 @@ func TestPhase1IgnoresProseAndPlaceholders(t *testing.T) {
 		"def test_calculate_total_price_with_tax_rate():",
 		"live_migration_of_tenant_records_batchhh(cursor)",
 		"token = 'live_pub_0979969b3f6cc23ed67e9b650bfaf64'",
+		"NRBR- prefixes the browser key in the NREUM snippet",
+		"NRII- and NRIQ- are the legacy Insights key prefixes",
+		"browserKey: NRBR-<insert your key>",
+		// One character short of each format: these lengths are exact, and a
+		// loose bound is how a detector starts matching prose.
+		"browserKey: NRBR" + "-cd83c5e6c53fe2edc1 ",
+		"insertKey=NRII" + "-d-2Vf-L1w-8B9Y_--6x8-_Qj ",
+		"queryKey=NRIQ" + "-Xc_V8HruIZ271_l9FQm-_nJ7 ",
 	}
 	s := newBuiltScanner(t)
 	for _, text := range benign {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
 			t.Errorf("false positive: %s matched %q in %q", r.EntityType, text[r.Start:r.End], text)
+		}
+	}
+}
+
+// gitlab-oauth2 and NRIQ nest their result loop inside a second match, so a
+// secret with no client id or account id nearby yields nothing. Pinned because
+// it is the difference between a lower FP rate and a silent miss when a key is
+// pasted on its own.
+func TestPhase1PairedDetectorsNeedBothHalves(t *testing.T) {
+	halfOnly := map[string]string{
+		"GitLabOauth2":             "client_secret = gloas" + "-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		"NewRelicInsightsQueryKey": "queryKey=NRIQ" + "-Xc_V8HruIZ271_l9FQm-_nJ7_",
+	}
+	s := newBuiltScanner(t)
+	for entity, text := range halfOnly {
+		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
+			if r.EntityType == entity {
+				t.Errorf("%s fired on one half alone: %q", entity, text[r.Start:r.End])
+			}
 		}
 	}
 }
