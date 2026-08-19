@@ -193,16 +193,11 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 	}
 }
 
-// Upstream's engine feeds detectors 10KB chunks with a 3KB peek, never a whole
-// document. Several detectors pair two matches -- a token and a vendor URL, or
-// two halves of a credential -- and pair them anywhere in what they are given,
-// so handing them a whole request lets unrelated halves hundreds of kilobytes
-// apart combine into a finding. Windowing restores the bound upstream assumes.
-// Sized to how a credential is actually written down, not to upstream's file
-// chunking: a token and the host or second half it belongs with sit in the same
-// block, within a few hundred bytes. A wider window only gives unrelated
-// components more room to pair. Anything whose match has no length bound is
-// scanned separately over the whole request, so this does not truncate it.
+// Several detectors pair two matches -- a token and a vendor URL, or two halves
+// of a credential -- anywhere in the data they are handed, so a whole request
+// lets unrelated halves combine. The window bounds how far apart they may be,
+// and is sized to how a credential is written down: a token and the host it
+// belongs with sit in the same block, a few hundred bytes apart.
 const (
 	scanWindowSize = 2 * 1024
 	scanWindowPeek = 1024
@@ -234,14 +229,13 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 		off = runeBoundary(data, off+scanWindowSize)
 	}
 
-	// A PEM block has no length bound and routinely runs past the peek, so a key
-	// straddling a boundary would be split. It is a single self-delimiting match
-	// with nothing to pair against, so it is scanned over the whole request.
 	all = append(all, s.scanLongForm(ctx, data, threshold, shapes)...)
 	return s.record(ctx, dedupeIdentical(all))
 }
 
-// scanLongForm runs the unbounded-length detectors over the whole request.
+// scanLongForm covers the detectors whose match has no length bound. A PEM block
+// runs past any reasonable peek, and has nothing to pair against, so it is
+// scanned whole rather than per window.
 func (s *scanner) scanLongForm(ctx context.Context, data []byte, threshold float64, shapes map[string]int) []analyzeResult {
 	if s.longFormCore == nil {
 		return nil

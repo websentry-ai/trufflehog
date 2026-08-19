@@ -143,8 +143,7 @@ func buildScanner(cfg scannerConfig) (*scanner, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The PEM block is the one match with no length bound; scan() gives it the
-	// whole request so a window boundary cannot split it.
+	// The one match with no length bound; scan() gives it the whole request.
 	var longForm []detectors.Detector
 	for _, d := range dets {
 		// CustomRegexWebhook embeds a protobuf message, so the name is a getter.
