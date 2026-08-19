@@ -213,37 +213,29 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 		shapes = documentShapes(data)
 	}
 
-	if len(data) <= scanWindowSize+scanWindowPeek {
-		return s.record(ctx, s.scanChunk(ctx, data, threshold, 0, shapes))
-	}
-
 	var all []analyzeResult
-	for off := 0; off < len(data); {
-		end := runeBoundary(data, off+scanWindowSize+scanWindowPeek)
-		// Offsets are reported in runes, so the window's own start has to be
-		// counted the same way before it can be added back.
-		all = append(all, s.scanChunk(ctx, data[off:end], threshold, utf8.RuneCount(data[:off]), shapes)...)
-		if end == len(data) {
-			break
+	if len(data) <= scanWindowSize+scanWindowPeek {
+		all = s.detect(ctx, s.core, data, threshold, 0)
+	} else {
+		for off := 0; off < len(data); {
+			end := runeBoundary(data, off+scanWindowSize+scanWindowPeek)
+			// Offsets are reported in runes, so the window's own start has to be
+			// counted the same way before it can be added back.
+			all = append(all, s.detect(ctx, s.core, data[off:end], threshold, utf8.RuneCount(data[:off]))...)
+			if end == len(data) {
+				break
+			}
+			off = runeBoundary(data, off+scanWindowSize)
 		}
-		off = runeBoundary(data, off+scanWindowSize)
+		if s.longFormCore != nil {
+			all = append(all, s.detect(ctx, s.longFormCore, data, threshold, 0)...)
+		}
 	}
 
-	all = append(all, s.scanLongForm(ctx, data, threshold, shapes)...)
-	return s.record(ctx, dedupeIdentical(all))
-}
-
-// scanLongForm covers the detectors whose match has no length bound. A PEM block
-// runs past any reasonable peek, and has nothing to pair against, so it is
-// scanned whole rather than per window.
-func (s *scanner) scanLongForm(ctx context.Context, data []byte, threshold float64, shapes map[string]int) []analyzeResult {
-	if s.longFormCore == nil {
-		return nil
-	}
-	saved := s.core
-	s.core = s.longFormCore
-	defer func() { s.core = saved }()
-	return s.scanChunk(ctx, data, threshold, 0, shapes)
+	// Overlap resolution and suppression both reason about the request as a
+	// whole, so they run once on the merged set rather than inside a window.
+	merged := dedupeOverlapping(dedupeIdentical(all))
+	return s.record(ctx, s.applySuppression(ctx, merged, data, shapes))
 }
 
 // runeBoundary moves i forward to the next rune start, so slicing never cuts a
@@ -271,12 +263,18 @@ func (s *scanner) record(ctx context.Context, results []analyzeResult) []analyze
 	return results
 }
 
-// dedupeIdentical drops the repeats that the peek overlap produces.
+// dedupeIdentical drops the repeats the peek overlap produces. The entity is
+// part of the key: two detectors reporting the same span are not duplicates,
+// and choosing between them is dedupeOverlapping's job.
 func dedupeIdentical(in []analyzeResult) []analyzeResult {
-	seen := make(map[[2]int]struct{}, len(in))
+	type key struct {
+		entity     string
+		start, end int
+	}
+	seen := make(map[key]struct{}, len(in))
 	out := make([]analyzeResult, 0, len(in))
 	for _, r := range in {
-		k := [2]int{r.Start, r.End}
+		k := key{r.EntityType, r.Start, r.End}
 		if _, dup := seen[k]; dup {
 			continue
 		}
@@ -286,10 +284,12 @@ func dedupeIdentical(in []analyzeResult) []analyzeResult {
 	return out
 }
 
-func (s *scanner) scanChunk(ctx context.Context, data []byte, threshold float64, runeBase int, shapes map[string]int) []analyzeResult {
+// detect runs one core over one slice. The core is an argument because the
+// scanner is shared across concurrent requests and must never be mutated.
+func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byte, threshold float64, runeBase int) []analyzeResult {
 	reqID := reqIDFrom(ctx)
 	out := []analyzeResult{}
-	for _, match := range s.core.FindDetectorMatches(data) {
+	for _, match := range core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
 			detectorErrorsTotal.WithLabelValues(match.Key.Type().String()).Inc()
@@ -328,7 +328,7 @@ func (s *scanner) scanChunk(ctx context.Context, data []byte, threshold float64,
 			})
 		}
 	}
-	return s.applySuppression(ctx, dedupeOverlapping(out), data, shapes)
+	return out
 }
 
 func dedupeOverlapping(in []analyzeResult) []analyzeResult {

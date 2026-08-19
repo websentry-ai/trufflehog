@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 )
@@ -80,4 +81,32 @@ func TestBulkSuppressionSeesWholeRequest(t *testing.T) {
 			t.Errorf("shape %q counts %d in a window vs %d whole -- the window view is not narrower", k, window[k], n)
 		}
 	}
+}
+
+// The scanner is shared across concurrent requests, so nothing in the scan path
+// may mutate it. Run under -race this fails if a core is swapped in place.
+func TestConcurrentScansDoNotShareState(t *testing.T) {
+	s := newBuiltScanner(t)
+	pem := "-----BEGIN RSA PRIVATE KEY-----\n" +
+		strings.Repeat("MIIEowIBAAKCAQEAx7Vn8Q2mKpLd9RtYuIoP3aSdFgHjKlZxCvBnMqWeRtYuIoPa\n", 200) +
+		"-----END RSA PRIVATE KEY-----"
+	filler := strings.Repeat("routine log line about a deployment step. ", 300)
+	long := []byte(filler + "\n" + pem + "\n" + filler)
+	short := []byte("export GITHUB_TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyz")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			data := short
+			if i%2 == 0 {
+				data = long
+			}
+			if got := len(s.scan(context.Background(), data, 0.75)); got == 0 {
+				t.Errorf("goroutine %d found nothing", i)
+			}
+		}(i)
+	}
+	wg.Wait()
 }
