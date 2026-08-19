@@ -243,13 +243,13 @@ func TestApplySuppressionVendorMode(t *testing.T) {
 	// credential context for structural suppression to apply.
 	data := []byte("ref a1d976ec-a095-46eb-a163- end")
 
-	off := (&scanner{mode: suppressionOff, vendorMode: suppressionOff}).applySuppression(context.Background(), findings, data)
+	off := (&scanner{mode: suppressionOff, vendorMode: suppressionOff}).applySuppression(context.Background(), findings, data, nil)
 	require.Equal(t, len(findings), len(off), "vendor off must not change findings")
 
-	shadow := (&scanner{mode: suppressionOff, vendorMode: suppressionShadow}).applySuppression(context.Background(), findings, data)
+	shadow := (&scanner{mode: suppressionOff, vendorMode: suppressionShadow}).applySuppression(context.Background(), findings, data, nil)
 	require.Equal(t, len(findings), len(shadow), "shadow must emit the same findings as off")
 
-	enforce := (&scanner{mode: suppressionOff, vendorMode: suppressionEnforce}).applySuppression(context.Background(), findings, data)
+	enforce := (&scanner{mode: suppressionOff, vendorMode: suppressionEnforce}).applySuppression(context.Background(), findings, data, nil)
 	require.Equal(t, 2, len(enforce), "enforce must drop the truncated uuid and the azure code fragment")
 	require.Equal(t, "Azure", enforce[0].EntityType, "azure punctuation secret must survive")
 	require.Equal(t, "Github", enforce[1].EntityType, "non-curated vendor must survive")

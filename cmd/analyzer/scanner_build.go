@@ -143,8 +143,23 @@ func buildScanner(cfg scannerConfig) (*scanner, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The PEM block is the one match with no length bound; scan() gives it the
+	// whole request so a window boundary cannot split it.
+	var longForm []detectors.Detector
+	for _, d := range dets {
+		// CustomRegexWebhook embeds a protobuf message, so the name is a getter.
+		if cd, ok := d.(interface{ GetName() string }); ok && cd.GetName() == customdetectors.PrivateKeyName {
+			longForm = append(longForm, d)
+		}
+	}
+	var longFormCore *ahocorasick.Core
+	if len(longForm) > 0 {
+		longFormCore = ahocorasick.NewAhoCorasickCore(longForm)
+	}
+
 	return &scanner{
 		core:               ahocorasick.NewAhoCorasickCore(dets),
+		longFormCore:       longFormCore,
 		detectors:          len(dets),
 		genericSecretScore: cfg.genericSecretScore,
 		mode:               cfg.mode,
