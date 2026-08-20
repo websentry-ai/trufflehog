@@ -142,6 +142,20 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	feature.NewRelicInsightsQueryKeyDetectorEnabled.Store(true)
 	feature.NewRelicLicenseKeyDetectorEnabled.Store(true)
 	feature.LobDetectorEnabled.Store(true)
+	// sk- plus exactly 48 alphanumerics, and the chunk must also carry the
+	// keyword, so ordinary text cannot reach it. Legacy OpenAI keys match too and
+	// surface under this name -- a mislabelled secret, not a false positive.
+	feature.BraintrustDetectorEnabled.Store(true)
+	// Paired: each needs a second component -- another half of the credential, or
+	// the vendor's own host. scan() windows the data, so the two must appear in
+	// the same window rather than anywhere in the request.
+	feature.CloudinaryDetectorEnabled.Store(true)
+	feature.DuoDetectorEnabled.Store(true)
+	feature.HashiCorpVaultTokenDetectorEnabled.Store(true)
+	feature.HashiCorpVaultBatchTokenDetectorEnabled.Store(true)
+	feature.OctopusDeployDetectorEnabled.Store(true)
+	feature.RevDetectorEnabled.Store(true)
+	feature.UserDetectorEnabled.Store(true)
 
 	dets := defaults.DefaultDetectors()
 	if cfg.genericSecretsEnabled {
