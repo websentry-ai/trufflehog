@@ -156,9 +156,8 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	feature.OctopusDeployDetectorEnabled.Store(true)
 	feature.RevDetectorEnabled.Store(true)
 	feature.UserDetectorEnabled.Store(true)
-	// Their keywords used to bleed through PrefixRegex, which has no boundary --
-	// "tly" out of recently and currently, "wit" out of with and width. Both now
-	// require the keyword to start a word and be followed by a delimiter.
+	// Safe only since their keywords stopped matching inside ordinary words; the
+	// rule each one needs is in its own detector.
 	feature.TlyDetectorEnabled.Store(true)
 	feature.WitDetectorEnabled.Store(true)
 
