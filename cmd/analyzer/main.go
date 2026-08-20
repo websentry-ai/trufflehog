@@ -71,7 +71,10 @@ type analyzeResult struct {
 }
 
 type scanner struct {
-	core               *ahocorasick.Core
+	core *ahocorasick.Core
+	// detectors whose match has no length bound, scanned over the whole request
+	// rather than per window
+	longFormCore       *ahocorasick.Core
 	detectors          int
 	genericSecretScore float64
 	mode               suppressionMode
@@ -190,13 +193,103 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 	}
 }
 
+// Several detectors pair two matches -- a token and a vendor URL, or two halves
+// of a credential -- anywhere in the data they are handed, so a whole request
+// lets unrelated halves combine. The window bounds how far apart they may be,
+// and is sized to how a credential is written down: a token and the host it
+// belongs with sit in the same block, a few hundred bytes apart.
+const (
+	scanWindowSize = 2 * 1024
+	scanWindowPeek = 1024
+)
+
 func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []analyzeResult {
 	start := time.Now()
 	defer func() { scanDuration.Observe(time.Since(start).Seconds()) }()
 
+	// Computed once over the whole request so windowing cannot weaken it.
+	var shapes map[string]int
+	if s.mode != suppressionOff {
+		shapes = documentShapes(data)
+	}
+
+	var all []analyzeResult
+	if len(data) <= scanWindowSize+scanWindowPeek {
+		all = s.detect(ctx, s.core, data, threshold, 0)
+	} else {
+		for off := 0; off < len(data); {
+			end := runeBoundary(data, off+scanWindowSize+scanWindowPeek)
+			// Offsets are reported in runes, so the window's own start has to be
+			// counted the same way before it can be added back.
+			all = append(all, s.detect(ctx, s.core, data[off:end], threshold, utf8.RuneCount(data[:off]))...)
+			if end == len(data) {
+				break
+			}
+			off = runeBoundary(data, off+scanWindowSize)
+		}
+		if s.longFormCore != nil {
+			all = append(all, s.detect(ctx, s.longFormCore, data, threshold, 0)...)
+		}
+	}
+
+	// Overlap resolution and suppression both reason about the request as a
+	// whole, so they run once on the merged set rather than inside a window.
+	merged := dedupeOverlapping(dedupeIdentical(all))
+	return s.record(ctx, s.applySuppression(ctx, merged, data, shapes))
+}
+
+// runeBoundary moves i forward to the next rune start, so slicing never cuts a
+// multibyte sequence -- which would corrupt both the window and the rune count
+// used to place its findings.
+func runeBoundary(data []byte, i int) int {
+	if i >= len(data) {
+		return len(data)
+	}
+	for i < len(data) && !utf8.RuneStart(data[i]) {
+		i++
+	}
+	return i
+}
+
+// record emits the per-request metrics once, after every window has been merged.
+func (s *scanner) record(ctx context.Context, results []analyzeResult) []analyzeResult {
+	for _, res := range results {
+		detectionsTotal.WithLabelValues(res.EntityType).Inc()
+	}
+	findingsPerRequest.Observe(float64(len(results)))
+	if ctx.Err() == context.DeadlineExceeded {
+		scanTimeoutsTotal.Inc()
+	}
+	return results
+}
+
+// dedupeIdentical drops the repeats the peek overlap produces. The entity is
+// part of the key: two detectors reporting the same span are not duplicates,
+// and choosing between them is dedupeOverlapping's job.
+func dedupeIdentical(in []analyzeResult) []analyzeResult {
+	type key struct {
+		entity     string
+		start, end int
+	}
+	seen := make(map[key]struct{}, len(in))
+	out := make([]analyzeResult, 0, len(in))
+	for _, r := range in {
+		k := key{r.EntityType, r.Start, r.End}
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, r)
+	}
+	return out
+}
+
+// detect runs one core over one slice. The core is an argument because the
+// scanner is shared across concurrent requests and must never be mutated.
+func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byte, threshold float64, runeBase int) []analyzeResult {
 	reqID := reqIDFrom(ctx)
 	out := []analyzeResult{}
-	for _, match := range s.core.FindDetectorMatches(data) {
+	for _, match := range core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
 			detectorErrorsTotal.WithLabelValues(match.Key.Type().String()).Inc()
@@ -226,8 +319,8 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 			}
 			out = append(out, analyzeResult{
 				EntityType: entity,
-				Start:      start,
-				End:        end,
+				Start:      runeBase + start,
+				End:        runeBase + end,
 				Score:      score,
 				Source:     "trufflehog",
 				Metadata:   exposedMetadata(res.ExtraData),
@@ -235,15 +328,7 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 			})
 		}
 	}
-	deduped := s.applySuppression(ctx, dedupeOverlapping(out), data)
-	for _, res := range deduped {
-		detectionsTotal.WithLabelValues(res.EntityType).Inc()
-	}
-	findingsPerRequest.Observe(float64(len(deduped)))
-	if ctx.Err() == context.DeadlineExceeded {
-		scanTimeoutsTotal.Inc()
-	}
-	return deduped
+	return out
 }
 
 func dedupeOverlapping(in []analyzeResult) []analyzeResult {

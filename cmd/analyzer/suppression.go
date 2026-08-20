@@ -459,12 +459,15 @@ func hexChainNeighbor(data []byte, dashPos, dir int) bool {
 	return true
 }
 
-func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte) []analyzeResult {
+// shapes counts token shapes across the WHOLE request, not the window being
+// scanned: bulk-list suppression asks whether a value is one of many alike in
+// the document, and a window cannot answer that.
+func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data []byte, shapes map[string]int) []analyzeResult {
 	if s.mode == suppressionOff && s.vendorMode == suppressionOff {
 		return in
 	}
-	var shapes map[string]int
-	if s.mode != suppressionOff {
+	// A nil map means the caller has no wider view than the data it passed.
+	if shapes == nil && s.mode != suppressionOff {
 		shapes = documentShapes(data)
 	}
 	kept := make([]analyzeResult, 0, len(in))
