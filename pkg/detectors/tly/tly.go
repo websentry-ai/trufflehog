@@ -25,9 +25,11 @@ var (
 	// Make sure that your group is surrounded in boundary characters such as below to reduce false positives.
 	// PrefixRegex has no word boundary, and "tly" is the tail of recently,
 	// currently, exactly and shortly, so prose reached the key pattern. The
-	// keyword must now start a word and be followed by a delimiter -- how it is
-	// written in config: TLY_API_KEY, tly_token, tly.link
-	keyPat = regexp.MustCompile(`(?i:\b(?:tly)[-_.:= ])(?:.|[\n\r]){0,40}?` + `\b([0-9A-Za-z]{60})\b`)
+	// keyword must now start a word and be joined to what follows, assigned to,
+	// naming a credential, or starting a camelCase label -- how it is written in
+	// config: TLY_API_KEY, tly.link, tlyApiKey. The camelCase branch is
+	// case-sensitive so all-caps prose does not satisfy it.
+	keyPat = regexp.MustCompile(`(?i:\btly(?:[-_.:=]|(?-i:[A-Z][a-z])|[ \t]+[a-z_]{0,12}[ \t]*[:=]|[ \t]+(?:[a-z]+[ \t]+){0,2}(?:token|secret|key)\b))(?:.|[\n\r]){0,40}?` + `\b([0-9A-Za-z]{60})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

@@ -51,6 +51,11 @@ func TestWit_Pattern(t *testing.T) {
 			want:  []string{},
 		},
 		{
+			name:  "keyword naming a credential, no assignment",
+			input: "You can find a wit secret ABCDEFGH12345678IJKLMNOP90QRSTUV within",
+			want:  []string{"ABCDEFGH12345678IJKLMNOP90QRSTUV"},
+		},
+		{
 			name:  "keyword as an english word",
 			input: "the wit and wisdom of ABCDEFGH12345678IJKLMNOP90QRSTUV in review",
 			want:  []string{},

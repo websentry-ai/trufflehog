@@ -23,12 +23,15 @@ var (
 	client = common.SaneHttpClient()
 
 	// Make sure that your group is surrounded in boundary characters such as below to reduce false positives.
-	// "wit" both starts other words -- with, width, without, witness -- and is a
-	// word itself, and PrefixRegex has no boundary, so prose reached the key
-	// pattern. It now has to be joined to what follows by a delimiter
-	// (WIT_AI_TOKEN, wit_token, wit.ai) or be assigned to (wit token = ...).
-	// A bare space is not enough on its own: "the wit and wisdom of <token>".
-	keyPat = regexp.MustCompile(`(?i:\bwit(?:[-_.:=]|[ \t]+[a-z_]{0,12}[ \t]*[:=]))(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
+	// PrefixRegex has no word boundary, and "wit" both starts other words --
+	// with, width, without, witness -- and is a word itself, so prose reached the
+	// key pattern. The keyword now has to be joined to what follows
+	// (WIT_AI_TOKEN, wit.ai), assigned to (wit token = ...), or naming a
+	// credential (wit secret ..., wit server access token ...), or start a
+	// camelCase label (witAccessToken). A bare space is not enough: "the wit and
+	// wisdom of <token>". The camelCase branch is case-sensitive so that all-caps
+	// prose -- WITHOUT, WITNESS -- does not satisfy it.
+	keyPat = regexp.MustCompile(`(?i:\bwit(?:[-_.:=]|(?-i:[A-Z][a-z])|[ \t]+[a-z_]{0,12}[ \t]*[:=]|[ \t]+(?:[a-z]+[ \t]+){0,2}(?:token|secret|key)\b))(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.
