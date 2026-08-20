@@ -27,10 +27,10 @@ var (
 	// with, width, without, witness -- and is a word itself, so prose reached the
 	// key pattern. The keyword now has to be joined to what follows (WIT_AI_TOKEN,
 	// wit.ai), assigned to (wit token = ...), naming a credential (wit secret ...),
-	// or opening a camelCase label (witAccessToken, witAPIKey). That last branch
-	// requires the keyword itself to be lowercase, so all-caps prose -- WITHOUT,
-	// WITNESS -- cannot satisfy it.
-	keyPat = regexp.MustCompile(`(?:(?i:\bwit)(?:[-_.:=]|[ \t]+[a-z_]{0,12}[ \t]*[:=]|[ \t]+(?:[a-z]+[ \t]+){0,2}(?:token|secret|key)\b)|(?-i:\bwit[A-Z]))(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
+	// or opening a camelCase label (witAccessToken, witAPIKey). Only that last
+	// branch is case-sensitive, and it needs the keyword itself lowercase, so
+	// all-caps prose -- WITHOUT, WITNESS -- cannot satisfy any of them.
+	keyPat = regexp.MustCompile(`(?:(?i:\bwit(?:[-_.:=]|[ \t]+[a-z_]{0,12}[ \t]*[:=]|[ \t]+(?:[a-z]+[ \t]+){0,2}(?:token|secret|key)\b))|(?-i:\bwit[A-Z]))(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

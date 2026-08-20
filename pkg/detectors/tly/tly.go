@@ -27,7 +27,7 @@ var (
 	// currently, exactly and shortly, so prose reached the key pattern. The keyword
 	// now has to start a word and be joined to what follows, assigned to, naming a
 	// credential, or opening a camelCase label -- TLY_API_KEY, tly.link, tlyAPIKey.
-	keyPat = regexp.MustCompile(`(?:(?i:\btly)(?:[-_.:=]|[ \t]+[a-z_]{0,12}[ \t]*[:=]|[ \t]+(?:[a-z]+[ \t]+){0,2}(?:token|secret|key)\b)|(?-i:\btly[A-Z]))(?:.|[\n\r]){0,40}?` + `\b([0-9A-Za-z]{60})\b`)
+	keyPat = regexp.MustCompile(`(?:(?i:\btly(?:[-_.:=]|[ \t]+[a-z_]{0,12}[ \t]*[:=]|[ \t]+(?:[a-z]+[ \t]+){0,2}(?:token|secret|key)\b))|(?-i:\btly[A-Z]))(?:.|[\n\r]){0,40}?` + `\b([0-9A-Za-z]{60})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

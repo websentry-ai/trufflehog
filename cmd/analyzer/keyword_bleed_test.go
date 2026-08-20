@@ -27,6 +27,7 @@ func TestKeywordBleedStaysSilent(t *testing.T) {
 		"WITHOUT THE TOKEN ABCDEFGH12345678IJKLMNOP90QRSTUV SET",
 		"WITNESS RECORD ABCDEFGH12345678IJKLMNOP90QRSTUV HERE",
 		"WITHIN ABCDEFGH12345678IJKLMNOP90QRSTUV",
+		"WITH THE SECRET ABCDEFGH12345678IJKLMNOP90QRSTUV",
 		"SHORTLY AFTER VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD",
 	}
 	s := newBuiltScanner(t)
@@ -51,6 +52,8 @@ func TestKeywordStillMatchesRealConfig(t *testing.T) {
 		{"wit naming a credential", "Wit", "You can find a wit secret ABCDEFGH12345678IJKLMNOP90QRSTUV within"},
 		{"wit camelCase", "Wit", "witAccessToken: ABCDEFGH12345678IJKLMNOP90QRSTUV"},
 		{"wit initialism", "Wit", "witAPIKey = ABCDEFGH12345678IJKLMNOP90QRSTUV"},
+		{"wit upper wording", "Wit", "WIT SECRET ABCDEFGH12345678IJKLMNOP90QRSTUV"},
+		{"wit title wording", "Wit", "Wit Secret ABCDEFGH12345678IJKLMNOP90QRSTUV"},
 		{"tly camelCase", "TLy", "tlyApiKey = VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD"},
 		{"tly initialism", "TLy", "tlyAPIKey = VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD"},
 	}
