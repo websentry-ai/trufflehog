@@ -41,6 +41,16 @@ func TestTLy_Pattern(t *testing.T) {
 			want:  []string{},
 		},
 		{
+			name:  "english word ending in the keyword",
+			input: fmt.Sprintf("recently rotated: %s", validPattern),
+			want:  []string{},
+		},
+		{
+			name:  "more english words ending in the keyword",
+			input: fmt.Sprintf("currently set to %s, exactly one of %s", validPattern, validPattern),
+			want:  []string{},
+		},
+		{
 			name:  "invalid pattern",
 			input: fmt.Sprintf("%s = '%s'", keyword, invalidPattern),
 			want:  []string{},

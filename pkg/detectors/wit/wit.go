@@ -23,7 +23,11 @@ var (
 	client = common.SaneHttpClient()
 
 	// Make sure that your group is surrounded in boundary characters such as below to reduce false positives.
-	keyPat = regexp.MustCompile(detectors.PrefixRegex([]string{"wit"}) + `\b([A-Z0-9]{32})\b`)
+	// "wit" is the start of with, width, without and witness, and PrefixRegex
+	// has no boundary, so those all reached the key pattern. The keyword has to
+	// be followed by a delimiter, which is how it is written in config:
+	// WIT_AI_TOKEN, wit_token, wit.ai, "wit server access token"
+	keyPat = regexp.MustCompile(`(?i:\b(?:wit)[-_.:= ])(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

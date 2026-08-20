@@ -23,7 +23,11 @@ var (
 	client = common.SaneHttpClient()
 
 	// Make sure that your group is surrounded in boundary characters such as below to reduce false positives.
-	keyPat = regexp.MustCompile(detectors.PrefixRegex([]string{"tly"}) + `\b([0-9A-Za-z]{60})\b`)
+	// "tly" is the tail of recently, currently, exactly and shortly, and
+	// PrefixRegex has no boundary, so those all reached the key pattern. The
+	// keyword has to start a word and be followed by a delimiter, which is how
+	// it is written in config: TLY_API_KEY, tly_token, tly: , tly.link
+	keyPat = regexp.MustCompile(`(?i:\b(?:tly)[-_.:= ])(?:.|[\n\r]){0,40}?` + `\b([0-9A-Za-z]{60})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

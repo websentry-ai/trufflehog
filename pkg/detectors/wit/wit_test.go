@@ -41,6 +41,16 @@ func TestWit_Pattern(t *testing.T) {
 			want:  []string{},
 		},
 		{
+			name:  "english word beginning with the keyword",
+			input: "with the header X ABCDEFGH12345678IJKLMNOP90QRSTUV set",
+			want:  []string{},
+		},
+		{
+			name:  "more english words beginning with the keyword",
+			input: "width of ABCDEFGH12345678IJKLMNOP90QRSTUV pixels, without ABCDEFGH12345678IJKLMNOP90QRSTUV set",
+			want:  []string{},
+		},
+		{
 			name:  "invalid pattern",
 			input: fmt.Sprintf("%s = '%s'", keyword, invalidPattern),
 			want:  []string{},
