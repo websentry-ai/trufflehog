@@ -23,11 +23,12 @@ var (
 	client = common.SaneHttpClient()
 
 	// Make sure that your group is surrounded in boundary characters such as below to reduce false positives.
-	// "wit" is the start of with, width, without and witness, and PrefixRegex
-	// has no boundary, so those all reached the key pattern. The keyword has to
-	// be followed by a delimiter, which is how it is written in config:
-	// WIT_AI_TOKEN, wit_token, wit.ai, "wit server access token"
-	keyPat = regexp.MustCompile(`(?i:\b(?:wit)[-_.:= ])(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
+	// "wit" both starts other words -- with, width, without, witness -- and is a
+	// word itself, and PrefixRegex has no boundary, so prose reached the key
+	// pattern. It now has to be joined to what follows by a delimiter
+	// (WIT_AI_TOKEN, wit_token, wit.ai) or be assigned to (wit token = ...).
+	// A bare space is not enough on its own: "the wit and wisdom of <token>".
+	keyPat = regexp.MustCompile(`(?i:\bwit(?:[-_.:=]|[ \t]+[a-z_]{0,12}[ \t]*[:=]))(?:.|[\n\r]){0,40}?` + `\b([A-Z0-9]{32})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

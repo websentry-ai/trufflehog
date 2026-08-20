@@ -51,6 +51,16 @@ func TestWit_Pattern(t *testing.T) {
 			want:  []string{},
 		},
 		{
+			name:  "keyword as an english word",
+			input: "the wit and wisdom of ABCDEFGH12345678IJKLMNOP90QRSTUV in review",
+			want:  []string{},
+		},
+		{
+			name:  "keyword as an english word, followed by a colon later",
+			input: "wit is required: ABCDEFGH12345678IJKLMNOP90QRSTUV",
+			want:  []string{},
+		},
+		{
 			name:  "invalid pattern",
 			input: fmt.Sprintf("%s = '%s'", keyword, invalidPattern),
 			want:  []string{},

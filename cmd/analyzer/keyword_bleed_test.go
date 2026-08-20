@@ -17,6 +17,11 @@ func TestKeywordBleedStaysSilent(t *testing.T) {
 		"with the header X ABCDEFGH12345678IJKLMNOP90QRSTUV set",
 		"width of ABCDEFGH12345678IJKLMNOP90QRSTUV pixels",
 		"without ABCDEFGH12345678IJKLMNOP90QRSTUV configured",
+		// "wit" is also a word in its own right, so a bare space after the
+		// keyword is not enough to tell config from prose.
+		"the wit and wisdom of ABCDEFGH12345678IJKLMNOP90QRSTUV in review",
+		"wit is required: ABCDEFGH12345678IJKLMNOP90QRSTUV",
+		"a quick wit, see ABCDEFGH12345678IJKLMNOP90QRSTUV",
 	}
 	s := newBuiltScanner(t)
 	for _, text := range prose {
@@ -36,7 +41,7 @@ func TestKeywordStillMatchesRealConfig(t *testing.T) {
 		{"tly spaced", "TLy", "tly api key VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD"},
 		{"wit underscore", "Wit", "WIT_AI_TOKEN=ABCDEFGH12345678IJKLMNOP90QRSTUV"},
 		{"wit dotted", "Wit", "wit.ai token ABCDEFGH12345678IJKLMNOP90QRSTUV"},
-		{"wit spaced", "Wit", "wit server access token ABCDEFGH12345678IJKLMNOP90QRSTUV"},
+		{"wit assigned", "Wit", "wit token = 'ABCDEFGH12345678IJKLMNOP90QRSTUV'"},
 	}
 	s := newBuiltScanner(t)
 	for _, c := range cases {
