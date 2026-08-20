@@ -22,10 +22,11 @@ func TestKeywordBleedStaysSilent(t *testing.T) {
 		"the wit and wisdom of ABCDEFGH12345678IJKLMNOP90QRSTUV in review",
 		"wit is required: ABCDEFGH12345678IJKLMNOP90QRSTUV",
 		"a quick wit, see ABCDEFGH12345678IJKLMNOP90QRSTUV",
-		// The camelCase branch is case-sensitive, so all-caps prose does not
-		// satisfy it either.
+		// The camelCase branch needs the keyword itself to be lowercase, so
+		// all-caps prose does not satisfy it either.
 		"WITHOUT THE TOKEN ABCDEFGH12345678IJKLMNOP90QRSTUV SET",
 		"WITNESS RECORD ABCDEFGH12345678IJKLMNOP90QRSTUV HERE",
+		"WITHIN ABCDEFGH12345678IJKLMNOP90QRSTUV",
 		"SHORTLY AFTER VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD",
 	}
 	s := newBuiltScanner(t)
@@ -49,7 +50,9 @@ func TestKeywordStillMatchesRealConfig(t *testing.T) {
 		{"wit assigned", "Wit", "wit token = 'ABCDEFGH12345678IJKLMNOP90QRSTUV'"},
 		{"wit naming a credential", "Wit", "You can find a wit secret ABCDEFGH12345678IJKLMNOP90QRSTUV within"},
 		{"wit camelCase", "Wit", "witAccessToken: ABCDEFGH12345678IJKLMNOP90QRSTUV"},
+		{"wit initialism", "Wit", "witAPIKey = ABCDEFGH12345678IJKLMNOP90QRSTUV"},
 		{"tly camelCase", "TLy", "tlyApiKey = VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD"},
+		{"tly initialism", "TLy", "tlyAPIKey = VLmhHAQq7kjrhxrt7x07pJjnafVRara2aoqPndSOepXH2MOY3CcloWwG6ZcD"},
 	}
 	s := newBuiltScanner(t)
 	for _, c := range cases {
