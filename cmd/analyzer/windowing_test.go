@@ -142,3 +142,31 @@ func TestLongMatchDetectorsBypassWindowing(t *testing.T) {
 			len(oversized), oversized)
 	}
 }
+
+// A paired detector must never reach the long-form core, and a long unpaired one
+// must.
+func TestLongFormSelection(t *testing.T) {
+	cfg, err := scannerConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dets, err := buildDetectors(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	picked := map[string]bool{}
+	for _, d := range longFormDetectors(dets) {
+		picked[fmt.Sprintf("%T", d)] = true
+	}
+	for name := range pairedLongForm {
+		if picked[name] {
+			t.Errorf("%s is paired and must stay windowed", name)
+		}
+	}
+	if !picked["*jwt.Scanner"] {
+		t.Error("jwt matches up to 4KB and must see the whole request")
+	}
+	if !picked["*custom_detectors.CustomRegexWebhook"] {
+		t.Error("the PEM block has no length bound and must see the whole request")
+	}
+}
