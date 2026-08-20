@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -109,4 +110,35 @@ func TestConcurrentScansDoNotShareState(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// Any detector whose match can exceed the peek must be scanned over the whole
+// request, or a window boundary cuts its secret in half.
+func TestLongMatchDetectorsBypassWindowing(t *testing.T) {
+	cfg, err := scannerConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dets, err := buildDetectors(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oversized []string
+	for _, d := range dets {
+		if sz, ok := d.(interface{ MaxSecretSize() int64 }); ok && sz.MaxSecretSize() > scanWindowPeek {
+			oversized = append(oversized, fmt.Sprintf("%T", d))
+		}
+	}
+	if len(oversized) == 0 {
+		t.Fatal("expected some detectors to declare a match longer than the peek")
+	}
+
+	s, err := buildScanner(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.longFormCore == nil {
+		t.Fatalf("%d detectors declare a match longer than the peek but none is routed whole: %v",
+			len(oversized), oversized)
+	}
 }

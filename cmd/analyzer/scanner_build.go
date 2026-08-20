@@ -143,11 +143,23 @@ func buildScanner(cfg scannerConfig) (*scanner, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The one match with no length bound; scan() gives it the whole request.
+	// A detector whose match can be longer than the peek would be cut in half by
+	// a window boundary, so scan() gives these the whole request instead. Keyed
+	// on the size each one declares, so a new long-match detector is covered
+	// without anyone remembering to add it here.
 	var longForm []detectors.Detector
 	for _, d := range dets {
-		// CustomRegexWebhook embeds a protobuf message, so the name is a getter.
+		long := false
+		if sz, ok := d.(interface{ MaxSecretSize() int64 }); ok && sz.MaxSecretSize() > scanWindowPeek {
+			long = true
+		}
+		// The PEM block is matched by a custom regex, and every custom detector
+		// reports the same fixed size regardless of its pattern, so the declared
+		// size does not describe this one. It has no upper bound at all.
 		if cd, ok := d.(interface{ GetName() string }); ok && cd.GetName() == customdetectors.PrivateKeyName {
+			long = true
+		}
+		if long {
 			longForm = append(longForm, d)
 		}
 	}
