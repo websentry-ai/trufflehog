@@ -56,7 +56,10 @@ var (
 	stripeObjPat    = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
 	secretCharPat   = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
 	codeDelimPat    = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
-	filenamePat     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:` + fileExtGroup + `)$`)
+	// The optional trailing ":" or "-" is the grep -A/-B line prefix
+	// ("<file>:" on a match line, "<file>-" on a context line), which the
+	// whitespace tokenizer leaves glued to the filename.
+	filenamePat     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:` + fileExtGroup + `)[:-]?$`)
 	lowerPathPat    = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
 	oktaIDPat       = regexp.MustCompile(`^(?:0[0o][a-z]|aus|fwf)[a-zA-Z0-9]{17}$`)
 	aiObjectIDPat   = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
@@ -75,6 +78,19 @@ var (
 	affixedUUIDPat  = regexp.MustCompile(`^[A-Za-z0-9]{1,4}[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	orgDigestPat    = regexp.MustCompile(`^[a-zA-Z][a-zA-Z]*[.\-]+(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 	uuidFragmentPat = regexp.MustCompile(`^-?[0-9a-fA-F]{2,8}(?:-[0-9a-fA-F]{1,12}){1,4}-?$`)
+
+	// 2026-09-15 log batch.
+	// Google Analytics client-id cookie value: GA1.<n>.<random>.<unix ts>.
+	gaClientIDPat = regexp.MustCompile(`^GA1\.\d\.\d{6,}\.\d{6,}$`)
+	// Twilio resource SIDs: two-letter type prefix + 32 lowercase hex. Only the
+	// non-credential resource types are listed. AC (account) and SK (API key)
+	// are deliberately absent: each pairs with a secret and the paired Twilio
+	// detectors need them visible.
+	twilioResourceSIDPat = regexp.MustCompile(`^(?:AP|MG|PN|CA|SM|MM|CH|IS|WS)[0-9a-f]{32}$`)
+	// gpg import/list output labels every key id and fingerprint with
+	// "gpg: key <hex>:"; the word "key" there is the log format, not a
+	// credential assignment.
+	gpgKeyLabelPat = regexp.MustCompile(`(?i)gpg:\s+key\s+$`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -121,6 +137,8 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"pkg_version", pkgVersionPat},
 	{"cli_date_flag", cliDateFlagPat},
 	{"langfuse_public_key", pkLangfusePat},
+	{"ga_client_id", gaClientIDPat},
+	{"twilio_resource_sid", twilioResourceSIDPat},
 }
 
 func MaskPatterns() []string { return copyOf(maskPatternStrings) }
@@ -401,10 +419,25 @@ func IsHexDigestInContext(value, before string) bool {
 
 var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)?|trace[_-]?id|parent[_-]?id|segment[_-]?id|correlation[_-]?id|event[_-]?id|session[_-]?id|request[_-]?id|x-?ray|x-amzn-trace(?:[_-]?id)?|build ?hash|content[_-]?hash|debug[_-]?id)[\s=:@/-]*$|(?i)(?:self|root)\s*=\s*$`)
 
-var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$")
+// The last alternative is a bare quoted JSON key "id" (or 'id'): an object's own
+// identifier slot. Unquoted `id =` is not matched, and neither is any *_id key
+// outside the listed prefixes (client_id pairs with a secret).
+var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$|[\"']id[\"']\\s*:\\s*[\"']?\\s*$")
 
 func IsBenignIDContext(before string) bool {
 	return benignIDContextPat.MatchString(before)
+}
+
+// IsGPGKeyIDInContext reports whether value is a gpg key id (16 hex) or
+// fingerprint (40 hex) sitting right after gpg's own "gpg: key " log label.
+// This is checked separately from the other context rules because that label
+// contains the word "key", which the credential-context veto would otherwise
+// treat as evidence of a credential.
+func IsGPGKeyIDInContext(value, before string) bool {
+	if (len(value) != 16 && len(value) != 40) || !isAllHex(value) {
+		return false
+	}
+	return gpgKeyLabelPat.MatchString(before)
 }
 
 var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|secret|passwd|password|token|credential|access[_-]?key|private[_-]?key|client[_-]?secret)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")

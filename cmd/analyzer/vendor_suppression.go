@@ -38,8 +38,18 @@ var vendorStructuralRules = map[string]vendorRule{
 	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 }
 
+// embeddedVendors are detectors whose real token is always a standalone run, so
+// a match glued to an identifier byte on either side ("app-<hex>@host",
+// "fastly-<tok>-exporter") is a fragment of a larger identifier, not the token.
+// Box is here because its keyword "box" also matches inside "Dropbox",
+// "sandbox" and "inbox", and its 32-alphanumeric shape is any hex32 id.
+var embeddedVendors = map[string]bool{
+	"FastlyPersonalToken": true,
+	"Box":                 true,
+}
+
 func isCuratedVendor(entity string) bool {
-	if entity == "FastlyPersonalToken" {
+	if embeddedVendors[entity] {
 		return true
 	}
 	_, ok := vendorStructuralRules[entity]
@@ -60,7 +70,7 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	}) {
 		return true, reasonVendorStructuralDigest
 	}
-	if f.EntityType == "FastlyPersonalToken" && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+	if embeddedVendors[f.EntityType] && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		n := len(f.raw)
 		left := s > 0 && isIdentByte(d[s-1])
 		right := s+n < len(d) && isIdentByte(d[s+n])
