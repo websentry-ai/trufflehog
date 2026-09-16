@@ -152,8 +152,27 @@ func EntropyExclusionRecognizers() []Recognizer {
 }
 
 func IsExcludedEntropyValue(v string) bool {
+	return isExcludedEntropyValue(v, false)
+}
+
+// IsExcludedEntropyValueInContext is IsExcludedEntropyValue with one guard:
+// when credentialAssigned is true (the value is the RHS of an api_key/secret/
+// token/... assignment), a value that is excluded ONLY because it is filename-
+// shaped is NOT excluded. A real high-entropy secret can coincidentally end in
+// a known extension plus a grep separator (e.g. "<secret>.md-"), and the
+// value-only filename shape must never silently drop a credential-assigned
+// secret before proximity analysis. All other exclusions (paths, uuids, etc.)
+// still apply — the carve-out is exactly the filename rule Greptile flagged.
+func IsExcludedEntropyValueInContext(v string, credentialAssigned bool) bool {
+	return isExcludedEntropyValue(v, credentialAssigned)
+}
+
+func isExcludedEntropyValue(v string, credentialAssigned bool) bool {
 	for _, r := range entropyExclusionRecognizers {
 		if r.Match(v) {
+			if credentialAssigned && r.Name == "filename" {
+				continue
+			}
 			return true
 		}
 	}

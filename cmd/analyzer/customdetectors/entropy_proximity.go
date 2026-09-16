@@ -114,7 +114,15 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		if classify.ShannonEntropy(v) < d.threshold {
 			continue
 		}
-		if classify.IsExcludedEntropyValue(v) || classify.ContainsEntropyPlaceholder(strings.ToLower(v)) {
+		// A value assigned under a credential keyword (api_key=, secret:, ...)
+		// must not be dropped merely because it is filename-shaped: a real
+		// secret can coincidentally end in ".<ext>-". Keep it for proximity
+		// analysis; other value-only exclusions still apply. The tokenizer's
+		// Keyword carries the assignment key (often with its trailing separator,
+		// e.g. "api_key="); normalize it to a bare key before the check.
+		assignKey := strings.TrimRight(tok.Keyword, "=:\"'` \t")
+		credentialAssigned := tok.KeywordFromIdent && classify.IsCredentialAssignment(assignKey+"=")
+		if classify.IsExcludedEntropyValueInContext(v, credentialAssigned) || classify.ContainsEntropyPlaceholder(strings.ToLower(v)) {
 			continue
 		}
 		if classify.IsKnownFalsePositive(v) {
