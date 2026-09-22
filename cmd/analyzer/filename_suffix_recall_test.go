@@ -21,7 +21,6 @@ func scanProd(t *testing.T, doc string) []analyzeResult {
 	return s.scan(context.Background(), []byte(doc), 0.45)
 }
 
-
 // Runs with generic secrets OFF, matching k8s/prod/values.yaml. With them on
 // that detector reports these values regardless, and the table passes while the
 // entropy path prod actually runs is still dropping them.

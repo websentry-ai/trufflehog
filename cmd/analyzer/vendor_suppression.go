@@ -1,8 +1,8 @@
 package main
 
 import (
-	"strings"
 	"bytes"
+	"strings"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 )
