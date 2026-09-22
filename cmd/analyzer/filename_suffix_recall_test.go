@@ -81,6 +81,7 @@ func TestBoxTokenSurvivesAHyphenNeighbour(t *testing.T) {
 		"hyphen immediately before":      "box-" + tok + "\n",
 		"hyphenated suffix after":        "box access token " + tok + "-prod\n",
 		"plain assignment":               "box_token=" + tok + "\n",
+		"labelled dropbox fragment":      "box_token=app-" + tok + "@host\n",
 		"space delimited":                "box access token " + tok + "\n",
 	} {
 		t.Run(name, func(t *testing.T) {

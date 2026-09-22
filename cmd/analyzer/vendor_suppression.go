@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"bytes"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
@@ -56,6 +57,12 @@ func isCuratedVendor(entity string) bool {
 	return ok
 }
 
+// "_" and "-" are word characters to \b, so box_token= hides "token" from the
+// context pattern. Split them before matching.
+func labelSeparatorsToSpace(s string) string {
+	return strings.NewReplacer("_", " ", "-", " ", ".", " ").Replace(s)
+}
+
 func isIdentByte(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '_'
 }
@@ -76,8 +83,20 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 			// A bare hyphen is not enough for Box: its token is 32 alphanumerics,
 			// so "box_token=app-<tok>" and "<tok>-prod" are ordinary credentials
 			// with a neighbour. Only the Dropbox app-id fragment, "app-<hex>@",
-			// is a non-secret.
-			return s >= 4 && string(d[s-4:s]) == "app-" && s+n < len(d) && d[s+n] == '@'
+			// is a non-secret -- and not even that when a credential label
+			// introduces it, which the shared veto cannot see because its window
+			// ends inside the "app-" prefix.
+			if s < 4 || !strings.EqualFold(string(d[s-4:s]), "app-") ||
+				s+n >= len(d) || d[s+n] != '@' {
+				return false
+			}
+			lo := s - 4 - credentialContextWindow
+			if lo < 0 {
+				lo = 0
+			}
+			before := string(d[lo : s-4])
+			return !classify.IsCredentialContext(labelSeparatorsToSpace(before)) &&
+				!classify.IsCredentialAssignment(before)
 		}
 		left := s > 0 && isIdentByte(d[s-1])
 		right := s+n < len(d) && isIdentByte(d[s+n])
