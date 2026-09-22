@@ -26,6 +26,20 @@ const (
 
 var keywordStems = classify.KeywordStems()
 
+// isCredentialLabel reports whether a field label marks its value as a
+// credential. "_" and "-" are word characters to \b, so AWS_SECRET_ACCESS_KEY
+// hides its own keywords from the context patterns; split them out first.
+func isCredentialLabel(label string) bool {
+	if label == "" {
+		return false
+	}
+	return classify.IsCredentialContext(labelSeparators.Replace(label)) ||
+		classify.IsCredentialAssignment(label+"=") ||
+		classify.IsCredentialSuffixLabel(label+"=")
+}
+
+var labelSeparators = strings.NewReplacer("_", " ", "-", " ", ".", " ")
+
 var counterParams = map[string]struct{}{
 	"max_tokens":                  {},
 	"max_completion_tokens":       {},
@@ -78,7 +92,7 @@ func whitespaceTokenizer() tokenizer.Tokenizer {
 func (d entropyProximityDetector) Keywords() []string {
 	return []string{
 		"password", "passwd", "pwd", "secret", "token", "credential",
-		"auth", "signing", "key", "cert",
+		"auth", "signing", "key", "cert", "bearer",
 	}
 }
 
@@ -121,7 +135,21 @@ func (d entropyProximityDetector) FromData(ctx context.Context, _ bool, data []b
 		// Keyword carries the assignment key (often with its trailing separator,
 		// e.g. "api_key="); normalize it to a bare key before the check.
 		assignKey := strings.TrimRight(tok.Keyword, "=:\"'` \t")
-		credentialAssigned := tok.KeywordFromIdent && classify.IsCredentialAssignment(assignKey+"=")
+		// "_" and "-" are word characters to \b, so AWS_SECRET_ACCESS_KEY hides
+		// its own keywords from the context patterns. Split them out first.
+		// "api_key=v" keeps the label on the value's own token; "api_key: v"
+		// and {"api_key": "v"} leave it on the token before. Check both, or the
+		// carve-out only works for one of the three ways a config is written.
+		credentialAssigned := isCredentialLabel(assignKey)
+		for j := i - 1; !credentialAssigned && j >= 0 && j >= i-2; j-- {
+			// "label = value" puts a bare "=" between the two, so one step back
+			// is not always far enough.
+			prev := strings.TrimRight(tokens[j].Keyword, "=:\"'` \t")
+			if prev == "" {
+				continue
+			}
+			credentialAssigned = isCredentialLabel(prev)
+		}
 		if classify.IsExcludedEntropyValueInContext(v, credentialAssigned) || classify.ContainsEntropyPlaceholder(strings.ToLower(v)) {
 			continue
 		}

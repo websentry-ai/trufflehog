@@ -80,6 +80,10 @@ var keywords = []string{
 var keywordStems = []string{
 	"password", "passwd", "pwd", "secret", "token", "credential",
 	"auth", "apikey", "api_key", "signing", "key", "cert",
+	// bearer labels a credential on its own ("bearer=<token>") and was the one
+	// gap the assignment carve-out could not reach: with no stem nearby the
+	// proximity check never fires, so the value is invisible either way.
+	"bearer",
 }
 
 func copyOf(in []string) []string {
