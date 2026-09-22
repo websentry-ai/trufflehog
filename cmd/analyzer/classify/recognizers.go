@@ -162,7 +162,7 @@ func IsExcludedEntropyValue(v string) bool {
 // a known extension plus a grep separator (e.g. "<secret>.md-"), and the
 // value-only filename shape must never silently drop a credential-assigned
 // secret before proximity analysis. All other exclusions (paths, uuids, etc.)
-// still apply — the carve-out is exactly the filename rule Greptile flagged.
+// still apply: the carve-out is the filename rule alone.
 func IsExcludedEntropyValueInContext(v string, credentialAssigned bool) bool {
 	return isExcludedEntropyValue(v, credentialAssigned)
 }

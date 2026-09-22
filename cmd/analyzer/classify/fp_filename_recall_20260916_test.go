@@ -4,9 +4,8 @@ import "testing"
 
 // A filename-shaped value must NOT be excluded on shape alone when it is
 // credential-assigned: a real high-entropy secret can coincidentally end in a
-// known extension plus a grep separator (e.g. "<secret>.md-"). Guards the
-// false-negative Greptile flagged on PR #43. The carve-out is filename-only —
-// every other value-only exclusion still fires even under a credential.
+// known extension plus a grep separator (e.g. "<secret>.md-"). The carve-out
+// is filename-only: every other value-only exclusion still fires.
 func TestIsExcludedEntropyValueInContext_FilenameSuffix(t *testing.T) {
 	const filenameShaped = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh.md-"
 	const uuidShaped = "550e8400-e29b-41d4-a716-446655440000"

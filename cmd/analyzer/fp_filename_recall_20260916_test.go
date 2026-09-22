@@ -15,7 +15,7 @@ func hasRaw(results []analyzeResult, raw string) bool {
 	return false
 }
 
-// Recall guard for the filename-suffix suppression (Greptile P1 on PR #43):
+// Recall guard for the filename-suffix suppression:
 // a real secret assigned to a credential key must still be reported even when
 // its text ends in a known extension plus a grep separator. Before the fix the
 // value-only filename shape dropped it before proximity analysis (false
