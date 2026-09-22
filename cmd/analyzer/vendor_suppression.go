@@ -72,6 +72,13 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	}
 	if embeddedVendors[f.EntityType] && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		n := len(f.raw)
+		if f.EntityType == "Box" {
+			// A bare hyphen is not enough for Box: its token is 32 alphanumerics,
+			// so "box_token=app-<tok>" and "<tok>-prod" are ordinary credentials
+			// with a neighbour. Only the Dropbox app-id fragment, "app-<hex>@",
+			// is a non-secret.
+			return s >= 4 && string(d[s-4:s]) == "app-" && s+n < len(d) && d[s+n] == '@'
+		}
 		left := s > 0 && isIdentByte(d[s-1])
 		right := s+n < len(d) && isIdentByte(d[s+n])
 		return left || right

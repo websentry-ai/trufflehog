@@ -459,10 +459,10 @@ func IsGPGKeyIDInContext(value, before string) bool {
 	return gpgKeyLabelPat.MatchString(before)
 }
 
-// A delimited prefix is optional so signing_key=, ssh_key= and host_key=
-// are covered as well as api_key=. \b keeps bare "key" from matching inside
-// monkey= or turkey=.
-var credentialAssignPat = regexp.MustCompile("(?i)\\b(?:[a-z0-9]+[_-])?(?:api[_-]?key|key|secret|passwd|password|token|credentials?|authorization|bearer)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
+// Labels arrive glued (appsecret=, clientSecret=) as often as delimited
+// (signing_key=), so only the bare "key" alternative carries \b -- that is
+// the one that would otherwise match inside monkey= or turkey=.
+var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|[a-z0-9]*[_-]key|\\bkey|secret|passwd|pwd|password|token|credentials?|authorization|bearer)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
 
 func IsCredentialAssignment(before string) bool {
 	return credentialAssignPat.MatchString(before)
