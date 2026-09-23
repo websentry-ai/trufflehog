@@ -247,7 +247,8 @@ func benignIDContextAt(data []byte, start int) bool {
 	if lo < 0 {
 		lo = 0
 	}
-	return classify.IsBenignIDContext(string(data[lo:start]))
+	before := string(data[lo:start])
+	return classify.IsBenignIDContext(before) || classify.IsNonCredentialLabel(before)
 }
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }

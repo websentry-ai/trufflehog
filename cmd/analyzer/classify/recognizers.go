@@ -441,7 +441,20 @@ var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)
 // The last alternative is a bare quoted JSON key "id" (or 'id'): an object's own
 // identifier slot. Unquoted `id =` is not matched, and neither is any *_id key
 // outside the listed prefixes (client_id pairs with a secret).
-var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$|[\"']id[\"']\\s*:\\s*[\"']?\\s*$")
+var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug|action|actioner|error|page|project|subaccount|account|visitor|device|tenant)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$|[\"']id[\"']\\s*:\\s*[\"']?\\s*$")
+
+// A value under these labels is never a credential: sha256/md5 name a content
+// digest, and the underscore-prefixed names are analytics cookies (_ga is
+// Google, _uetvid is Microsoft UET). Matched as whole labels so app_secret and
+// uet_api_key are untouched.
+var nonCredentialLabelPat = regexp.MustCompile(
+	`(?i)(?:^|[\s"',{\[(])(?:sha256|sha1|md5|checksum|digest|_ga|_gid|_gcl_au|_uetvid|_uetsid|_fbp|_fbc)["'\]]*\s*[:=]\s*["']?\s*$`)
+
+// IsNonCredentialLabel reports whether the text before a value labels it as
+// something that cannot be a secret.
+func IsNonCredentialLabel(before string) bool {
+	return nonCredentialLabelPat.MatchString(before)
+}
 
 func IsBenignIDContext(before string) bool {
 	return benignIDContextPat.MatchString(before)
