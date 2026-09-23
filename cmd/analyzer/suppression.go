@@ -254,28 +254,88 @@ func benignIDContextAt(data []byte, start int) bool {
 	return classify.IsBenignIDContext(string(data[lo:start]))
 }
 
+// nonCredentialLabelAt reports whether the value at start is assigned to a
+// label whose name can never hold a secret. The whole name has to be in view:
+// a quoted key is read between its quotes, an unquoted one back to the first
+// byte that cannot continue a name, and a name still running at the edge of a
+// truncated window is refused because its beginning was cut away.
 func nonCredentialLabelAt(data []byte, start int) bool {
 	lo := start - benignIDContextWindow
+	truncated := lo > 0
 	if lo < 0 {
 		lo = 0
 	}
-	before := data[lo:start]
-	// The window can begin inside a longer label, and the start-of-string
-	// alternative would then read that label's tail as a whole one -- enough
-	// padding after "signing_digest=" leaves the recognizer looking at
-	// "digest=". A truncated window only starts on a real label if the byte it
-	// cut after is one the pattern itself accepts as a separator; otherwise
-	// the leading partial token goes, so only a label seen start to finish can
-	// match.
-	if lo > 0 && !classify.IsLabelSeparatorByte(data[lo-1]) {
-		i := 0
-		for i < len(before) && !classify.IsLabelSeparatorByte(before[i]) {
-			i++
-		}
-		before = before[i:]
-	}
-	return classify.IsNonCredentialLabel(string(before))
+	name, ok := labelNameBefore(data[lo:start], truncated)
+	return ok && classify.IsNonCredentialLabelName(name)
 }
+
+// labelNameBefore returns the complete name that assigns the value following
+// before. It reports false when there is no assignment in view, or when the
+// name cannot be read in full.
+func labelNameBefore(before []byte, truncated bool) (string, bool) {
+	i := len(before)
+	for i > 0 && (isAssignSpace(before[i-1]) || isQuoteByte(before[i-1])) {
+		i-- // the value's opening quote and the space around it
+	}
+	if i == 0 || (before[i-1] != ':' && before[i-1] != '=') {
+		return "", false
+	}
+	i--
+	for i > 0 && isAssignSpace(before[i-1]) {
+		i--
+	}
+	if i == 0 {
+		return "", false
+	}
+	if q := before[i-1]; isQuoteByte(q) {
+		j := i - 1
+		k := j - 1
+		for k >= 0 && before[k] != q {
+			k--
+		}
+		if k < 0 {
+			return "", false // the key's opening quote is out of view
+		}
+		return string(before[k+1 : j]), true
+	}
+	j := i
+	for j > 0 && !classify.IsLabelSeparatorByte(before[j-1]) {
+		j--
+	}
+	if j == i || (j == 0 && truncated) {
+		return "", false
+	}
+	if !startsAName(before[:j], truncated) {
+		return "", false
+	}
+	return string(before[j:i]), true
+}
+
+// startsAName reports whether a name beginning right after before is the whole
+// label rather than the last word of a longer one. Unquoted text separates
+// tokens on spaces, so "signing checksum=" would otherwise read as "checksum".
+// A name may follow punctuation or nothing at all; another bare word in front
+// of it means the two belong together.
+func startsAName(before []byte, truncated bool) bool {
+	k := len(before)
+	for k > 0 && (before[k-1] == ' ' || before[k-1] == '\t') {
+		k-- // only along the line: a newline in front of the name ends it
+	}
+	if k == 0 {
+		return !truncated || k < len(before)
+	}
+	switch before[k-1] {
+	case ':', '=', ',', '{', '[', '(', '"', '\'', '`', '\n', '\r':
+		return true
+	}
+	return false
+}
+
+func isAssignSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+}
+
+func isQuoteByte(c byte) bool { return c == '"' || c == '\'' || c == '`' }
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }
 

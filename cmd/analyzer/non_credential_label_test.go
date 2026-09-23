@@ -263,3 +263,53 @@ func TestALongerLabelSurvivesEveryContextWindowOffset(t *testing.T) {
 		})
 	}
 }
+
+// labelForms spells one key/value pair the ways a request actually carries it.
+var labelForms = []func(key, value string) string{
+	func(k, v string) string { return `{"` + k + `": "` + v + `"}` },
+	func(k, v string) string { return k + `=` + v },
+	func(k, v string) string { return k + `: ` + v },
+	func(k, v string) string { return `'` + k + `': '` + v + `'` },
+	func(k, v string) string { return "cfg:\n  " + k + " = " + v },
+}
+
+// Only the complete name counts. A key that merely ends in a digest word --
+// whether joined by a space inside quotes, by punctuation, or by nothing at
+// all -- names something else, and its value stays reportable.
+func TestOnlyACompleteNameSuppresses(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	quals := []string{"signing", "api", "token", "secret", "auth", "my", "prev", "content", "apikey", "password"}
+	seps := []string{" ", "_", "-", "/", ".", ":", "|", "@", "\t"}
+	words := []string{"sha256", "digest", "md5", "checksum", "_ga", "x-sha256", "sha-256"}
+	for _, qual := range quals {
+		for _, sep := range seps {
+			for _, word := range words {
+				key := qual + sep + word
+				for _, form := range labelForms {
+					doc := []byte(form(key, secret))
+					res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+					if sup, reason := decideSuppression(res, map[string]int{}, doc); sup && reason == reasonNonCredentialLabel {
+						t.Fatalf("%q was read as a whole benign name in %q", key, doc)
+					}
+				}
+			}
+		}
+	}
+}
+
+// The other direction: the names themselves must still suppress, in each form.
+func TestACompleteNameSuppressesInEveryForm(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	for _, word := range []string{"sha256", "digest", "md5", "checksum", "_ga", "x-sha256", "sha-256"} {
+		t.Run(word, func(t *testing.T) {
+			for _, form := range labelForms {
+				doc := []byte(form(word, secret))
+				res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+				sup, reason := decideSuppression(res, map[string]int{}, doc)
+				if !sup || reason != reasonNonCredentialLabel {
+					t.Errorf("%q not suppressed: suppressed=%v reason=%q", doc, sup, reason)
+				}
+			}
+		})
+	}
+}
