@@ -448,7 +448,7 @@ var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|
 // Google, _uetvid is Microsoft UET). Matched as whole labels so app_secret and
 // uet_api_key are untouched.
 var nonCredentialLabelPat = regexp.MustCompile(
-	`(?i)(?:^|[\s"',{\[(])(?:sha256|sha1|md5|checksum|digest|_ga|_gid|_gcl_au|_uetvid|_uetsid|_fbp|_fbc)["'\]]*\s*[:=]\s*["']?\s*$`)
+	`(?i)(?:^|[\s"',{\[(])(?:x-)?(?:sha-?256|sha-?1|md5|checksum|digest|_ga|_gid|_gcl_au|_uetvid|_uetsid|_fbp|_fbc)["'\]]*\s*[:=]\s*["']?\s*$`)
 
 // IsNonCredentialLabel reports whether the text before a value labels it as
 // something that cannot be a secret.

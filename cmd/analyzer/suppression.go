@@ -34,6 +34,7 @@ const (
 	reasonPemPublicBlock     = "structural_pem_public_block"
 	reasonStructuralVetoable = "structural_vetoable_id"
 	reasonBenignIDContext    = "structural_benign_id_context"
+	reasonNonCredentialLabel = "structural_non_credential_label"
 	reasonGPGKeyID           = "structural_gpg_key_id"
 )
 
@@ -198,6 +199,9 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 			!credentialSuffixLabeled(data, f.raw) {
 			return true, reasonStructuralVetoable
 		}
+		if contextSuppressed(data, f.raw, nonCredentialLabelAt) {
+			return true, reasonNonCredentialLabel
+		}
 		if contextSuppressed(data, f.raw, benignIDContextAt) {
 			return true, reasonBenignIDContext
 		}
@@ -247,8 +251,15 @@ func benignIDContextAt(data []byte, start int) bool {
 	if lo < 0 {
 		lo = 0
 	}
-	before := string(data[lo:start])
-	return classify.IsBenignIDContext(before) || classify.IsNonCredentialLabel(before)
+	return classify.IsBenignIDContext(string(data[lo:start]))
+}
+
+func nonCredentialLabelAt(data []byte, start int) bool {
+	lo := start - benignIDContextWindow
+	if lo < 0 {
+		lo = 0
+	}
+	return classify.IsNonCredentialLabel(string(data[lo:start]))
 }
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }

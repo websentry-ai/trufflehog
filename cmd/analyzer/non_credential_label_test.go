@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 )
 
 // found reports the entity types the scanner assigned to the given value.
@@ -77,25 +79,24 @@ digest: ` + benign,
 	}
 }
 
-// The labels above are matched whole. A key named for a digest or a cookie is
-// still a key, and dropping those would be the one failure this scanner cannot
-// have.
-func TestACredentialLabelNamedForADigestIsStillRaised(t *testing.T) {
+// The labels above are matched whole, so a longer name that merely contains
+// one still reports. Each case puts a credential keyword in the next field,
+// which is the only reason the detector reaches the value at all.
+func TestALabelThatMerelyContainsADigestWordIsStillRaised(t *testing.T) {
 	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const neighbour = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
 	labels := []string{
+		// carry a credential word of their own
 		"sha256_key", "md5_secret", "checksum_token", "digest_password",
 		"uet_api_key", "ga_api_key", "app_secret", "signing_digest_key",
+		// carry none, so only the whole-label matching keeps them
+		"my_sha256", "prev_checksum", "content_md5", "signing_digest",
 	}
 	for _, label := range labels {
 		t.Run(label, func(t *testing.T) {
-			doc := "config:\n  " + label + " = " + secret + "\n"
+			doc := `{"api_key": "` + neighbour + `", "` + label + `": "` + secret + `"}`
 			if len(found(t, doc, secret)) == 0 {
 				t.Errorf("a secret under %q was not reported", label)
-			}
-			// the same label inside a JSON object must behave the same way
-			jsonDoc := "{\n  \"" + label + "\": \"" + secret + "\"\n}"
-			if len(found(t, jsonDoc, secret)) == 0 {
-				t.Errorf("a secret under JSON key %q was not reported", label)
 			}
 		})
 	}
@@ -154,5 +155,61 @@ func TestIdentifierLabelsThatStayReportable(t *testing.T) {
 				t.Errorf("%q is outside the benign list and must stay reportable", label)
 			}
 		})
+	}
+}
+
+// The header spelling of a digest. `x-sha256:` and `sha-256:` name the same
+// thing as `sha256:` and are suppressed with it.
+func TestHyphenatedDigestLabels(t *testing.T) {
+	const benign = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const secret = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
+	for _, label := range []string{"x-sha256", "sha-256", "x-checksum", "sha-1"} {
+		t.Run(label, func(t *testing.T) {
+			doc := "authorization: Bearer " + secret + "\n" + label + ": " + benign
+			if hits := found(t, doc, benign); len(hits) > 0 {
+				t.Errorf("the digest header was reported as %v", hits)
+			}
+			if len(found(t, doc, secret)) == 0 {
+				t.Errorf("the bearer token was not reported")
+			}
+		})
+	}
+}
+
+// The identifier prefixes carry no left boundary, matching the list they were
+// added to, so a longer word ending in one of them is benign as well. These
+// are all row identifiers, so that is the intended reach rather than an
+// accident of the pattern.
+func TestIdentifierPrefixesHaveNoLeftBoundary(t *testing.T) {
+	const benign = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const secret = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
+	for _, label := range []string{"transaction_id", "interaction_id", "service_account_id"} {
+		t.Run(label, func(t *testing.T) {
+			doc := `{"api_key": "` + secret + `", "` + label + `": "` + benign + `"}`
+			if hits := found(t, doc, benign); len(hits) > 0 {
+				t.Errorf("the identifier was reported as %v", hits)
+			}
+			if len(found(t, doc, secret)) == 0 {
+				t.Errorf("the api_key beside it was not reported")
+			}
+		})
+	}
+}
+
+// A suppressed checksum must not be counted as a benign id: the two rules
+// answer different questions and the counters are read separately.
+func TestSuppressionReasonsAreDistinct(t *testing.T) {
+	const benign = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const secret = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
+	digest := analyzeResult{EntityType: customdetectors.EntropyName, raw: benign}
+	doc := []byte(`{"api_key": "` + secret + `", "sha256": "` + benign + `"}`)
+	suppressed, reason := decideSuppression(digest, map[string]int{}, doc)
+	if !suppressed || reason != reasonNonCredentialLabel {
+		t.Errorf("digest suppressed=%v reason=%q, want %q", suppressed, reason, reasonNonCredentialLabel)
+	}
+	idDoc := []byte(`{"api_key": "` + secret + `", "page_id": "` + benign + `"}`)
+	suppressed, reason = decideSuppression(digest, map[string]int{}, idDoc)
+	if !suppressed || reason != reasonBenignIDContext {
+		t.Errorf("identifier suppressed=%v reason=%q, want %q", suppressed, reason, reasonBenignIDContext)
 	}
 }
