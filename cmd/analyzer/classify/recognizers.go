@@ -450,19 +450,20 @@ var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|
 var nonCredentialLabelPat = regexp.MustCompile(
 	`(?i)(?:^|[\s"',{\[(])(?:x-)?(?:sha-?256|sha-?1|md5|checksum|digest|_ga|_gid|_gcl_au|_uetvid|_uetsid|_fbp|_fbc)["'\]]*\s*[:=]\s*["']?\s*$`)
 
-// IsNonCredentialLabel reports whether the text before a value labels it as
-// something that cannot be a secret.
 // IsLabelSeparatorByte reports whether a byte is one nonCredentialLabelPat
-// accepts immediately before a label. Kept beside the pattern so the two
-// cannot drift.
+// accepts immediately before a label. It sits beside the pattern, and a test
+// holds the two in step for every byte value. Note Go's \s does not include a
+// vertical tab.
 func IsLabelSeparatorByte(c byte) bool {
 	switch c {
-	case ' ', '\t', '\n', '\r', '\f', '\v', '"', '\'', ',', '{', '[', '(':
+	case ' ', '\t', '\n', '\r', '\f', '"', '\'', ',', '{', '[', '(':
 		return true
 	}
 	return false
 }
 
+// IsNonCredentialLabel reports whether the text before a value labels it as
+// something that cannot be a secret.
 func IsNonCredentialLabel(before string) bool {
 	return nonCredentialLabelPat.MatchString(before)
 }

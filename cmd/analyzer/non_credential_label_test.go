@@ -222,7 +222,7 @@ func TestSuppressionReasonsAreDistinct(t *testing.T) {
 func TestNoSeparatorLetsALabelTailBeReadAsAWholeLabel(t *testing.T) {
 	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
 	seps := []string{"/", "|", "@", "#", "$", "%", "&", "*", "+", "=", ":", ";",
-		"<", ">", "?", "!", "~", "^", "\\", ".", "_", "-"}
+		"<", ">", "?", "!", "~", "^", "\\", ".", "_", "-", "\v", "\x00", "\x7f"}
 	words := []string{"sha256", "digest", "md5", "checksum", "sha-256", "_ga"}
 	for _, sep := range seps {
 		for _, word := range words {
