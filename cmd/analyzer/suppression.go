@@ -259,7 +259,21 @@ func nonCredentialLabelAt(data []byte, start int) bool {
 	if lo < 0 {
 		lo = 0
 	}
-	return classify.IsNonCredentialLabel(string(data[lo:start]))
+	before := data[lo:start]
+	// The window can begin inside a longer label, and the pattern would then
+	// read that label's tail as a whole one -- enough padding after
+	// "signing_digest=" leaves the recognizer looking at "digest=". Drop the
+	// partial token so only a label the window saw start to finish can match.
+	if lo > 0 && isLabelByte(data[lo-1]) {
+		for len(before) > 0 && isLabelByte(before[0]) {
+			before = before[1:]
+		}
+	}
+	return classify.IsNonCredentialLabel(string(before))
+}
+
+func isLabelByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.'
 }
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }

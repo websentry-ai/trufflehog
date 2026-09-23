@@ -213,3 +213,28 @@ func TestSuppressionReasonsAreDistinct(t *testing.T) {
 		t.Errorf("identifier suppressed=%v reason=%q, want %q", suppressed, reason, reasonBenignIDContext)
 	}
 }
+
+// The context window is a fixed byte count, so it can begin partway through a
+// longer label. Whitespace between the label and its value shifts where the
+// cut falls, and at one offset "signing_digest=" presented the recognizer with
+// "digest=" -- a credential dropped under a label that only ends in a digest
+// word. Every offset is swept because a single example only pins one cut.
+func TestALongerLabelSurvivesEveryContextWindowOffset(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const neighbour = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
+	labels := []string{
+		"signing_digest", "my_sha256", "prev_checksum", "content_md5",
+		"x-request-digest", "backup_sha256", "sha256_key", "md5_secret",
+		"checksum_token", "digest_password", "uet_api_key", "app_secret",
+	}
+	for _, label := range labels {
+		t.Run(label, func(t *testing.T) {
+			for pad := 0; pad <= 40; pad++ {
+				doc := "api_key=" + neighbour + "\n" + label + "=" + strings.Repeat(" ", pad) + secret
+				if len(found(t, doc, secret)) == 0 {
+					t.Fatalf("a secret under %q was dropped with %d spaces before it", label, pad)
+				}
+			}
+		})
+	}
+}
