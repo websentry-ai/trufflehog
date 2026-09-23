@@ -452,6 +452,17 @@ var nonCredentialLabelPat = regexp.MustCompile(
 
 // IsNonCredentialLabel reports whether the text before a value labels it as
 // something that cannot be a secret.
+// IsLabelSeparatorByte reports whether a byte is one nonCredentialLabelPat
+// accepts immediately before a label. Kept beside the pattern so the two
+// cannot drift.
+func IsLabelSeparatorByte(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\r', '\f', '\v', '"', '\'', ',', '{', '[', '(':
+		return true
+	}
+	return false
+}
+
 func IsNonCredentialLabel(before string) bool {
 	return nonCredentialLabelPat.MatchString(before)
 }

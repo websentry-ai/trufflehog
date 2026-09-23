@@ -214,6 +214,31 @@ func TestSuppressionReasonsAreDistinct(t *testing.T) {
 	}
 }
 
+// The window only starts on a real label if the byte it cut after is one the
+// pattern accepts as a separator. Any other byte means it landed inside a
+// longer name, and its tail must not be read as a whole label -- swept over
+// every separator, digest word and offset, because each example pins only one
+// cut.
+func TestNoSeparatorLetsALabelTailBeReadAsAWholeLabel(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	seps := []string{"/", "|", "@", "#", "$", "%", "&", "*", "+", "=", ":", ";",
+		"<", ">", "?", "!", "~", "^", "\\", ".", "_", "-"}
+	words := []string{"sha256", "digest", "md5", "checksum", "sha-256", "_ga"}
+	for _, sep := range seps {
+		for _, word := range words {
+			label := "team" + sep + word
+			for pad := 0; pad <= 40; pad++ {
+				doc := []byte("api_key=x\n" + label + "=" + strings.Repeat(" ", pad) + secret)
+				res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+				sup, reason := decideSuppression(res, map[string]int{}, doc)
+				if sup && reason == reasonNonCredentialLabel {
+					t.Fatalf("%q with %d spaces was read as a whole benign label", label, pad)
+				}
+			}
+		}
+	}
+}
+
 // The context window is a fixed byte count, so it can begin partway through a
 // longer label. Whitespace between the label and its value shifts where the
 // cut falls, and at one offset "signing_digest=" presented the recognizer with

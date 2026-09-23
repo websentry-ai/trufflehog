@@ -260,20 +260,21 @@ func nonCredentialLabelAt(data []byte, start int) bool {
 		lo = 0
 	}
 	before := data[lo:start]
-	// The window can begin inside a longer label, and the pattern would then
-	// read that label's tail as a whole one -- enough padding after
-	// "signing_digest=" leaves the recognizer looking at "digest=". Drop the
-	// partial token so only a label the window saw start to finish can match.
-	if lo > 0 && isLabelByte(data[lo-1]) {
-		for len(before) > 0 && isLabelByte(before[0]) {
-			before = before[1:]
+	// The window can begin inside a longer label, and the start-of-string
+	// alternative would then read that label's tail as a whole one -- enough
+	// padding after "signing_digest=" leaves the recognizer looking at
+	// "digest=". A truncated window only starts on a real label if the byte it
+	// cut after is one the pattern itself accepts as a separator; otherwise
+	// the leading partial token goes, so only a label seen start to finish can
+	// match.
+	if lo > 0 && !classify.IsLabelSeparatorByte(data[lo-1]) {
+		i := 0
+		for i < len(before) && !classify.IsLabelSeparatorByte(before[i]) {
+			i++
 		}
+		before = before[i:]
 	}
 	return classify.IsNonCredentialLabel(string(before))
-}
-
-func isLabelByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.'
 }
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }
