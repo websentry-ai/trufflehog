@@ -357,10 +357,34 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 	switch data[p] {
 	case ':', '=', ';', '?', '&':
 		return !credentialIntroducerBefore(data, p)
-	case ',', '{', '[', '(', '"', '\'', '`', '\n', '\r':
+	case ',', '{', '[', '(':
+		return !introducedByCredentialWord(data, p)
+	case '"', '\'', '`', '\n', '\r':
 		return true
 	}
 	return false
+}
+
+// introducedByCredentialWord reports whether a credential word stands in front
+// of the list or bracket at p. A quote there is left alone: from the right a
+// value's closing quote looks exactly like a key's opening one, and reading
+// past it would give up the form this rule exists for.
+func introducedByCredentialWord(data []byte, p int) bool {
+	q := p
+	for q > 0 && (data[q-1] == ' ' || data[q-1] == '\t') {
+		q--
+	}
+	if q == 0 {
+		return false
+	}
+	switch c := data[q-1]; {
+	case c == ':' || c == '=' || c == ';' || c == '?' || c == '&':
+		return credentialIntroducerBefore(data, q-1)
+	case isQuoteByte(c) || c == '\n' || c == '\r' || c == ',' || c == '{' || c == '[' || c == '(':
+		return false
+	default:
+		return credentialIntroducerBefore(data, q)
+	}
 }
 
 // credentialIntroducerBefore reports whether the token ending just before the
