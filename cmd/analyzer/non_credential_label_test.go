@@ -418,6 +418,7 @@ func TestCookieAndQuerySeparatorsEndAName(t *testing.T) {
 // rather than labelling it.
 func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const neighbour = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
 	kept := []string{
 		"auth: md5=" + secret,
 		"authorization: sha256=" + secret,
@@ -440,6 +441,11 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`{"auth": "md5=` + secret + `"}`,
 		`password = "{sha256=` + secret + `}"`,
 		`password = (sha256=` + secret + `)`,
+		// a quoted name can continue a longer one too
+		`signing."sha256" = "` + secret + `"`,
+		`signing "sha256" = "` + secret + `"`,
+		`auth: "sha256" = "` + secret + `"`,
+		`password."md5" = "` + secret + `"`,
 	}
 	for _, doc := range kept {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
@@ -456,6 +462,9 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		// a quote opens a key here, not a value
 		`{"sha256": "` + secret + `"}`,
 		`cookie: "_ga=` + secret + `"`,
+		// a key of its own, however tightly packed
+		`{"api_key":"` + neighbour + `","sha256":"` + secret + `"}`,
+		"api_key=" + neighbour + "\n\"sha256\": \"" + secret + "\"",
 	}
 	for _, doc := range suppressed {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}

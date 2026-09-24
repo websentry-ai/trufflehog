@@ -291,8 +291,8 @@ func labelNameBefore(data []byte, end, lo int) (string, bool) {
 		for k >= 0 && data[k] != q {
 			k--
 		}
-		if k < 0 {
-			return "", false // no opening quote, so no key to read
+		if k < 0 || !quotedKeyStandsAlone(data, k) {
+			return "", false
 		}
 		return string(data[k+1 : j]), true
 	}
@@ -331,6 +331,33 @@ func startsAName(data []byte, j int) bool {
 		// password = "{sha256=…}" only wraps a value the name is part of.
 		return startsAName(data, k-1)
 	case '\n', '\r':
+		return true
+	}
+	return false
+}
+
+// quotedKeyStandsAlone reports whether the quote at the given index opens a
+// key of its own rather than continuing a longer name. A dotted assignment
+// such as signing."sha256" puts a name byte right against the quote, and a
+// bare word in front of it joins the two the same way it does unquoted.
+func quotedKeyStandsAlone(data []byte, quote int) bool {
+	if quote == 0 {
+		return true
+	}
+	if !classify.IsLabelSeparatorByte(data[quote-1]) {
+		return false
+	}
+	p := quote - 1
+	for p > 0 && (data[p] == ' ' || data[p] == '\t') {
+		p--
+	}
+	if data[p] == ' ' || data[p] == '\t' {
+		return true // only blank space back to the start
+	}
+	switch data[p] {
+	case ':', '=', ';', '?', '&':
+		return !credentialIntroducerBefore(data, p)
+	case ',', '{', '[', '(', '"', '\'', '`', '\n', '\r':
 		return true
 	}
 	return false
