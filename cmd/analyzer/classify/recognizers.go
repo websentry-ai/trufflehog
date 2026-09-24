@@ -64,7 +64,13 @@ var (
 	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	// The value a connection parameter holds, so a benign key cannot carry one
+	// that is not a setting.
+	connParamValuePat = regexp.MustCompile(`(?i)[;?&]\s*[a-z][a-z0-9_.\-]*\s*=\s*([^;?&\s]+)`)
+	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
+	// a driver-specific payload cannot pass as a location.
+	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?(/[^\s]*)?$`)
+	dottedIdentPat    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
 	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
 	modelAtVerPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)*@20\d{6}$`)
@@ -515,15 +521,25 @@ var connBenignKeys = map[string]bool{
 	"targetservertype": true, "currentschema": true, "schema": true,
 	"user": true, "username": true, "uid": true, "host": true, "port": true,
 	"database": true, "db": true, "protocol": true, "driver": true,
+
+	// Aerospike. An unknown key counts as secret-bearing, so each driver's options
+	// must be listed. authMode names a scheme, not a credential.
+	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
+	"sendkey": true, "refusescan": true, "useboolbin": true,
+	"useservicesalternate": true, "authmode": true,
 }
 
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
 	}
-	if !strings.Contains(v, "://") {
+	// Both shapes count: jdbc:driver://host/db, and jdbc:driver:host:port/db for
+	// drivers that never adopted the authority form (aerospike, oracle thin, h2).
+	if !strings.Contains(v, "://") && !jdbcDriverHostPat.MatchString(v) {
 		return false
 	}
+	// Credentials ride in front of the host, so an "@" means this is more than a
+	// location.
 	if strings.Contains(v, "@") {
 		return false
 	}
@@ -532,7 +548,21 @@ func IsNonSecretConnString(v string) bool {
 			return false
 		}
 	}
+	// A benign key names a setting, so its value is a setting too. Anything that
+	// reads like a credential means the name is being used to carry one.
+	for _, m := range connParamValuePat.FindAllStringSubmatch(v, -1) {
+		if looksLikeSecretValue(m[1]) {
+			return false
+		}
+	}
 	return true
+}
+
+func looksLikeSecretValue(val string) bool {
+	if len(val) < 16 {
+		return false
+	}
+	return ShannonEntropy(val) >= 3.0
 }
 
 func IsCodeLike(v string) bool {
