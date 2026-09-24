@@ -325,7 +325,12 @@ func startsAName(data []byte, j int) bool {
 		// follows: "Cookie:" and "a=1&" list assignments, while "auth:" and
 		// "signing?" name the credential the value belongs to.
 		return !credentialIntroducerBefore(data, k-1)
-	case ',', '{', '[', '(', '"', '\'', '`', '\n', '\r':
+	case '"', '\'', '`':
+		// A quote is transparent: what introduced it introduces the name too.
+		// {"sha256": …} opens a key, while password = "sha256=…" opens a value
+		// the name is part of.
+		return startsAName(data, k-1)
+	case ',', '{', '[', '(', '\n', '\r':
 		return true
 	}
 	return false
@@ -335,7 +340,9 @@ func startsAName(data []byte, j int) bool {
 // separator at sep is a credential word.
 func credentialIntroducerBefore(data []byte, sep int) bool {
 	e := sep
-	for e > 0 && (data[e-1] == ' ' || data[e-1] == '\t') {
+	// Punctuation can stack up ("auth?:"), and the word is behind all of it.
+	for e > 0 && (data[e-1] == ' ' || data[e-1] == '\t' || data[e-1] == ':' ||
+		data[e-1] == '=' || data[e-1] == ';' || data[e-1] == '?' || data[e-1] == '&') {
 		e--
 	}
 	s := e

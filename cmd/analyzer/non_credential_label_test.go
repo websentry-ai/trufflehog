@@ -427,6 +427,13 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		"signing? checksum=" + secret,
 		"apikey&sha256=" + secret,
 		"secret;digest=" + secret,
+		// the word sits behind stacked punctuation
+		"auth?: md5=" + secret,
+		"signing?: checksum=" + secret,
+		// a quote opens the value, and the name is part of it
+		`password = "sha256=` + secret + `"`,
+		`token: "md5=` + secret + `"`,
+		`auth = '` + "sha256=" + secret + `'`,
 	}
 	for _, doc := range kept {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
@@ -440,6 +447,9 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		"x=1;sha256=" + secret,
 		"url=https://site/?_ga=" + secret,
 		"url=https://site/?a=1&_ga=" + secret,
+		// a quote opens a key here, not a value
+		`{"sha256": "` + secret + `"}`,
+		`cookie: "_ga=` + secret + `"`,
 	}
 	for _, doc := range suppressed {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
