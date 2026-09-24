@@ -100,6 +100,19 @@ func Keywords() []string { return copyOf(keywords) }
 
 func KeywordStems() []string { return copyOf(keywordStems) }
 
+// IsCredentialToken reports whether one label token is a credential word.
+// Matched as a substring, the same way the proximity check reads a stem, so
+// "x_auth" and "signing" count: over-reading here only keeps a finding.
+func IsCredentialToken(tok string) bool {
+	low := strings.ToLower(tok)
+	for _, stem := range keywordStems {
+		if strings.Contains(low, stem) {
+			return true
+		}
+	}
+	return false
+}
+
 func PlaceholderUnion() []string { return copyOf(placeholderUnion) }
 
 func ContainsEntropyPlaceholder(lower string) bool {

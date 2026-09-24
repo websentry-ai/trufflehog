@@ -320,10 +320,31 @@ func startsAName(data []byte, j int) bool {
 		return true
 	}
 	switch data[k-1] {
-	case ':', '=', ',', ';', '?', '&', '{', '[', '(', '"', '\'', '`', '\n', '\r':
+	case ':', '=', ';', '?', '&':
+		// These sit inside one line, where the token in front decides what
+		// follows: "Cookie:" and "a=1&" list assignments, while "auth:" and
+		// "signing?" name the credential the value belongs to.
+		return !credentialIntroducerBefore(data, k-1)
+	case ',', '{', '[', '(', '"', '\'', '`', '\n', '\r':
 		return true
 	}
 	return false
+}
+
+// credentialIntroducerBefore reports whether the token ending just before the
+// separator at sep is a credential word.
+func credentialIntroducerBefore(data []byte, sep int) bool {
+	e := sep
+	for e > 0 && (data[e-1] == ' ' || data[e-1] == '\t') {
+		e--
+	}
+	s := e
+	for s > 0 && !classify.IsLabelSeparatorByte(data[s-1]) &&
+		data[s-1] != ':' && data[s-1] != '=' && data[s-1] != ';' &&
+		data[s-1] != '?' && data[s-1] != '&' {
+		s--
+	}
+	return s < e && classify.IsCredentialToken(string(data[s:e]))
 }
 
 func isAssignSpace(c byte) bool {

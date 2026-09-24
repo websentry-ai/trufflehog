@@ -411,3 +411,40 @@ func TestCookieAndQuerySeparatorsEndAName(t *testing.T) {
 		}
 	}
 }
+
+// On one line the token in front of a name says what the name is. A container
+// lists assignments, so the name after it stands alone; a credential word
+// names what the value is, and a digest word after it belongs to that value
+// rather than labelling it.
+func TestACredentialWordCannotIntroduceAName(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	kept := []string{
+		"auth: md5=" + secret,
+		"authorization: sha256=" + secret,
+		"token=sha256=" + secret,
+		"password=sha256=" + secret,
+		"x_auth: checksum=" + secret,
+		"signing? checksum=" + secret,
+		"apikey&sha256=" + secret,
+		"secret;digest=" + secret,
+	}
+	for _, doc := range kept {
+		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+		if sup, reason := decideSuppression(res, map[string]int{}, []byte(doc)); sup && reason == reasonNonCredentialLabel {
+			t.Errorf("a credential word introduced the name, so this must be kept: %s", doc)
+		}
+	}
+	suppressed := []string{
+		"cookie: _ga=" + secret,
+		"Cookie: consent=yes;_ga=" + secret,
+		"x=1;sha256=" + secret,
+		"url=https://site/?_ga=" + secret,
+		"url=https://site/?a=1&_ga=" + secret,
+	}
+	for _, doc := range suppressed {
+		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+		if sup, reason := decideSuppression(res, map[string]int{}, []byte(doc)); !sup || reason != reasonNonCredentialLabel {
+			t.Errorf("a container introduced the name, so this must be suppressed (%v %q): %s", sup, reason, doc)
+		}
+	}
+}
