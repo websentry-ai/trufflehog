@@ -293,7 +293,8 @@ func labelNameBefore(data []byte, end, lo int) (string, bool) {
 	if q := data[i-1]; isQuoteByte(q) {
 		j := i - 1
 		k := j - 1
-		for k >= 0 && data[k] != q {
+		floor := j - credentialWalkBudget
+		for k >= 0 && k > floor && data[k] != q {
 			k--
 		}
 		if k < 0 || !quotedKeyStandsAlone(data, k) {
@@ -467,7 +468,12 @@ func introducedByCredentialWordAt(data []byte, p int) bool {
 	}
 	switch c := data[q-1]; {
 	case c == ':' || c == '=' || c == ';' || c == '?' || c == '&':
-		return credentialIntroducerBefore(data, q-1)
+		// The key naming this container settles it only if it is a credential
+		// word; otherwise the container outside it still might be one.
+		if credentialIntroducerBefore(data, q-1) {
+			return true
+		}
+		return introducedByCredentialWord(data, q-1)
 	case isQuoteByte(c):
 		// From the right a value's closing quote and a key's opening one are
 		// the same byte, so this is where the walk stops rather than guess.
@@ -485,7 +491,8 @@ func introducedByCredentialWordAt(data []byte, p int) bool {
 // escaped is not its own.
 func openingQuoteLeft(data []byte, end int) int {
 	q := data[end]
-	for i := end - 1; i >= 0; i-- {
+	limit := end - credentialWalkBudget
+	for i := end - 1; i >= 0 && i > limit; i-- {
 		if data[i] != q {
 			continue
 		}
@@ -506,7 +513,8 @@ func openingQuoteLeft(data []byte, end int) int {
 // not settle it, since the one outside it still might.
 func enclosedByCredentialKey(data []byte, nl int) bool {
 	indent := indentAt(data, nl+1)
-	for i := nl; i > 0; {
+	limit := nl - credentialWalkBudget
+	for i := nl; i > 0 && i > limit; {
 		start := lineStartBefore(data, i)
 		end := lastNonBlank(data, lineEndBeforeComment(data, i))
 		if end >= start && data[end] == ':' {
@@ -563,8 +571,12 @@ func lineEndBeforeComment(data []byte, end int) int {
 // blank, or -1 when there is none.
 func lastNonBlank(data []byte, end int) int {
 	i := end
-	for i > 0 && (data[i-1] == ' ' || data[i-1] == '\t' || data[i-1] == '\n' || data[i-1] == '\r') {
+	limit := end - credentialWalkBudget
+	for i > 0 && i > limit && (data[i-1] == ' ' || data[i-1] == '\t' || data[i-1] == '\n' || data[i-1] == '\r') {
 		i--
+	}
+	if i <= limit {
+		return -1 // only blank space in view; the answer is out of reach
 	}
 	return i - 1
 }
