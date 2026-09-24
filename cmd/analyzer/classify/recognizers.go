@@ -558,11 +558,31 @@ func IsNonSecretConnString(v string) bool {
 	return true
 }
 
+// Settings run long without being random: customer-order-service and
+// *.database.windows.net reach 3.4 but carry no digits, while a credential mixes
+// both classes and sits above 4.0. Requiring all three keeps ordinary values
+// suppressed.
 func looksLikeSecretValue(val string) bool {
-	if len(val) < 16 {
+	if len(val) < 20 {
 		return false
 	}
-	return ShannonEntropy(val) >= 3.0
+	if !hasLetterAndDigit(val) {
+		return false
+	}
+	return ShannonEntropy(val) >= 4.0
+}
+
+func hasLetterAndDigit(s string) bool {
+	var letter, digit bool
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			letter = true
+		}
+	}
+	return letter && digit
 }
 
 func IsCodeLike(v string) bool {

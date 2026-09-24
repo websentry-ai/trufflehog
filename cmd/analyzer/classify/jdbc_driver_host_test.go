@@ -118,3 +118,16 @@ func TestIsNonSecretConnString_BenignKeysWithRealSettings(t *testing.T) {
 		require.True(t, IsNonSecretConnString(v), "a plain setting is still a setting: %s", v)
 	}
 }
+
+// Ordinary settings run long without being random. Both review engines found
+// these being re-reported when the value check was only length plus entropy.
+func TestIsNonSecretConnString_OrdinarySettingsStaySuppressed(t *testing.T) {
+	for _, v := range []string{
+		`jdbc:sqlserver://localhost;applicationName=customer-order-service;encrypt=true`,
+		`jdbc:sqlserver://x.database.windows.net:1433;database=db;encrypt=true;hostNameInCertificate=*.database.windows.net;loginTimeout=30`,
+		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
+	} {
+		require.True(t, IsNonSecretConnString(v),
+			"a long setting value is still a setting: %s", v)
+	}
+}

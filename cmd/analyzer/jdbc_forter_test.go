@@ -52,8 +52,8 @@ func TestJDBC_CredentialBearingStillReported(t *testing.T) {
 	}
 }
 
-// Suppression is opt-in. Without the env var the finding still surfaces, which
-// is why this fix does nothing in production until the mode is turned on.
+// Suppression is opt-in in code. Both staging and prod already run it as
+// enforce, so this takes effect on deploy rather than waiting on a flag.
 func TestJDBC_SuppressionIsOptIn(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "off")
 	var found bool
