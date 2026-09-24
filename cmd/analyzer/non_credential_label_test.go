@@ -452,6 +452,17 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`signing {"sha256": "` + secret + `"}`,
 		`password = ["sha256": "` + secret + `"]`,
 		`password = ("sha256" = "` + secret + `")`,
+		// pretty-printed and wrapped: a line break inside a structure keeps
+		// the word that opened it
+		"password = {\n  \"sha256\": \"" + secret + "\"\n}",
+		"\"webhook_secret\": {\n  \"sha256\": \"" + secret + "\"\n}",
+		"password = {\n\t\"sha256\": \"" + secret + "\"\n}",
+		"password = {\n  sha256=" + secret + "\n}",
+		"signing,\n\"sha256\" = \"" + secret + "\"",
+		"password =\n{\"sha256\": \"" + secret + "\"}",
+		`password = [{"sha256": "` + secret + `"}]`,
+		`password = ({"sha256": "` + secret + `"})`,
+		`signing, {"sha256": "` + secret + `"}`,
 	}
 	for _, doc := range kept {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
@@ -472,6 +483,9 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`{"api_key":"` + neighbour + `","sha256":"` + secret + `"}`,
 		"api_key=" + neighbour + "\n\"sha256\": \"" + secret + "\"",
 		`a=1, "_ga" = "` + secret + `"`,
+		// a line break after a complete line starts a fresh name
+		"{\n  \"api_key\": \"" + neighbour + "\",\n  \"sha256\": \"" + secret + "\"\n}",
+		"password=" + neighbour + "\nsha256=" + secret,
 	}
 	for _, doc := range suppressed {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}

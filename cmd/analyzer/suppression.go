@@ -331,7 +331,7 @@ func startsAName(data []byte, j int) bool {
 		// password = "{sha256=…}" only wraps a value the name is part of.
 		return startsAName(data, k-1)
 	case '\n', '\r':
-		return true
+		return !introducedByCredentialWord(data, k-1)
 	}
 	return false
 }
@@ -357,9 +357,9 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 	switch data[p] {
 	case ':', '=', ';', '?', '&':
 		return !credentialIntroducerBefore(data, p)
-	case ',', '{', '[', '(':
+	case ',', '{', '[', '(', '\n', '\r':
 		return !introducedByCredentialWord(data, p)
-	case '"', '\'', '`', '\n', '\r':
+	case '"', '\'', '`':
 		return true
 	}
 	return false
@@ -370,21 +370,42 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 // value's closing quote looks exactly like a key's opening one, and reading
 // past it would give up the form this rule exists for.
 func introducedByCredentialWord(data []byte, p int) bool {
-	q := p
-	for q > 0 && (data[q-1] == ' ' || data[q-1] == '\t') {
-		q--
+	for q := p; q > 0; {
+		switch c := data[q-1]; {
+		case c == ' ' || c == '\t' || c == ',' || c == '{' || c == '[' || c == '(':
+			q-- // nesting and indentation say nothing; keep looking
+		case c == '\n' || c == '\r':
+			r := lastNonBlank(data, q-1)
+			if r < 0 {
+				return false
+			}
+			switch data[r] {
+			case '{', '[', '(', ',':
+				q = r + 1 // the line before ended inside a structure
+			case ':', '=':
+				return credentialIntroducerBefore(data, r) // assignment wrapped
+			default:
+				return false // a complete line, so the name starts fresh
+			}
+		case c == ':' || c == '=' || c == ';' || c == '?' || c == '&':
+			return credentialIntroducerBefore(data, q-1)
+		case isQuoteByte(c):
+			return false
+		default:
+			return credentialIntroducerBefore(data, q)
+		}
 	}
-	if q == 0 {
-		return false
+	return false
+}
+
+// lastNonBlank returns the index of the last byte before end that is not
+// blank, or -1 when there is none.
+func lastNonBlank(data []byte, end int) int {
+	i := end
+	for i > 0 && (data[i-1] == ' ' || data[i-1] == '\t' || data[i-1] == '\n' || data[i-1] == '\r') {
+		i--
 	}
-	switch c := data[q-1]; {
-	case c == ':' || c == '=' || c == ';' || c == '?' || c == '&':
-		return credentialIntroducerBefore(data, q-1)
-	case isQuoteByte(c) || c == '\n' || c == '\r' || c == ',' || c == '{' || c == '[' || c == '(':
-		return false
-	default:
-		return credentialIntroducerBefore(data, q)
-	}
+	return i - 1
 }
 
 // credentialIntroducerBefore reports whether the token ending just before the
