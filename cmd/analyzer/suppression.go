@@ -325,12 +325,12 @@ func startsAName(data []byte, j int) bool {
 		// follows: "Cookie:" and "a=1&" list assignments, while "auth:" and
 		// "signing?" name the credential the value belongs to.
 		return !credentialIntroducerBefore(data, k-1)
-	case '"', '\'', '`':
-		// A quote is transparent: what introduced it introduces the name too.
-		// {"sha256": …} opens a key, while password = "sha256=…" opens a value
-		// the name is part of.
+	case '"', '\'', '`', ',', '{', '[', '(':
+		// Transparent: whatever introduced the bracket or quote introduces the
+		// name too. A key in {"sha256": …} is read before this point, while
+		// password = "{sha256=…}" only wraps a value the name is part of.
 		return startsAName(data, k-1)
-	case ',', '{', '[', '(', '\n', '\r':
+	case '\n', '\r':
 		return true
 	}
 	return false
@@ -342,8 +342,9 @@ func credentialIntroducerBefore(data []byte, sep int) bool {
 	e := sep
 	// Punctuation can stack up ("auth?:"), and the word is behind all of it.
 	for e > 0 && (data[e-1] == ' ' || data[e-1] == '\t' || data[e-1] == ':' ||
-		data[e-1] == '=' || data[e-1] == ';' || data[e-1] == '?' || data[e-1] == '&') {
-		e--
+		data[e-1] == '=' || data[e-1] == ';' || data[e-1] == '?' || data[e-1] == '&' ||
+		isQuoteByte(data[e-1])) {
+		e-- // a quoted key closes before its colon: "password": sits between
 	}
 	s := e
 	for s > 0 && !classify.IsLabelSeparatorByte(data[s-1]) &&

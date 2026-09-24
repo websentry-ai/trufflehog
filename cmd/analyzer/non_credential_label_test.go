@@ -434,6 +434,12 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`password = "sha256=` + secret + `"`,
 		`token: "md5=` + secret + `"`,
 		`auth = '` + "sha256=" + secret + `'`,
+		// a quoted key closes before its colon, and a bracket only wraps
+		`"password": "sha256=` + secret + `"`,
+		`{"password": "sha256=` + secret + `"}`,
+		`{"auth": "md5=` + secret + `"}`,
+		`password = "{sha256=` + secret + `}"`,
+		`password = (sha256=` + secret + `)`,
 	}
 	for _, doc := range kept {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
