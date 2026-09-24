@@ -370,12 +370,16 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 // value's closing quote looks exactly like a key's opening one, and reading
 // past it would give up the form this rule exists for.
 func introducedByCredentialWord(data []byte, p int) bool {
-	for q := p; q > 0; {
+	q := p
+	if q < len(data) && (data[q] == '\n' || data[q] == '\r') {
+		q = lineEndBeforeComment(data, q)
+	}
+	for q > 0 {
 		switch c := data[q-1]; {
 		case c == ' ' || c == '\t' || c == ',' || c == '{' || c == '[' || c == '(':
 			q-- // nesting and indentation say nothing; keep looking
 		case c == '\n' || c == '\r':
-			r := lastNonBlank(data, q-1)
+			r := lastNonBlank(data, lineEndBeforeComment(data, q-1))
 			if r < 0 {
 				return false
 			}
@@ -396,6 +400,23 @@ func introducedByCredentialWord(data []byte, p int) bool {
 		}
 	}
 	return false
+}
+
+// lineEndBeforeComment returns end, or the start of a trailing comment on the
+// line ending there. A "password = { # note" line still opens a structure, and
+// reading the comment instead of the brace would lose the word that opened it.
+// A marker inside a string only ends the line early, which keeps a finding.
+func lineEndBeforeComment(data []byte, end int) int {
+	start := end
+	for start > 0 && data[start-1] != '\n' && data[start-1] != '\r' {
+		start--
+	}
+	for i := start; i < end; i++ {
+		if data[i] == '#' || (data[i] == '/' && i+1 < end && data[i+1] == '/') {
+			return i
+		}
+	}
+	return end
 }
 
 // lastNonBlank returns the index of the last byte before end that is not

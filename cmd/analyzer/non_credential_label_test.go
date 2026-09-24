@@ -463,6 +463,10 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`password = [{"sha256": "` + secret + `"}]`,
 		`password = ({"sha256": "` + secret + `"})`,
 		`signing, {"sha256": "` + secret + `"}`,
+		// a trailing comment must not hide the word that opened the structure
+		"password = { # comment\n  \"sha256\": \"" + secret + "\"\n}",
+		"password = { // comment\n  \"sha256\": \"" + secret + "\"\n}",
+		"password: # comment\n  sha256=" + secret,
 	}
 	for _, doc := range kept {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
@@ -486,6 +490,7 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		// a line break after a complete line starts a fresh name
 		"{\n  \"api_key\": \"" + neighbour + "\",\n  \"sha256\": \"" + secret + "\"\n}",
 		"password=" + neighbour + "\nsha256=" + secret,
+		"a=1 # note\nsha256=" + secret,
 	}
 	for _, doc := range suppressed {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
