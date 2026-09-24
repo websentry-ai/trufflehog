@@ -36,7 +36,7 @@ func startShippedAnalyzer(t *testing.T) string {
 		t.Fatalf("reserving a port: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(),
@@ -63,8 +63,8 @@ func startShippedAnalyzer(t *testing.T) string {
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if resp, err := http.Get(base + "/readyz"); err == nil {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return base
 			}
@@ -89,7 +89,7 @@ func postAnalyze(t *testing.T, base, key, body string) (int, string) {
 	if err != nil {
 		t.Fatalf("posting to /analyze: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(out)
 }

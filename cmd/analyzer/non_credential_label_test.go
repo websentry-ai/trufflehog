@@ -467,6 +467,11 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		"password = { # comment\n  \"sha256\": \"" + secret + "\"\n}",
 		"password = { // comment\n  \"sha256\": \"" + secret + "\"\n}",
 		"password: # comment\n  sha256=" + secret,
+		// a sibling field must not hide the word a level up
+		`{"webhook_secret": {"encoding": "base64", "sha256": "` + secret + `"}}`,
+		`{"password": {"alg": "x", "enc": "y", "sha256": "` + secret + `"}}`,
+		`{"webhook_secret": {"sha256": "` + secret + `"}}`,
+		"{\n  \"webhook_secret\": {\n    \"encoding\": \"base64\",\n    \"sha256\": \"" + secret + "\"\n  }\n}",
 	}
 	for _, doc := range kept {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
@@ -491,6 +496,9 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		"{\n  \"api_key\": \"" + neighbour + "\",\n  \"sha256\": \"" + secret + "\"\n}",
 		"password=" + neighbour + "\nsha256=" + secret,
 		"a=1 # note\nsha256=" + secret,
+		// an enclosing word that is not a credential leaves the rule alone
+		`{"config": {"encoding": "base64", "sha256": "` + secret + `"}}`,
+		`{"report": {"name": "x", "sha256": "` + secret + `"}}`,
 	}
 	for _, doc := range suppressed {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}

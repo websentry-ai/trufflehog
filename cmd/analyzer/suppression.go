@@ -44,6 +44,11 @@ const benignIDContextWindow = 24
 
 const hexIDContextWindow = 24
 
+// How far back the walk looking for an enclosing credential label will go. A
+// label further away than this says nothing about the value, and the walk
+// gives up rather than reading the whole request per finding.
+const credentialWalkBudget = 4096
+
 func parseSuppressionMode(raw string) suppressionMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "enforce":
@@ -371,35 +376,116 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 // past it would give up the form this rule exists for.
 func introducedByCredentialWord(data []byte, p int) bool {
 	q := p
-	if q < len(data) && (data[q] == '\n' || data[q] == '\r') {
-		q = lineEndBeforeComment(data, q)
+	if q < len(data) {
+		switch data[q] {
+		case '{', '[', '(':
+			// The name sits directly inside this structure, so this is the
+			// opener to ask about; there is nothing to step over first.
+			return introducedByCredentialWordAt(data, q)
+		case '\n', '\r':
+			q = lineEndBeforeComment(data, q)
+		}
 	}
-	for q > 0 {
+	// A sibling field says nothing about the value: in {"api_key": …, "sha256": …}
+	// the two are peers, while in {"webhook_secret": {"encoding": …, "sha256": …}}
+	// the word that matters is a level up. So entries are stepped over and the
+	// question is put to whatever opened the structure we are inside.
+	depth := 0
+	assign := -1 // nearest assignment at our own level, if there is no opener
+	limit := q - credentialWalkBudget
+	for q > 0 && q > limit {
 		switch c := data[q-1]; {
-		case c == ' ' || c == '\t' || c == ',' || c == '{' || c == '[' || c == '(':
-			q-- // nesting and indentation say nothing; keep looking
-		case c == '\n' || c == '\r':
-			r := lastNonBlank(data, lineEndBeforeComment(data, q-1))
+		case c == '}' || c == ']' || c == ')':
+			depth++
+			q--
+		case c == '{' || c == '[' || c == '(':
+			if depth == 0 {
+				return introducedByCredentialWordAt(data, q-1)
+			}
+			depth--
+			q--
+		case isQuoteByte(c):
+			r := openingQuoteLeft(data, q-1)
 			if r < 0 {
 				return false
 			}
+			q = r // a string is one step, whatever it holds
+		case c == ' ' || c == '\t' || c == ',':
+			q--
+		case c == '\n' || c == '\r':
+			r := lastNonBlank(data, lineEndBeforeComment(data, q-1))
+			if r < 0 {
+				return assign >= 0 && credentialIntroducerBefore(data, assign)
+			}
 			switch data[r] {
 			case '{', '[', '(', ',':
-				q = r + 1 // the line before ended inside a structure
+				q = r + 1
 			case ':', '=':
-				return credentialIntroducerBefore(data, r) // assignment wrapped
+				return credentialIntroducerBefore(data, r)
 			default:
-				return false // a complete line, so the name starts fresh
+				if assign >= 0 {
+					return credentialIntroducerBefore(data, assign)
+				}
+				return false // a finished line: the name starts fresh
 			}
 		case c == ':' || c == '=' || c == ';' || c == '?' || c == '&':
-			return credentialIntroducerBefore(data, q-1)
-		case isQuoteByte(c):
-			return false
+			if depth == 0 && assign < 0 {
+				assign = q - 1
+			}
+			q--
 		default:
-			return credentialIntroducerBefore(data, q)
+			if depth == 0 && assign < 0 {
+				return credentialIntroducerBefore(data, q)
+			}
+			q--
 		}
 	}
-	return false
+	return assign >= 0 && credentialIntroducerBefore(data, assign)
+}
+
+// introducedByCredentialWordAt answers for the opener at p: the key or the
+// word that introduced the structure the name sits in.
+func introducedByCredentialWordAt(data []byte, p int) bool {
+	q := p
+	for q > 0 && (data[q-1] == ' ' || data[q-1] == '\t') {
+		q--
+	}
+	if q == 0 {
+		return false
+	}
+	switch c := data[q-1]; {
+	case c == ':' || c == '=' || c == ';' || c == '?' || c == '&':
+		return credentialIntroducerBefore(data, q-1)
+	case isQuoteByte(c):
+		// From the right a value's closing quote and a key's opening one are
+		// the same byte, so this is where the walk stops rather than guess.
+		return false
+	case c == ',' || c == '{' || c == '[' || c == '(' || c == '\n' || c == '\r':
+		// One structure inside another: the word that matters is further out.
+		return introducedByCredentialWord(data, q-1)
+	default:
+		return credentialIntroducerBefore(data, q)
+	}
+}
+
+// openingQuoteLeft returns the index of the quote that opens the string whose
+// closing quote is at end, or -1 when it is not in view. A quote the string
+// escaped is not its own.
+func openingQuoteLeft(data []byte, end int) int {
+	q := data[end]
+	for i := end - 1; i >= 0; i-- {
+		if data[i] != q {
+			continue
+		}
+		slashes := 0
+		for j := i - 1; j >= 0 && data[j] == '\\'; j-- {
+			slashes++
+		}
+		if slashes%2 == 0 {
+			return i
+		}
+	}
+	return -1
 }
 
 // lineEndBeforeComment returns end, or the start of a trailing comment on the
