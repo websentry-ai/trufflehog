@@ -221,8 +221,10 @@ func TestSuppressionReasonsAreDistinct(t *testing.T) {
 // cut.
 func TestNoSeparatorLetsALabelTailBeReadAsAWholeLabel(t *testing.T) {
 	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
-	seps := []string{"/", "|", "@", "#", "$", "%", "&", "*", "+", "=", ":", ";",
-		"<", ">", "?", "!", "~", "^", "\\", ".", "_", "-", "\v", "\x00", "\x7f"}
+	// ; ? and & are left out: they separate cookies and query parameters, so
+	// a name after one of them is its own name. That is asserted separately.
+	seps := []string{"/", "|", "@", "#", "$", "%", "*", "+", "=", ":",
+		"<", ">", "!", "~", "^", "\\", ".", "_", "-", "\v", "\x00", "\x7f"}
 	words := []string{"sha256", "digest", "md5", "checksum", "sha-256", "_ga"}
 	for _, sep := range seps {
 		for _, word := range words {
@@ -372,5 +374,40 @@ func TestASemicolonSeparatesCookies(t *testing.T) {
 	}
 	if len(found(t, doc, token)) == 0 {
 		t.Errorf("the bearer token was not reported")
+	}
+}
+
+// A cookie header and a query string pack several assignments onto one line,
+// so a semicolon, a question mark and an ampersand each end a name whether or
+// not a space follows. Without this the whole run reads as one name, and the
+// analytics value it ends with is reported.
+func TestCookieAndQuerySeparatorsEndAName(t *testing.T) {
+	const benign = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const secret = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
+	suppressed := []string{
+		"Authorization: Bearer " + secret + "\nCookie: consent=yes;_ga=" + benign,
+		"api_key=" + secret + "\nurl=https://site/?_ga=" + benign,
+		"api_key=" + secret + "\nurl=https://site/?a=1&_ga=" + benign,
+		"api_key=" + secret + "\nx=1;sha256=" + benign,
+	}
+	for _, doc := range suppressed {
+		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: benign}
+		if sup, reason := decideSuppression(res, map[string]int{}, []byte(doc)); !sup || reason != reasonNonCredentialLabel {
+			t.Errorf("not suppressed (%v %q): %s", sup, reason, doc)
+		}
+	}
+	// The same separators must not hand a credential's own name to the rule.
+	kept := []string{
+		"https://site/?api_key=" + benign,
+		"a=1&secret=" + benign,
+		"x=1;token=" + benign,
+		"url=https://site/?signing_sha256=" + benign,
+		"url=https://site/?my sha256=" + benign,
+	}
+	for _, doc := range kept {
+		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: benign}
+		if sup, reason := decideSuppression(res, map[string]int{}, []byte(doc)); sup && reason == reasonNonCredentialLabel {
+			t.Errorf("suppressed but must be kept: %s", doc)
+		}
 	}
 }

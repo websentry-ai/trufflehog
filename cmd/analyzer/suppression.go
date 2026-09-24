@@ -320,7 +320,7 @@ func startsAName(data []byte, j int) bool {
 		return true
 	}
 	switch data[k-1] {
-	case ':', '=', ',', ';', '{', '[', '(', '"', '\'', '`', '\n', '\r':
+	case ':', '=', ',', ';', '?', '&', '{', '[', '(', '"', '\'', '`', '\n', '\r':
 		return true
 	}
 	return false

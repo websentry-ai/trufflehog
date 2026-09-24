@@ -469,7 +469,7 @@ func IsNonCredentialLabelName(name string) bool {
 // "sha256". Go's \s does not include a vertical tab, and neither does this.
 func IsLabelSeparatorByte(c byte) bool {
 	switch c {
-	case ' ', '\t', '\n', '\r', '\f', '"', '\'', '`', ',', '{', '[', '(':
+	case ' ', '\t', '\n', '\r', '\f', '"', '\'', '`', ',', ';', '?', '&', '{', '[', '(':
 		return true
 	}
 	return false
