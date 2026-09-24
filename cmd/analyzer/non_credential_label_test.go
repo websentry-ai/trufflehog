@@ -471,6 +471,11 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`{"webhook_secret": {"encoding": "base64", "sha256": "` + secret + `"}}`,
 		`{"password": {"alg": "x", "enc": "y", "sha256": "` + secret + `"}}`,
 		`{"webhook_secret": {"sha256": "` + secret + `"}}`,
+		// an indented format nests by column, not by bracket
+		"webhook_secret:\n  encoding: base64\n  sha256: " + secret,
+		"webhook_secret:\n  encoding: \"base64\"\n  sha256: \"" + secret + "\"",
+		"auth:\n  primary:\n    enc: base64\n    md5: " + secret,
+		"password = { /* note */\n  \"sha256\": \"" + secret + "\"\n}",
 		"{\n  \"webhook_secret\": {\n    \"encoding\": \"base64\",\n    \"sha256\": \"" + secret + "\"\n  }\n}",
 	}
 	for _, doc := range kept {
@@ -499,6 +504,8 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		// an enclosing word that is not a credential leaves the rule alone
 		`{"config": {"encoding": "base64", "sha256": "` + secret + `"}}`,
 		`{"report": {"name": "x", "sha256": "` + secret + `"}}`,
+		"api_key: " + neighbour + "\nsha256: " + secret,
+		"config:\n  encoding: base64\n  sha256: " + secret,
 	}
 	for _, doc := range suppressed {
 		res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}

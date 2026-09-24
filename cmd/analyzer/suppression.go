@@ -383,6 +383,11 @@ func introducedByCredentialWord(data []byte, p int) bool {
 			// opener to ask about; there is nothing to step over first.
 			return introducedByCredentialWordAt(data, q)
 		case '\n', '\r':
+			// The name opens its own line, so an indented format has already
+			// said what it belongs to before the walk begins.
+			if enclosedByCredentialKey(data, q) {
+				return true
+			}
 			q = lineEndBeforeComment(data, q)
 		}
 	}
@@ -423,6 +428,13 @@ func introducedByCredentialWord(data []byte, p int) bool {
 			case ':', '=':
 				return credentialIntroducerBefore(data, r)
 			default:
+				// An indented format nests by column rather than by bracket,
+				// so the key this one sits under is an earlier line further
+				// left. Without this, a sibling on the line above answers for
+				// the whole block.
+				if enclosedByCredentialKey(data, q-1) {
+					return true
+				}
 				if assign >= 0 {
 					return credentialIntroducerBefore(data, assign)
 				}
@@ -488,6 +500,48 @@ func openingQuoteLeft(data []byte, end int) int {
 	return -1
 }
 
+// enclosedByCredentialKey reports whether the line after nl sits under a key
+// that is a credential word. Each enclosing key is one that ends in a colon on
+// an earlier line at a smaller indent; a key that is not a credential word does
+// not settle it, since the one outside it still might.
+func enclosedByCredentialKey(data []byte, nl int) bool {
+	indent := indentAt(data, nl+1)
+	for i := nl; i > 0; {
+		start := lineStartBefore(data, i)
+		end := lastNonBlank(data, lineEndBeforeComment(data, i))
+		if end >= start && data[end] == ':' {
+			if ind := indentAt(data, start); ind < indent {
+				if credentialIntroducerBefore(data, end) {
+					return true
+				}
+				indent = ind // keep looking further out
+			}
+		}
+		if start == 0 {
+			break
+		}
+		i = start - 1
+	}
+	return false
+}
+
+// indentAt counts the blank columns the line starting at start opens with.
+func indentAt(data []byte, start int) int {
+	n := 0
+	for start+n < len(data) && (data[start+n] == ' ' || data[start+n] == '\t') {
+		n++
+	}
+	return n
+}
+
+// lineStartBefore returns the first index of the line that ends at i.
+func lineStartBefore(data []byte, i int) int {
+	for i > 0 && data[i-1] != '\n' && data[i-1] != '\r' {
+		i--
+	}
+	return i
+}
+
 // lineEndBeforeComment returns end, or the start of a trailing comment on the
 // line ending there. A "password = { # note" line still opens a structure, and
 // reading the comment instead of the brace would lose the word that opened it.
@@ -498,7 +552,7 @@ func lineEndBeforeComment(data []byte, end int) int {
 		start--
 	}
 	for i := start; i < end; i++ {
-		if data[i] == '#' || (data[i] == '/' && i+1 < end && data[i+1] == '/') {
+		if data[i] == '#' || (data[i] == '/' && i+1 < end && (data[i+1] == '/' || data[i+1] == '*')) {
 			return i
 		}
 	}
