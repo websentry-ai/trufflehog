@@ -313,3 +313,64 @@ func TestACompleteNameSuppressesInEveryForm(t *testing.T) {
 		})
 	}
 }
+
+// Padding between the label and its value moves the context window's edge, and
+// the answer must not move with it. Without this, a qualified name lands back
+// on the benign list at whichever offset puts the window's start inside it.
+func TestPaddingCannotTurnAQualifiedNameIntoABenignOne(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	keys := []string{
+		"signing checksum", "signing sha256", "secret checksum", "password checksum",
+		"signing\tchecksum", "api sha256", "token digest", "my_sha256", "team/digest",
+	}
+	for _, key := range keys {
+		t.Run(key, func(t *testing.T) {
+			for pad := 0; pad <= 40; pad++ {
+				for _, gap := range []string{" ", "\t"} {
+					doc := []byte(key + "=" + strings.Repeat(gap, pad) + secret)
+					res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+					if sup, reason := decideSuppression(res, map[string]int{}, doc); sup && reason == reasonNonCredentialLabel {
+						t.Fatalf("%q was read as a whole benign name with %d gaps", key, pad)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The same padding must not stop a real name from suppressing, for as long as
+// its assignment is still inside the window. Past that the label is out of
+// view and the finding is raised, which is the safe way to run out of context.
+func TestPaddingDoesNotStopACompleteNameSuppressing(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	for _, name := range []string{"sha256", "checksum", "md5", "_ga", "x-sha256"} {
+		t.Run(name, func(t *testing.T) {
+			for pad := 0; pad+1 < benignIDContextWindow; pad++ {
+				doc := []byte("cfg:\n  " + name + "=" + strings.Repeat(" ", pad) + secret)
+				res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+				if sup, reason := decideSuppression(res, map[string]int{}, doc); !sup || reason != reasonNonCredentialLabel {
+					t.Fatalf("%q with %d spaces was not suppressed (%v %q)", name, pad, sup, reason)
+				}
+			}
+			// once the assignment falls outside the window, the value is kept
+			doc := []byte("cfg:\n  " + name + "=" + strings.Repeat(" ", benignIDContextWindow) + secret)
+			res := analyzeResult{EntityType: customdetectors.EntropyName, raw: secret}
+			if sup, _ := decideSuppression(res, map[string]int{}, doc); sup {
+				t.Errorf("%q was suppressed with its assignment out of view", name)
+			}
+		})
+	}
+}
+
+// A cookie after another cookie is still a cookie.
+func TestASemicolonSeparatesCookies(t *testing.T) {
+	const secret = "aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh"
+	const token = "Qz7Lm4Rt9Wx2Yv6Bn3Kc8Jd5Hf1Gp0S"
+	doc := "Authorization: Bearer " + token + "\nCookie: consent=yes; _ga=" + secret
+	if hits := found(t, doc, secret); len(hits) > 0 {
+		t.Errorf("the analytics cookie was reported as %v", hits)
+	}
+	if len(found(t, doc, token)) == 0 {
+		t.Errorf("the bearer token was not reported")
+	}
+}

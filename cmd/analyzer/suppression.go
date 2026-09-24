@@ -255,77 +255,72 @@ func benignIDContextAt(data []byte, start int) bool {
 }
 
 // nonCredentialLabelAt reports whether the value at start is assigned to a
-// label whose name can never hold a secret. The whole name has to be in view:
-// a quoted key is read between its quotes, an unquoted one back to the first
-// byte that cannot continue a name, and a name still running at the edge of a
-// truncated window is refused because its beginning was cut away.
+// label whose name can never hold a secret. The assignment has to appear
+// within the context window, but the name itself, and the text that proves
+// where it begins, are read from the document without that limit -- otherwise
+// the answer changes with where the window's edge happens to fall.
 func nonCredentialLabelAt(data []byte, start int) bool {
 	lo := start - benignIDContextWindow
-	truncated := lo > 0
 	if lo < 0 {
 		lo = 0
 	}
-	name, ok := labelNameBefore(data[lo:start], truncated)
+	name, ok := labelNameBefore(data, start, lo)
 	return ok && classify.IsNonCredentialLabelName(name)
 }
 
-// labelNameBefore returns the complete name that assigns the value following
-// before. It reports false when there is no assignment in view, or when the
-// name cannot be read in full.
-func labelNameBefore(before []byte, truncated bool) (string, bool) {
-	i := len(before)
-	for i > 0 && (isAssignSpace(before[i-1]) || isQuoteByte(before[i-1])) {
+// labelNameBefore returns the complete name that assigns the value at end,
+// reporting false when no assignment sits within the window starting at lo.
+func labelNameBefore(data []byte, end, lo int) (string, bool) {
+	i := end
+	for i > lo && (isAssignSpace(data[i-1]) || isQuoteByte(data[i-1])) {
 		i-- // the value's opening quote and the space around it
 	}
-	if i == 0 || (before[i-1] != ':' && before[i-1] != '=') {
+	if i <= lo || (data[i-1] != ':' && data[i-1] != '=') {
 		return "", false
 	}
 	i--
-	for i > 0 && isAssignSpace(before[i-1]) {
+	for i > lo && isAssignSpace(data[i-1]) {
 		i--
 	}
-	if i == 0 {
+	if i <= lo {
 		return "", false
 	}
-	if q := before[i-1]; isQuoteByte(q) {
+	if q := data[i-1]; isQuoteByte(q) {
 		j := i - 1
 		k := j - 1
-		for k >= 0 && before[k] != q {
+		for k >= 0 && data[k] != q {
 			k--
 		}
 		if k < 0 {
-			return "", false // the key's opening quote is out of view
+			return "", false // no opening quote, so no key to read
 		}
-		return string(before[k+1 : j]), true
+		return string(data[k+1 : j]), true
 	}
 	j := i
-	for j > 0 && !classify.IsLabelSeparatorByte(before[j-1]) {
+	for j > 0 && !classify.IsLabelSeparatorByte(data[j-1]) {
 		j--
 	}
-	if j == i || (j == 0 && truncated) {
+	if j == i || !startsAName(data, j) {
 		return "", false
 	}
-	if !startsAName(before[:j], truncated) {
-		return "", false
-	}
-	return string(before[j:i]), true
+	return string(data[j:i]), true
 }
 
-// startsAName reports whether a name beginning right after before is the whole
-// label rather than the last word of a longer one. Unquoted text separates
-// tokens on spaces, so "signing checksum=" would otherwise read as "checksum".
-// A name may follow punctuation or nothing at all; another bare word in front
-// of it means the two belong together.
-func startsAName(before []byte, truncated bool) bool {
-	k := len(before)
-	for k > 0 && (before[k-1] == ' ' || before[k-1] == '\t') {
+// startsAName reports whether the name beginning at j is the whole label
+// rather than the last word of a longer one. Unquoted text separates tokens on
+// spaces, so "signing checksum=" would otherwise read as "checksum". A name
+// may follow punctuation or the start of the document; another bare word in
+// front of it means the two belong together.
+func startsAName(data []byte, j int) bool {
+	k := j
+	for k > 0 && (data[k-1] == ' ' || data[k-1] == '\t') {
 		k-- // only along the line: a newline in front of the name ends it
 	}
 	if k == 0 {
-		return !truncated || k < len(before)
+		return true
 	}
-	switch before[k-1] {
-	case ':', '=', ',', '{', '[', '(', '"', '\'', '`', '\n', '\r':
+	switch data[k-1] {
+	case ':', '=', ',', ';', '{', '[', '(', '"', '\'', '`', '\n', '\r':
 		return true
 	}
 	return false
