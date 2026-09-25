@@ -23,8 +23,7 @@ func TestIsNonSecretConnString_DriverHostForm(t *testing.T) {
 	}
 }
 
-// The guards that make this safe. Each one is the reason a credential-bearing
-// string stays a finding, so each is asserted rather than assumed.
+// Each guard is a reason a credential-bearing string stays a finding.
 func TestIsNonSecretConnString_DriverHostFormKeepsSecrets(t *testing.T) {
 	secret := []struct{ name, v, why string }{
 		{"oracle thin with credentials", `jdbc:oracle:thin:scott/tiger@dbhost:1521:orcl`,
@@ -70,8 +69,7 @@ func TestIsNonSecretConnString_EdgeShapes(t *testing.T) {
 	}
 }
 
-// A value that merely looks like a location must not carry a secret past the
-// rule. The param check is what stops it.
+// A value that merely looks like a location must not carry a secret past.
 func TestIsNonSecretConnString_SecretSmuggledIntoALocation(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?tok=AKIAR7Q3XZ9MNP4HT2VK`,
@@ -93,8 +91,7 @@ func TestIsNonSecretConnString_SecretBearingKeysNeverBenign(t *testing.T) {
 	}
 }
 
-// Reading parameter names alone would let any allowlisted key launder whatever
-// value it held.
+// Reading parameter names alone would let any allowlisted key launder a value.
 func TestIsNonSecretConnString_BenignKeyCannotLaunderASecret(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=AKIAR7Q3XZ9MNP4HT2VK`,
@@ -117,10 +114,8 @@ func TestIsNonSecretConnString_BenignKeysWithRealSettings(t *testing.T) {
 	}
 }
 
-// The authority form keeps the behaviour it had, so what was suppressed before
-// still is. It does not classify its values: OrderProcessingService and
-// CorrectHorseBatteryStaple both measure 3.5, so entropy cannot tell an
-// identifier from a passphrase.
+// The authority form keeps the behaviour it had and does not classify its
+// values: OrderProcessingService and CorrectHorseBatteryStaple both measure 3.5.
 func TestIsNonSecretConnString_AuthorityFormSettingsStaySuppressed(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:sqlserver://localhost;applicationName=customer-order-service;encrypt=true`,
@@ -148,7 +143,7 @@ func TestIsNonSecretConnString_VendorFormatIsNeverASetting(t *testing.T) {
 }
 
 // The driver-host form has no prior behaviour to preserve, so its values must
-// positively look like settings. That is what catches a laundered passphrase.
+// positively look like settings.
 func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?user=MyCompanyPassword2024`,
@@ -159,8 +154,7 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"only a flag, a count or a named mode is a setting here: %s", v)
 	}
-	// Upper-casing a passphrase must not turn it into a mode. An open word shape
-	// cannot be told from a password, so the modes are listed rather than matched.
+	// Upper-casing a passphrase must not turn it into a mode.
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?user=PASSWORD`,
 		`jdbc:aerospike:localhost:3000/test?timeout=HUNTER2`,
@@ -169,8 +163,7 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"an unlisted word is not a mode: %s", v)
 	}
-	// A digit string is a count on a key that takes one, and a password anywhere
-	// else, so the option decides rather than the shape.
+	// A digit string is a count on a key that takes one, a password anywhere else.
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?user=123456`,
 		`jdbc:aerospike:localhost:3000/test?sendKey=12345678`,
@@ -179,8 +172,8 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"a count on a key that takes no count is not a setting: %s", v)
 	}
-	// Both bounds are the real ones -- the port range, and the Java int a driver
-	// count is -- so each edge is pinned rather than left to a digit length.
+	// Both bounds are real ones -- the port range, and a Java int -- so each edge
+	// is pinned rather than left to a digit length.
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?port=65536`,
 		`jdbc:aerospike:localhost:3000/test?port=123456`,
@@ -215,9 +208,8 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 	}
 }
 
-// A vendor prefix must be specific enough not to collide with a setting value.
-// A wide "sk-" arm matched applicationName=sk-payments-worker and reported an
-// authority-form string that was suppressed before.
+// A vendor prefix must be specific enough not to collide with a setting value:
+// a wide "sk-" arm matches applicationName=sk-payments-worker.
 func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:sqlserver://localhost;applicationName=sk-payments-worker;encrypt=true`,
@@ -237,9 +229,8 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 	}
 }
 
-// Some drivers write parameters after a colon rather than a ";" or "&" -- DB2's
-// /db:prop=val; -- and the parameter scan starts at those delimiters, so it would
-// never read one. A colon past the host means unread parameters on either shape.
+// DB2 writes parameters as /db:prop=val;, which the parameter scan never reads.
+// A colon past the host means unread parameters, on either shape.
 func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:db2:host:50000/db:password=secret;`,

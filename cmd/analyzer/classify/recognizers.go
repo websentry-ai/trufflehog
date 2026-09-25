@@ -538,17 +538,15 @@ var connBenignKeys = map[string]bool{
 	"user": true, "username": true, "uid": true, "host": true, "port": true,
 	"database": true, "db": true, "protocol": true, "driver": true,
 
-	// Aerospike. An unknown key counts as secret-bearing, so each driver's options
-	// must be listed. authMode names a scheme, not a credential.
+	// Aerospike. An unknown key counts as secret-bearing, so each is listed.
 	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
 	"sendkey": true, "refusescan": true, "useboolbin": true,
 	"useservicesalternate": true, "authmode": true,
 }
 
-// What each option accepts, for the driver-host form. A value shape alone is not
-// enough: 123456 is a plausible count and a plausible password, so it is only a
-// setting on a key that takes one. An option missing from here has no checkable
-// value, so it is reported.
+// What each option accepts, for the driver-host form. 123456 is a plausible
+// count and a plausible password, so the key decides, not the shape. An option
+// missing here has no checkable value and is reported.
 var connOptionKinds = map[string]string{
 	"timeout": "count", "totaltimeout": "count", "recordsettimeoutms": "count",
 	"logintimeout": "count", "connecttimeout": "count", "sockettimeout": "count",
@@ -565,22 +563,20 @@ var connOptionKinds = map[string]string{
 	"authmode": "mode",
 }
 
-// The modes those options name. An open word shape cannot be told from a
-// passphrase, so each is listed.
+// The modes those options name, listed because no word shape separates a mode
+// from a passphrase.
 var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
 
-// Whether a colon appears past the authority's host and port. Looking only after
-// the path missed the shape that has none: host:port:prop=val.
+// Whether a colon appears past the authority's host and port.
 func hasUnreadColonParams(v string) bool {
 	rest := v[strings.Index(v, "://")+3:]
 	authority, tail := rest, ""
 	if end := strings.IndexAny(rest, "/?;"); end >= 0 {
 		authority, tail = rest[:end], rest[end:]
 	}
-	// One colon in the authority is the port. A second is a parameter, or an Oracle
-	// SID, and neither can be told from the other without reading the driver.
+	// The first colon is the port; a second is a parameter or an Oracle SID.
 	if strings.Count(authority, ":") > 1 {
 		return true
 	}
@@ -591,22 +587,18 @@ func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
 	}
-	// Two shapes: jdbc:driver://host/db, and jdbc:driver:host:port/db for the
-	// drivers that never adopted the authority form (aerospike, oracle thin, h2).
-	// The second is new here, so its values are held to a stricter check below.
+	// jdbc:driver:host:port/db is the form aerospike, oracle thin and h2 use.
+	// Being new here, its values are held to the stricter check below.
 	authority := strings.Contains(v, "://")
 	if !authority && !jdbcDriverHostPat.MatchString(v) {
 		return false
 	}
-	// Credentials ride in front of the host, so an "@" means this is more than a
-	// location.
+	// Credentials ride in front of the host.
 	if strings.Contains(v, "@") {
 		return false
 	}
-	// Some drivers write parameters after a colon rather than a ";" or "&" -- DB2's
-	// /db:prop=val; -- and the parameter scan below starts at those delimiters, so
-	// it would never read one. A colon past the host and port means unread
-	// parameters, and an Oracle SID written the same way is reported with them.
+	// DB2 writes parameters as /db:prop=val;, which the scan below never reads
+	// because it starts at ";", "?" or "&".
 	if authority && hasUnreadColonParams(v) {
 		return false
 	}
@@ -616,14 +608,12 @@ func IsNonSecretConnString(v string) bool {
 		}
 	}
 	for _, m := range connParamValuePat.FindAllStringSubmatch(v, -1) {
-		// A benign key names a setting, so a value in a vendor credential format
-		// means the name is being used to carry one instead.
+		// A credential shape on a benign key means the name is carrying one.
 		if credentialFormatPat.MatchString(m[2]) {
 			return false
 		}
 		// The driver-host form has no prior behaviour to preserve, so its values
-		// must look like settings rather than merely not look like tokens. No
-		// entropy threshold separates a passphrase from an identifier.
+		// must look like settings rather than merely not look like tokens.
 		if !authority && !isPlainSettingValue(m[1], m[2]) {
 			return false
 		}
@@ -637,9 +627,7 @@ func isPlainSettingValue(key, val string) bool {
 	case "flag":
 		return flagValuePat.MatchString(val)
 	case "count":
-		// These options are Java ints in every driver, so that is the bound rather
-		// than a digit length. A number inside it is read as the count it looks
-		// like, whether or not it could also be a password.
+		// A Java int in every driver, which is the bound; no digit length is.
 		n, err := strconv.ParseInt(val, 10, 32)
 		return err == nil && n >= 0
 	case "port":

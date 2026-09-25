@@ -11,9 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The exact shape a customer disputed: a JDBC location for a local Aerospike
-// test instance, carrying driver options and no credential of any kind. It was
-// reported as a Database Connection String five times from one prompt.
+// The exact shape a customer disputed: a local Aerospike location with driver
+// options and no credential, reported five times from one prompt.
 const aerospikeLocal = `jdbc:aerospike:localhost:3000/test?sendKey=true&timeout=5000&` +
 	`totalTimeout=10000&recordsetTimeoutMs=2000&refuseScan=true&useBoolBin=false&` +
 	`useServicesAlternate=true&authMode=INTERNAL`
@@ -48,8 +47,8 @@ func TestJDBC_CredentialBearingStillReported(t *testing.T) {
 	}
 }
 
-// Suppression is opt-in in code. Both staging and prod already run it as
-// enforce, so this takes effect on deploy rather than waiting on a flag.
+// Suppression is opt-in in code, but staging and prod already run it as enforce,
+// so this ships on deploy rather than waiting on a flag.
 func TestJDBC_SuppressionIsOptIn(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "off")
 	var found bool
@@ -63,8 +62,8 @@ func TestJDBC_SuppressionIsOptIn(t *testing.T) {
 			"mode is a separate, deliberate step")
 }
 
-// The only production door. scan() is shared, but the handler is what ai-gateway
-// posts to, and it is where auth and marshalling live.
+// The only production door: the handler ai-gateway posts to, where auth and
+// marshalling live.
 func TestJDBC_ThroughAnalyzeHandler(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "enforce")
 	s := newBuiltScanner(t)
@@ -100,12 +99,10 @@ func TestJDBC_ThroughAnalyzeHandler(t *testing.T) {
 }
 
 // Enabling the mode turns on every rule in the vendor table, not just JDBC.
-// These are the other six, so a change to the shared predicate cannot alter them
-// unnoticed.
 func TestJDBC_OtherVendorRulesUnaffected(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "enforce")
-	// Each matcher is run on a value it must suppress and one it must not, so a
-	// change to a shared classifier fails here rather than only on the table.
+	// Each matcher runs on a value it must suppress and one it must not, so a
+	// change to a shared classifier fails here, not just a change to the table.
 	for _, tc := range []struct {
 		entity, suppressed, reported string
 	}{
