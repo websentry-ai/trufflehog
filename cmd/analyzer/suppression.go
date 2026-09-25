@@ -49,6 +49,23 @@ const hexIDContextWindow = 24
 // gives up rather than reading the whole request per finding.
 const credentialWalkBudget = 4096
 
+// walkBudget is the work one finding may spend looking for the word that
+// introduces its label. It is shared by every step of the walk, including the
+// recursive ones: bounding each scan on its own still let a document with
+// enough nesting restart the count at every level.
+type walkBudget struct{ remaining int }
+
+func newWalkBudget() *walkBudget { return &walkBudget{remaining: credentialWalkBudget} }
+
+// spend takes n bytes of budget and reports whether any was left to take.
+func (b *walkBudget) spend(n int) bool {
+	if b.remaining <= 0 {
+		return false
+	}
+	b.remaining -= n
+	return true
+}
+
 func parseSuppressionMode(raw string) suppressionMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "enforce":
@@ -337,7 +354,7 @@ func startsAName(data []byte, j int) bool {
 		// password = "{sha256=…}" only wraps a value the name is part of.
 		return startsAName(data, k-1)
 	case '\n', '\r':
-		return !introducedByCredentialWord(data, k-1)
+		return !introducedByCredentialWord(data, k-1, newWalkBudget())
 	}
 	return false
 }
@@ -364,7 +381,7 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 	case ':', '=', ';', '?', '&':
 		return !credentialIntroducerBefore(data, p)
 	case ',', '{', '[', '(', '\n', '\r':
-		return !introducedByCredentialWord(data, p)
+		return !introducedByCredentialWord(data, p, newWalkBudget())
 	case '"', '\'', '`':
 		return true
 	}
@@ -375,21 +392,32 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 // of the list or bracket at p. A quote there is left alone: from the right a
 // value's closing quote looks exactly like a key's opening one, and reading
 // past it would give up the form this rule exists for.
-func introducedByCredentialWord(data []byte, p int) bool {
+func introducedByCredentialWord(data []byte, p int, b *walkBudget) bool {
 	q := p
 	if q < len(data) {
 		switch data[q] {
 		case '{', '[', '(':
 			// The name sits directly inside this structure, so this is the
 			// opener to ask about; there is nothing to step over first.
-			return introducedByCredentialWordAt(data, q)
+			return introducedByCredentialWordAt(data, q, b)
 		case '\n', '\r':
 			// The name opens its own line, so an indented format has already
 			// said what it belongs to before the walk begins.
-			if enclosedByCredentialKey(data, q) {
+			if enclosedByCredentialKey(data, q, b) {
 				return true
 			}
-			q = lineEndBeforeComment(data, q)
+			r := lastNonBlank(data, lineEndBeforeComment(data, q))
+			if r < 0 {
+				return false
+			}
+			switch data[r] {
+			case '{', '[', '(', ',':
+				q = r + 1 // the line before ended inside a structure
+			case ':', '=':
+				return credentialIntroducerBefore(data, r)
+			default:
+				return false // that line finished; this name starts fresh
+			}
 		}
 	}
 	// A sibling field says nothing about the value: in {"api_key": …, "sha256": …}
@@ -398,22 +426,27 @@ func introducedByCredentialWord(data []byte, p int) bool {
 	// question is put to whatever opened the structure we are inside.
 	depth := 0
 	assign := -1 // nearest assignment at our own level, if there is no opener
-	limit := q - credentialWalkBudget
-	for q > 0 && q > limit {
+	for q > 0 {
+		if !b.spend(1) {
+			// Out of context. That is not the same as knowing no credential
+			// word is there, and the two must not come out alike: the safe
+			// answer keeps the finding.
+			return true
+		}
 		switch c := data[q-1]; {
 		case c == '}' || c == ']' || c == ')':
 			depth++
 			q--
 		case c == '{' || c == '[' || c == '(':
 			if depth == 0 {
-				return introducedByCredentialWordAt(data, q-1)
+				return introducedByCredentialWordAt(data, q-1, b)
 			}
 			depth--
 			q--
 		case isQuoteByte(c):
-			r := openingQuoteLeft(data, q-1)
+			r := openingQuoteLeft(data, q-1, b)
 			if r < 0 {
-				return false
+				return true // the string does not close in view; keep it
 			}
 			q = r // a string is one step, whatever it holds
 		case c == ' ' || c == '\t' || c == ',':
@@ -433,7 +466,7 @@ func introducedByCredentialWord(data []byte, p int) bool {
 				// so the key this one sits under is an earlier line further
 				// left. Without this, a sibling on the line above answers for
 				// the whole block.
-				if enclosedByCredentialKey(data, q-1) {
+				if enclosedByCredentialKey(data, q-1, b) {
 					return true
 				}
 				if assign >= 0 {
@@ -448,6 +481,24 @@ func introducedByCredentialWord(data []byte, p int) bool {
 			q--
 		default:
 			if depth == 0 && assign < 0 {
+				start := q
+				for start > 0 && !classify.IsLabelSeparatorByte(data[start-1]) &&
+					data[start-1] != ':' && data[start-1] != '=' &&
+					data[start-1] != ';' && data[start-1] != '?' && data[start-1] != '&' {
+					start--
+				}
+				k := start
+				for k > 0 && (data[k-1] == ' ' || data[k-1] == '\t') {
+					k--
+				}
+				if k > 0 && (data[k-1] == ':' || data[k-1] == '=') {
+					// A bare scalar after an assignment is a sibling's value,
+					// the way "version": 1 sits beside the name. A value says
+					// nothing about what its neighbour belongs to, so it is
+					// stepped over like a quoted one.
+					q = start
+					continue
+				}
 				return credentialIntroducerBefore(data, q)
 			}
 			q--
@@ -458,7 +509,7 @@ func introducedByCredentialWord(data []byte, p int) bool {
 
 // introducedByCredentialWordAt answers for the opener at p: the key or the
 // word that introduced the structure the name sits in.
-func introducedByCredentialWordAt(data []byte, p int) bool {
+func introducedByCredentialWordAt(data []byte, p int, b *walkBudget) bool {
 	q := p
 	for q > 0 && (data[q-1] == ' ' || data[q-1] == '\t') {
 		q--
@@ -473,14 +524,14 @@ func introducedByCredentialWordAt(data []byte, p int) bool {
 		if credentialIntroducerBefore(data, q-1) {
 			return true
 		}
-		return introducedByCredentialWord(data, q-1)
+		return introducedByCredentialWord(data, q-1, b)
 	case isQuoteByte(c):
 		// From the right a value's closing quote and a key's opening one are
 		// the same byte, so this is where the walk stops rather than guess.
 		return false
 	case c == ',' || c == '{' || c == '[' || c == '(' || c == '\n' || c == '\r':
 		// One structure inside another: the word that matters is further out.
-		return introducedByCredentialWord(data, q-1)
+		return introducedByCredentialWord(data, q-1, b)
 	default:
 		return credentialIntroducerBefore(data, q)
 	}
@@ -489,10 +540,12 @@ func introducedByCredentialWordAt(data []byte, p int) bool {
 // openingQuoteLeft returns the index of the quote that opens the string whose
 // closing quote is at end, or -1 when it is not in view. A quote the string
 // escaped is not its own.
-func openingQuoteLeft(data []byte, end int) int {
+func openingQuoteLeft(data []byte, end int, b *walkBudget) int {
 	q := data[end]
-	limit := end - credentialWalkBudget
-	for i := end - 1; i >= 0 && i > limit; i-- {
+	for i := end - 1; i >= 0; i-- {
+		if !b.spend(1) {
+			return -1
+		}
 		if data[i] != q {
 			continue
 		}
@@ -511,10 +564,12 @@ func openingQuoteLeft(data []byte, end int) int {
 // that is a credential word. Each enclosing key is one that ends in a colon on
 // an earlier line at a smaller indent; a key that is not a credential word does
 // not settle it, since the one outside it still might.
-func enclosedByCredentialKey(data []byte, nl int) bool {
+func enclosedByCredentialKey(data []byte, nl int, b *walkBudget) bool {
 	indent := indentAt(data, nl+1)
-	limit := nl - credentialWalkBudget
-	for i := nl; i > 0 && i > limit; {
+	for i := nl; i > 0; {
+		if !b.spend(1) {
+			return true // out of context; keep the finding
+		}
 		start := lineStartBefore(data, i)
 		end := lastNonBlank(data, lineEndBeforeComment(data, i))
 		if end >= start && data[end] == ':' {
