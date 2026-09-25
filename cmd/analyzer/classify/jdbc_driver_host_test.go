@@ -169,6 +169,19 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"an unlisted word is not a mode: %s", v)
 	}
+	// A digit string is a count on a key that takes one, and a password anywhere
+	// else, so the option decides rather than the shape.
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?user=123456`,
+		`jdbc:aerospike:localhost:3000/test?sendKey=12345678`,
+		`jdbc:aerospike:localhost:3000/test?authMode=12345678`,
+	} {
+		require.False(t, IsNonSecretConnString(v),
+			"a count on a key that takes no count is not a setting: %s", v)
+	}
+	require.True(t,
+		IsNonSecretConnString(`jdbc:aerospike:localhost:3000/test?timeout=12345678`),
+		"a count on a timeout is a setting")
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
 		`jdbc:aerospike:localhost:3000/test?useBoolBin=false&authMode=INTERNAL`,
@@ -187,14 +200,14 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 	for _, v := range []string{
 		`jdbc:sqlserver://localhost;applicationName=sk-payments-worker;encrypt=true`,
 		`jdbc:sqlserver://localhost;applicationName=sk-billing-api;encrypt=true`,
+		// The named variants allow hyphens, so they must be long enough that a
+		// service name cannot reach them.
+		`jdbc:sqlserver://localhost;applicationName=sk-admin-billing-service-prod;encrypt=true`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
 			"a hyphenated service name is not an api key: %s", v)
 	}
-	for _, v := range []string{
-		`jdbc:postgresql://host:5432/db?ssl=sk-abcdefghijklmnopqrstuvwxyz0123456789`,
-		`jdbc:postgresql://host:5432/db?ssl=sk-proj-abcdefghijklmnopqrstuvwxyz0123`,
-	} {
-		require.False(t, IsNonSecretConnString(v), "a real key shape is not a setting: %s", v)
-	}
+	require.False(t,
+		IsNonSecretConnString(`jdbc:postgresql://host:5432/db?ssl=sk-abcdefghijklmnopqrstuvwxyz0123456789`),
+		"a real key shape is not a setting")
 }

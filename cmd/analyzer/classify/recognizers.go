@@ -66,14 +66,14 @@ var (
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	// The value a connection parameter holds, so a benign key cannot carry one
 	// that is not a setting.
-	connParamValuePat = regexp.MustCompile(`(?i)[;?&]\s*[a-z][a-z0-9_.\-]*\s*=\s*([^;?&\s]+)`)
+	connParamValuePat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&\s]+)`)
 	// Vendor credential shapes, each anchored to the whole value.
 	credentialFormatPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
 			`|^gh[pousr]_[A-Za-z0-9]{20,}$` + // GitHub token
 			`|^github_pat_[A-Za-z0-9_]{40,}$` +
 			`|^sk-[A-Za-z0-9]{20,}$` + // OpenAI
-			`|^sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{20,}$` +
+			`|^sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{40,}$` +
 			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}$` + // Stripe
 			`|^xox[bpaser]-[A-Za-z0-9-]{10,}$` + // Slack
 			`|^glpat-[A-Za-z0-9_-]{16,}$` + // GitLab
@@ -81,7 +81,8 @@ var (
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
-	plainSettingValuePat = regexp.MustCompile(`^(?i:true|false|null)$|^\d{1,10}$`)
+	flagValuePat  = regexp.MustCompile(`^(?i:true|false|null)$`)
+	countValuePat = regexp.MustCompile(`^\d{1,10}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
@@ -544,8 +545,28 @@ var connBenignKeys = map[string]bool{
 	"useservicesalternate": true, "authmode": true,
 }
 
-// The named modes those options take. An open word shape cannot be told from a
-// passphrase, so each mode is listed and an unlisted value is reported.
+// What each option accepts, for the driver-host form. A value shape alone is not
+// enough: 123456 is a plausible count and a plausible password, so it is only a
+// setting on a key that takes a count. An option missing from here has no
+// checkable value, so it is reported.
+var connOptionKinds = map[string]string{
+	"timeout": "count", "totaltimeout": "count", "recordsettimeoutms": "count",
+	"logintimeout": "count", "connecttimeout": "count", "sockettimeout": "count",
+	"port": "count", "portnumber": "count",
+
+	"sendkey": "flag", "refusescan": "flag", "useboolbin": "flag",
+	"useservicesalternate": "flag", "encrypt": "flag", "ssl": "flag",
+	"usessl": "flag", "requiressl": "flag", "tcpkeepalive": "flag",
+	"readonly": "flag", "autoreconnect": "flag", "useunicode": "flag",
+	"allowpublickeyretrieval": "flag", "integratedsecurity": "flag",
+	"trustservercertificate": "flag", "multisubnetfailover": "flag",
+	"verifyservercertificate": "flag",
+
+	"authmode": "mode",
+}
+
+// The modes those options name. An open word shape cannot be told from a
+// passphrase, so each is listed.
 var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
@@ -574,22 +595,30 @@ func IsNonSecretConnString(v string) bool {
 	for _, m := range connParamValuePat.FindAllStringSubmatch(v, -1) {
 		// A benign key names a setting, so a value in a vendor credential format
 		// means the name is being used to carry one instead.
-		if credentialFormatPat.MatchString(m[1]) {
+		if credentialFormatPat.MatchString(m[2]) {
 			return false
 		}
 		// The driver-host form has no prior behaviour to preserve, so its values
 		// must look like settings rather than merely not look like tokens. No
 		// entropy threshold separates a passphrase from an identifier.
-		if !authority && !isPlainSettingValue(m[1]) {
+		if !authority && !isPlainSettingValue(m[1], m[2]) {
 			return false
 		}
 	}
 	return true
 }
 
-// A flag, a count, or one of the named modes -- nothing open-ended.
-func isPlainSettingValue(val string) bool {
-	return plainSettingValuePat.MatchString(val) || connModeValues[strings.ToLower(val)]
+// Whether this option's value is the kind of value the option takes.
+func isPlainSettingValue(key, val string) bool {
+	switch connOptionKinds[strings.ToLower(key)] {
+	case "flag":
+		return flagValuePat.MatchString(val)
+	case "count":
+		return countValuePat.MatchString(val)
+	case "mode":
+		return connModeValues[strings.ToLower(val)]
+	}
+	return false
 }
 
 func IsCodeLike(v string) bool {
