@@ -181,18 +181,24 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 	}
 	// A port has a real ceiling and is held to it. A timeout does not -- 3600000 is
 	// an hour of milliseconds -- so no digit length is turned away there.
+	// Both bounds are the real ones -- the port range, and the Java int a driver
+	// count is -- so each edge is pinned rather than left to a digit length.
 	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?port=65536`,
 		`jdbc:aerospike:localhost:3000/test?port=123456`,
 		`jdbc:aerospike:localhost:3000/test?portNumber=999999`,
 		`jdbc:aerospike:localhost:3000/test?port=0`,
+		`jdbc:aerospike:localhost:3000/test?timeout=2147483648`,
+		`jdbc:aerospike:localhost:3000/test?timeout=12345678901`,
 	} {
-		require.False(t, IsNonSecretConnString(v), "not a port number: %s", v)
+		require.False(t, IsNonSecretConnString(v), "outside the real bound: %s", v)
 	}
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?port=5432`,
 		`jdbc:aerospike:localhost:3000/test?portNumber=65535`,
 		`jdbc:aerospike:localhost:3000/test?timeout=600000`,
 		`jdbc:aerospike:localhost:3000/test?timeout=3600000`,
+		`jdbc:aerospike:localhost:3000/test?socketTimeout=2147483647`,
 	} {
 		require.True(t, IsNonSecretConnString(v), "a real port or timeout is a setting: %s", v)
 	}

@@ -82,8 +82,7 @@ var (
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
-	flagValuePat  = regexp.MustCompile(`^(?i:true|false|null)$`)
-	countValuePat = regexp.MustCompile(`^\d{1,10}$`)
+	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
@@ -615,12 +614,12 @@ func isPlainSettingValue(key, val string) bool {
 	case "flag":
 		return flagValuePat.MatchString(val)
 	case "count":
-		// Any count, since the ceiling is the driver's: 3600000 is an hour of
-		// milliseconds. A digit string on a timeout is read as the count it looks
-		// like.
-		return countValuePat.MatchString(val)
+		// These options are Java ints in every driver, so that is the bound rather
+		// than a digit length. A number inside it is read as the count it looks
+		// like, whether or not it could also be a password.
+		n, err := strconv.ParseInt(val, 10, 32)
+		return err == nil && n >= 0
 	case "port":
-		// A port has a real ceiling, so it is checked rather than guessed at.
 		n, err := strconv.Atoi(val)
 		return err == nil && n >= 1 && n <= 65535
 	case "mode":
