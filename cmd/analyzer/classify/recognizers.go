@@ -544,6 +544,14 @@ var connBenignKeys = map[string]bool{
 	"useservicesalternate": true, "authmode": true,
 }
 
+// The keys above that were not benign before. Benign-listing them widens both
+// shapes, so their values are checked on both rather than only on the new one.
+var connNewlyBenignKeys = map[string]bool{
+	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
+	"sendkey": true, "refusescan": true, "useboolbin": true,
+	"useservicesalternate": true, "authmode": true,
+}
+
 // What each option accepts, for the driver-host form. 123456 is a plausible
 // count and a plausible password, so the key decides, not the shape. An option
 // missing here has no checkable value and is reported.
@@ -613,8 +621,10 @@ func IsNonSecretConnString(v string) bool {
 			return false
 		}
 		// The driver-host form has no prior behaviour to preserve, so its values
-		// must look like settings rather than merely not look like tokens.
-		if !authority && !isPlainSettingValue(m[1], m[2]) {
+		// must look like settings rather than merely not look like tokens. A key
+		// this rule newly made benign has none either, on whichever shape.
+		key := strings.ToLower(m[1])
+		if (!authority || connNewlyBenignKeys[key]) && !isPlainSettingValue(key, m[2]) {
 			return false
 		}
 	}

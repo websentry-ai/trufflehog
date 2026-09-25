@@ -229,6 +229,32 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 	}
 }
 
+// Benign-listing a key widens both shapes, so a key this rule newly made benign
+// cannot launder a value on the :// form either. On main these were not benign
+// and the string was reported.
+func TestIsNonSecretConnString_NewlyBenignKeysCheckedOnBothShapes(t *testing.T) {
+	for _, v := range []string{
+		`jdbc:postgresql://host:5432/db?timeout=MyCompanyPassword2024`,
+		`jdbc:postgresql://host:5432/db?sendKey=CorrectHorseBatteryStaple`,
+		`jdbc:postgresql://host:5432/db?authMode=hunter2hunter2`,
+		`jdbc:postgresql://host:5432/db?totalTimeout=PasswordPassword1234`,
+	} {
+		require.False(t, IsNonSecretConnString(v),
+			"a newly benign key must not launder a value: %s", v)
+	}
+	// The settings they really take stay recognised on both shapes.
+	for _, v := range []string{
+		`jdbc:postgresql://host:5432/db?timeout=5000&sendKey=true`,
+		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
+	} {
+		require.True(t, IsNonSecretConnString(v), "a driver option is a setting: %s", v)
+	}
+	// A key that was already benign keeps the behaviour it had on the :// form.
+	require.True(t,
+		IsNonSecretConnString(`jdbc:sqlserver://localhost;applicationName=customer-order-service;encrypt=true`),
+		"an already-benign key is unchanged")
+}
+
 // DB2 writes parameters as /db:prop=val;, which the parameter scan never reads.
 // A colon past the host means unread parameters, on either shape.
 func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
