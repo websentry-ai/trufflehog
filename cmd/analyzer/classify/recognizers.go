@@ -83,6 +83,7 @@ var (
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
 	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
+	portPat      = regexp.MustCompile(`^\d{1,5}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s:]*)?$`)
@@ -584,9 +585,16 @@ func hasUnreadColonParams(v string) bool {
 	if end := strings.IndexAny(rest, "/?;"); end >= 0 {
 		authority, tail = rest[:end], rest[end:]
 	}
-	// The first colon is the port; a second is a parameter or an Oracle SID.
-	if strings.Count(authority, ":") > 1 {
-		return true
+	// A colon in the authority is only a port when a port follows it. Anything
+	// else there is a parameter or an Oracle SID.
+	if i := strings.LastIndexByte(authority, ':'); i >= 0 {
+		if !portPat.MatchString(authority[i+1:]) {
+			return true
+		}
+		// An IPv6 host keeps its own colons inside brackets.
+		if host := authority[:i]; strings.ContainsRune(host, ':') && !strings.HasPrefix(host, "[") {
+			return true
+		}
 	}
 	return strings.ContainsRune(tail, ':')
 }

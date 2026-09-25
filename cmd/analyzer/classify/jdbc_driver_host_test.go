@@ -269,6 +269,8 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:db2:host:50000:password=secret`,
 		// An Oracle SID is written the same way and is reported with them.
 		`jdbc:oracle:thin://host:1521:ORCL`,
+		// One colon, but a port does not follow it.
+		`jdbc:db2://host:password=secret`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a parameter the scan cannot read is not a setting: %s", v)
@@ -278,6 +280,7 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:aerospike:localhost:3000/test?sendKey=true&timeout=5000`,
 		`jdbc:postgresql://localhost:5432/app?sslmode=require`,
 		`jdbc:sqlserver://x.database.windows.net:1433;database=db;encrypt=true`,
+		`jdbc:postgresql://localhost/app?sslmode=require`,
 	} {
 		require.True(t, IsNonSecretConnString(v), "a port is not a parameter: %s", v)
 	}
