@@ -66,9 +66,9 @@ var (
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
 	// A connection parameter's key with its value. DB2 delimits with a colon
-	// (/db:prop=val;), so that counts as a delimiter too or the parameter goes
-	// unread.
-	connParamValuePat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&\s]+)`)
+	// (/db:prop=val;), so a colon both starts a key and ends a value -- otherwise
+	// one value swallows the next parameter and its credential goes unchecked.
+	connParamValuePat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&:\s]+)`)
 	// Vendor credential shapes, each anchored to the whole value.
 	credentialFormatPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id

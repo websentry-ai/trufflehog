@@ -271,6 +271,10 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:db2://host:50000/db:apikey=AKIASP2TPHJSQH3FJRUX;`,
 		// A benign property in front does not launder the one behind it.
 		`jdbc:db2://host:50000/db:currentSchema=MYSCHEMA;password=secret`,
+		// A colon ends a value as well as starting a key, or one value swallows
+		// the next parameter and its credential is never checked.
+		`jdbc:db2://host:50000/db:currentSchema=MYSCHEMA:sendKey=MyCompanyPassword2024`,
+		`jdbc:postgresql://host:5432/db?ssl=true:timeout=AKIASP2TPHJSQH3FJRUX`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)
