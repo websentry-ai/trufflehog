@@ -179,14 +179,23 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"a count on a key that takes no count is not a setting: %s", v)
 	}
-	// A count is bounded by what a count really is -- driver timeouts in
-	// milliseconds and port numbers -- so a long digit string is not one.
-	require.True(t,
-		IsNonSecretConnString(`jdbc:aerospike:localhost:3000/test?timeout=600000`),
-		"a millisecond timeout is a setting")
-	require.False(t,
-		IsNonSecretConnString(`jdbc:aerospike:localhost:3000/test?timeout=12345678`),
-		"a digit string longer than any real count is not a setting")
+	// A port has a real ceiling and is held to it. A timeout does not -- 3600000 is
+	// an hour of milliseconds -- so no digit length is turned away there.
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?port=123456`,
+		`jdbc:aerospike:localhost:3000/test?portNumber=999999`,
+		`jdbc:aerospike:localhost:3000/test?port=0`,
+	} {
+		require.False(t, IsNonSecretConnString(v), "not a port number: %s", v)
+	}
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?port=5432`,
+		`jdbc:aerospike:localhost:3000/test?portNumber=65535`,
+		`jdbc:aerospike:localhost:3000/test?timeout=600000`,
+		`jdbc:aerospike:localhost:3000/test?timeout=3600000`,
+	} {
+		require.True(t, IsNonSecretConnString(v), "a real port or timeout is a setting: %s", v)
+	}
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
 		`jdbc:aerospike:localhost:3000/test?useBoolBin=false&authMode=INTERNAL`,

@@ -3,6 +3,7 @@ package classify
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	regexp "github.com/wasilibs/go-re2"
@@ -82,7 +83,7 @@ var (
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
 	flagValuePat  = regexp.MustCompile(`^(?i:true|false|null)$`)
-	countValuePat = regexp.MustCompile(`^\d{1,6}$`)
+	countValuePat = regexp.MustCompile(`^\d{1,10}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
@@ -547,12 +548,12 @@ var connBenignKeys = map[string]bool{
 
 // What each option accepts, for the driver-host form. A value shape alone is not
 // enough: 123456 is a plausible count and a plausible password, so it is only a
-// setting on a key that takes a count. An option missing from here has no
-// checkable value, so it is reported.
+// setting on a key that takes one. An option missing from here has no checkable
+// value, so it is reported.
 var connOptionKinds = map[string]string{
 	"timeout": "count", "totaltimeout": "count", "recordsettimeoutms": "count",
 	"logintimeout": "count", "connecttimeout": "count", "sockettimeout": "count",
-	"port": "count", "portnumber": "count",
+	"port": "port", "portnumber": "port",
 
 	"sendkey": "flag", "refusescan": "flag", "useboolbin": "flag",
 	"useservicesalternate": "flag", "encrypt": "flag", "ssl": "flag",
@@ -614,7 +615,14 @@ func isPlainSettingValue(key, val string) bool {
 	case "flag":
 		return flagValuePat.MatchString(val)
 	case "count":
+		// Any count, since the ceiling is the driver's: 3600000 is an hour of
+		// milliseconds. A digit string on a timeout is read as the count it looks
+		// like.
 		return countValuePat.MatchString(val)
+	case "port":
+		// A port has a real ceiling, so it is checked rather than guessed at.
+		n, err := strconv.Atoi(val)
+		return err == nil && n >= 1 && n <= 65535
 	case "mode":
 		return connModeValues[strings.ToLower(val)]
 	}
