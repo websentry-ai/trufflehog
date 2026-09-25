@@ -590,7 +590,9 @@ func connParams(v string) [][2]string {
 		if j := strings.IndexAny(val, " \t\r\n"); j >= 0 {
 			val = val[:j]
 		}
-		out = append(out, [2]string{v[m[2]:m[3]], val})
+		// The last value runs to the end of the string, so a closing ";" or "&"
+		// would otherwise stay on it and no setting would match exactly.
+		out = append(out, [2]string{v[m[2]:m[3]], strings.TrimRight(val, ";&?")})
 	}
 	return out
 }
@@ -614,9 +616,16 @@ func IsNonSecretConnString(v string) bool {
 		if !connBenignKeys[key] {
 			return false
 		}
-		// A credential shape on a benign key means the name is carrying one.
+		// A credential shape on a benign key means the name is carrying one. The
+		// colon pieces count too, since the format is anchored and a suffix would
+		// otherwise hide the token it is stuck to.
 		if credentialFormatPat.MatchString(val) {
 			return false
+		}
+		for _, piece := range strings.Split(val, ":") {
+			if credentialFormatPat.MatchString(piece) {
+				return false
+			}
 		}
 		// The driver-host form has no prior behaviour to preserve, so its values
 		// must look like settings rather than merely not look like tokens. A key

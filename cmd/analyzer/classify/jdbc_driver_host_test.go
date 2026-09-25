@@ -280,6 +280,10 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:postgresql://host:5432/db?timeout=5000:AKIASP2TPHJSQH3FJRUX`,
 		`jdbc:aerospike:localhost:3000/test?sendKey=true:MyCompanyPassword2024`,
 		`jdbc:aerospike:localhost:3000/test?authMode=INTERNAL:hunter2`,
+		// The credential format is anchored, so a suffix would hide the token it
+		// is stuck to unless the colon pieces are checked as well.
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop:extra`,
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX:extra`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)
@@ -304,6 +308,10 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:postgresql://node1:5432,node2:5432/db?targetServerType=primary`,
 		`jdbc:mysql://host:3306/db?serverTimezone=GMT+00:00`,
 		`jdbc:db2://host:123456`,
+		// A closing delimiter is not part of the setting in front of it.
+		`jdbc:aerospike:localhost:3000/test?sendKey=true;`,
+		`jdbc:aerospike:localhost:3000/test?timeout=5000&`,
+		`jdbc:aerospike:localhost:3000/test?authMode=INTERNAL;`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
 			"a colon with no assignment behind it is a location: %s", v)
