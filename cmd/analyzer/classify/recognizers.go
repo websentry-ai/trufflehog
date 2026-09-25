@@ -85,7 +85,7 @@ var (
 	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
-	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
+	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s:]*)?$`)
 	dottedIdentPat    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
 	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
@@ -571,6 +571,16 @@ var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
 
+// Whether anything after the authority's host carries a colon.
+func pathHasColon(v string) bool {
+	rest := v[strings.Index(v, "://")+3:]
+	slash := strings.IndexByte(rest, '/')
+	if slash < 0 {
+		return false
+	}
+	return strings.ContainsRune(rest[slash:], ':')
+}
+
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
@@ -585,6 +595,12 @@ func IsNonSecretConnString(v string) bool {
 	// Credentials ride in front of the host, so an "@" means this is more than a
 	// location.
 	if strings.Contains(v, "@") {
+		return false
+	}
+	// Some drivers write parameters after a colon rather than a ";" or "&" -- DB2's
+	// /db:prop=val; -- and the parameter scan below starts at those delimiters, so
+	// it would never see one. A colon past the host means unread parameters.
+	if authority && pathHasColon(v) {
 		return false
 	}
 	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {

@@ -236,3 +236,27 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 		require.False(t, IsNonSecretConnString(v), "a real key shape is not a setting: %s", v)
 	}
 }
+
+// Some drivers write parameters after a colon rather than a ";" or "&" -- DB2's
+// /db:prop=val; -- and the parameter scan starts at those delimiters, so it would
+// never read one. A colon past the host means unread parameters on either shape.
+func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
+	for _, v := range []string{
+		`jdbc:db2:host:50000/db:password=secret;`,
+		`jdbc:db2://host:50000/db:password=secret;`,
+		`jdbc:db2:host:50000/db:user=admin:password=AKIASP2TPHJSQH3FJRUX;`,
+		`jdbc:aerospike:localhost:3000/test:password=hunter2`,
+		`jdbc:postgresql://host:5432/db:password=secret`,
+	} {
+		require.False(t, IsNonSecretConnString(v),
+			"a parameter the scan cannot read is not a setting: %s", v)
+	}
+	// A colon in the authority is the port, and is read as one.
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?sendKey=true&timeout=5000`,
+		`jdbc:postgresql://localhost:5432/app?sslmode=require`,
+		`jdbc:sqlserver://x.database.windows.net:1433;database=db;encrypt=true`,
+	} {
+		require.True(t, IsNonSecretConnString(v), "a port is not a parameter: %s", v)
+	}
+}

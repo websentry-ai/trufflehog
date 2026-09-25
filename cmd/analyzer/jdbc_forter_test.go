@@ -104,10 +104,25 @@ func TestJDBC_ThroughAnalyzeHandler(t *testing.T) {
 // unnoticed.
 func TestJDBC_OtherVendorRulesUnaffected(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "enforce")
-	for _, entity := range []string{"JiraToken", "Atlassian", "Privacy", "Onesignal", "URI", "Azure"} {
-		rule, ok := vendorStructuralRules[entity]
-		require.True(t, ok, "%s must remain in the vendor table", entity)
-		require.NotNil(t, rule.match, "%s must keep its matcher", entity)
+	// Each matcher is run on a value it must suppress and one it must not, so a
+	// change to a shared classifier fails here rather than only on the table.
+	for _, tc := range []struct {
+		entity, suppressed, reported string
+	}{
+		{"JiraToken", `deadbeefcafe0123456789ab`, `ATATT3xFfGF0T4ABCDEF`},
+		{"Atlassian", `order-service-payment-gateway`, `ATATT3xFfGF0T4ABCDEF`},
+		{"Privacy", `3f2504e0-4f89-11d3-9a0c-0305e82c3301`, `AKIASP2TPHJSQH3FJRUX`},
+		{"Onesignal", `3f2504e0-4f89-11d3-9a0c-0305e82c3301`, `AKIASP2TPHJSQH3FJRUX`},
+		{"URI", `postgres://user:password@host:5432/db`, `postgres://admin:9xKq2vRt8mNp@host:5432/db`},
+		{"Azure", `webapp.config.connectionString`, `9xKq2vRt8mNpQrLwZbNh`},
+	} {
+		rule, ok := vendorStructuralRules[tc.entity]
+		require.True(t, ok, "%s must remain in the vendor table", tc.entity)
+		require.NotNil(t, rule.match, "%s must keep its matcher", tc.entity)
+		require.True(t, rule.match(tc.suppressed),
+			"%s must still suppress %q", tc.entity, tc.suppressed)
+		require.False(t, rule.match(tc.reported),
+			"%s must still report %q", tc.entity, tc.reported)
 	}
 	require.Len(t, vendorStructuralRules, 7,
 		"a rule was added or removed; enabling the mode affects all of them, "+
