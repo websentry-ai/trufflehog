@@ -179,9 +179,14 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"a count on a key that takes no count is not a setting: %s", v)
 	}
+	// A count is bounded by what a count really is -- driver timeouts in
+	// milliseconds and port numbers -- so a long digit string is not one.
 	require.True(t,
+		IsNonSecretConnString(`jdbc:aerospike:localhost:3000/test?timeout=600000`),
+		"a millisecond timeout is a setting")
+	require.False(t,
 		IsNonSecretConnString(`jdbc:aerospike:localhost:3000/test?timeout=12345678`),
-		"a count on a timeout is a setting")
+		"a digit string longer than any real count is not a setting")
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
 		`jdbc:aerospike:localhost:3000/test?useBoolBin=false&authMode=INTERNAL`,
@@ -207,7 +212,10 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 		require.True(t, IsNonSecretConnString(v),
 			"a hyphenated service name is not an api key: %s", v)
 	}
-	require.False(t,
-		IsNonSecretConnString(`jdbc:postgresql://host:5432/db?ssl=sk-abcdefghijklmnopqrstuvwxyz0123456789`),
-		"a real key shape is not a setting")
+	for _, v := range []string{
+		`jdbc:postgresql://host:5432/db?ssl=sk-abcdefghijklmnopqrstuvwxyz0123456789`,
+		`jdbc:postgresql://host:5432/db?ssl=sk-proj-NOT-A-REAL-KEY-0000000000000000000000000000000`,
+	} {
+		require.False(t, IsNonSecretConnString(v), "a real key shape is not a setting: %s", v)
+	}
 }

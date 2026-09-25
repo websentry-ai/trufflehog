@@ -82,7 +82,7 @@ var (
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
 	flagValuePat  = regexp.MustCompile(`^(?i:true|false|null)$`)
-	countValuePat = regexp.MustCompile(`^\d{1,10}$`)
+	countValuePat = regexp.MustCompile(`^\d{1,6}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
