@@ -696,6 +696,11 @@ func namesAContainer(data []byte, sep int) bool {
 	switch data[start-1] {
 	case '{', '[', '(':
 		return true
+	case '\n', '\r':
+		// A key opening its own line names its block the same way, and an
+		// unindented block still nests -- the brace that opened it sits at the
+		// end of the line before.
+		return true
 	}
 	return false
 }
