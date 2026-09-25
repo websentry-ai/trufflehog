@@ -64,8 +64,8 @@ var (
 	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	// The value a connection parameter holds, so a benign key cannot carry one
-	// that is not a setting.
+	// A connection parameter's key with its value, so an option can be checked
+	// against what that option accepts.
 	connParamValuePat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&\s]+)`)
 	// Vendor credential shapes, each anchored to the whole value.
 	credentialFormatPat = regexp.MustCompile(
