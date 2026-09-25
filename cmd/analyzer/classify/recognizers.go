@@ -571,14 +571,20 @@ var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
 
-// Whether anything after the authority's host carries a colon.
-func pathHasColon(v string) bool {
+// Whether a colon appears past the authority's host and port. Looking only after
+// the path missed the shape that has none: host:port:prop=val.
+func hasUnreadColonParams(v string) bool {
 	rest := v[strings.Index(v, "://")+3:]
-	slash := strings.IndexByte(rest, '/')
-	if slash < 0 {
-		return false
+	authority, tail := rest, ""
+	if end := strings.IndexAny(rest, "/?;"); end >= 0 {
+		authority, tail = rest[:end], rest[end:]
 	}
-	return strings.ContainsRune(rest[slash:], ':')
+	// One colon in the authority is the port. A second is a parameter, or an Oracle
+	// SID, and neither can be told from the other without reading the driver.
+	if strings.Count(authority, ":") > 1 {
+		return true
+	}
+	return strings.ContainsRune(tail, ':')
 }
 
 func IsNonSecretConnString(v string) bool {
@@ -599,8 +605,9 @@ func IsNonSecretConnString(v string) bool {
 	}
 	// Some drivers write parameters after a colon rather than a ";" or "&" -- DB2's
 	// /db:prop=val; -- and the parameter scan below starts at those delimiters, so
-	// it would never see one. A colon past the host means unread parameters.
-	if authority && pathHasColon(v) {
+	// it would never read one. A colon past the host and port means unread
+	// parameters, and an Oracle SID written the same way is reported with them.
+	if authority && hasUnreadColonParams(v) {
 		return false
 	}
 	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {

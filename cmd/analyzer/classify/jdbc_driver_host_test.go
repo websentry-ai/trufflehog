@@ -247,6 +247,11 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:db2:host:50000/db:user=admin:password=AKIASP2TPHJSQH3FJRUX;`,
 		`jdbc:aerospike:localhost:3000/test:password=hunter2`,
 		`jdbc:postgresql://host:5432/db:password=secret`,
+		// No path at all, so looking only past one missed it.
+		`jdbc:db2://host:50000:password=secret`,
+		`jdbc:db2:host:50000:password=secret`,
+		// An Oracle SID is written the same way and is reported with them.
+		`jdbc:oracle:thin://host:1521:ORCL`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a parameter the scan cannot read is not a setting: %s", v)
