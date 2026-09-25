@@ -67,6 +67,18 @@ var (
 	// The value a connection parameter holds, so a benign key cannot carry one
 	// that is not a setting.
 	connParamValuePat = regexp.MustCompile(`(?i)[;?&]\s*[a-z][a-z0-9_.\-]*\s*=\s*([^;?&\s]+)`)
+	// Vendor credential shapes, each anchored to the whole value.
+	credentialFormatPat = regexp.MustCompile(
+		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
+			`|^gh[pousr]_[A-Za-z0-9]{30,}$` + // GitHub token
+			`|^github_pat_[A-Za-z0-9_]{40,}$` +
+			`|^sk-[A-Za-z0-9_-]{20,}$` + // OpenAI-style
+			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}$` + // Stripe
+			`|^xox[bpaser]-[A-Za-z0-9-]{10,}$` + // Slack
+			`|^glpat-[A-Za-z0-9_-]{16,}$` + // GitLab
+			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
+			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
+			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?(/[^\s]*)?$`)
@@ -558,11 +570,13 @@ func IsNonSecretConnString(v string) bool {
 	return true
 }
 
-// Settings run long without being random: customer-order-service and
-// *.database.windows.net reach 3.4 but carry no digits, while a credential mixes
-// both classes and sits above 4.0. Requiring all three keeps ordinary values
-// suppressed.
+// No entropy threshold separates these: an AWS access-key id measures 3.8 and
+// customer-order-service 3.4. Known vendor shapes are matched directly, leaving
+// entropy to catch the opaque tokens no prefix identifies.
 func looksLikeSecretValue(val string) bool {
+	if credentialFormatPat.MatchString(val) {
+		return true
+	}
 	if len(val) < 20 {
 		return false
 	}

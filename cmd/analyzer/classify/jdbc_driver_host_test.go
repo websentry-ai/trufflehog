@@ -131,3 +131,17 @@ func TestIsNonSecretConnString_OrdinarySettingsStaySuppressed(t *testing.T) {
 			"a long setting value is still a setting: %s", v)
 	}
 }
+
+// A vendor credential format is recognised by its shape, not by its entropy.
+// Real AWS access-key ids sit below the entropy threshold -- this one is 3.82 --
+// so an entropy-only value check let a benign key name launder them.
+func TestIsNonSecretConnString_CredentialFormatBeatsEntropy(t *testing.T) {
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?timeout=AKIASP2TPHJSQH3FJRUX`,
+		`jdbc:aerospike:localhost:3000/test?sendKey=AKIAR7Q3XZ9MNP4HT2VK`,
+		`jdbc:postgresql://host:5432/db?ssl=glpat-x1Y2z3A4b5C6d7E8`,
+	} {
+		require.False(t, IsNonSecretConnString(v),
+			"a credential-shaped value is not a setting: %s", v)
+	}
+}
