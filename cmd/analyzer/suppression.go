@@ -690,6 +690,9 @@ func namesAContainer(data []byte, sep int) bool {
 	for start > 0 && !classify.IsLabelSeparatorByte(data[start-1]) {
 		start--
 	}
+	for start > 0 && (data[start-1] == ' ' || data[start-1] == '\t') {
+		start-- // indentation is not what put the key there
+	}
 	if start == 0 {
 		return false
 	}
