@@ -188,6 +188,7 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		`jdbc:aerospike:localhost:3000/test?port=0`,
 		`jdbc:aerospike:localhost:3000/test?timeout=2147483648`,
 		`jdbc:aerospike:localhost:3000/test?timeout=12345678901`,
+		`jdbc:aerospike:localhost:3000/test?timeout=-1`,
 	} {
 		require.False(t, IsNonSecretConnString(v), "outside the real bound: %s", v)
 	}
