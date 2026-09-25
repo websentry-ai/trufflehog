@@ -98,7 +98,7 @@ func TestIsNonSecretConnString_SecretBearingKeysNeverBenign(t *testing.T) {
 func TestIsNonSecretConnString_BenignKeyCannotLaunderASecret(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=AKIAR7Q3XZ9MNP4HT2VK`,
-		`jdbc:aerospike:localhost:3000/test?sendKey=sk-live-9xKq2vRt8mNp`,
+		`jdbc:aerospike:localhost:3000/test?sendKey=pk_test_9QrLmTvXbNhKdWzYpFcJaGsE`,
 		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
@@ -159,12 +159,42 @@ func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T)
 		require.False(t, IsNonSecretConnString(v),
 			"only a flag, a count or a named mode is a setting here: %s", v)
 	}
+	// Upper-casing a passphrase must not turn it into a mode. An open word shape
+	// cannot be told from a password, so the modes are listed rather than matched.
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?user=PASSWORD`,
+		`jdbc:aerospike:localhost:3000/test?timeout=HUNTER2`,
+		`jdbc:aerospike:localhost:3000/test?user=MYCOMPANYPASSWORD2024`,
+	} {
+		require.False(t, IsNonSecretConnString(v),
+			"an unlisted word is not a mode: %s", v)
+	}
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
 		`jdbc:aerospike:localhost:3000/test?useBoolBin=false&authMode=INTERNAL`,
+		`jdbc:aerospike:localhost:3000/test?authMode=EXTERNAL_INSECURE`,
 		// The same options with the namespace left off.
 		`jdbc:aerospike:localhost:3000?sendKey=true&timeout=5000&authMode=INTERNAL`,
 	} {
 		require.True(t, IsNonSecretConnString(v), "a driver option is a setting: %s", v)
+	}
+}
+
+// A vendor prefix must be specific enough not to collide with a setting value.
+// A wide "sk-" arm matched applicationName=sk-payments-worker and reported an
+// authority-form string that was suppressed before.
+func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing.T) {
+	for _, v := range []string{
+		`jdbc:sqlserver://localhost;applicationName=sk-payments-worker;encrypt=true`,
+		`jdbc:sqlserver://localhost;applicationName=sk-billing-api;encrypt=true`,
+	} {
+		require.True(t, IsNonSecretConnString(v),
+			"a hyphenated service name is not an api key: %s", v)
+	}
+	for _, v := range []string{
+		`jdbc:postgresql://host:5432/db?ssl=sk-abcdefghijklmnopqrstuvwxyz0123456789`,
+		`jdbc:postgresql://host:5432/db?ssl=sk-proj-abcdefghijklmnopqrstuvwxyz0123`,
+	} {
+		require.False(t, IsNonSecretConnString(v), "a real key shape is not a setting: %s", v)
 	}
 }

@@ -72,7 +72,8 @@ var (
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
 			`|^gh[pousr]_[A-Za-z0-9]{20,}$` + // GitHub token
 			`|^github_pat_[A-Za-z0-9_]{40,}$` +
-			`|^sk-[A-Za-z0-9_-]{14,}$` + // OpenAI-style
+			`|^sk-[A-Za-z0-9]{20,}$` + // OpenAI
+			`|^sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{20,}$` +
 			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}$` + // Stripe
 			`|^xox[bpaser]-[A-Za-z0-9-]{10,}$` + // Slack
 			`|^glpat-[A-Za-z0-9_-]{16,}$` + // GitLab
@@ -80,7 +81,7 @@ var (
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
-	plainSettingValuePat = regexp.MustCompile(`^(?i:true|false)$|^\d{1,10}$|^[A-Z][A-Z0-9_]{1,23}$`)
+	plainSettingValuePat = regexp.MustCompile(`^(?i:true|false|null)$|^\d{1,10}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
 	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
@@ -543,6 +544,12 @@ var connBenignKeys = map[string]bool{
 	"useservicesalternate": true, "authmode": true,
 }
 
+// The named modes those options take. An open word shape cannot be told from a
+// passphrase, so each mode is listed and an unlisted value is reported.
+var connModeValues = map[string]bool{
+	"internal": true, "external": true, "external_insecure": true, "pki": true,
+}
+
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
@@ -573,11 +580,16 @@ func IsNonSecretConnString(v string) bool {
 		// The driver-host form has no prior behaviour to preserve, so its values
 		// must look like settings rather than merely not look like tokens. No
 		// entropy threshold separates a passphrase from an identifier.
-		if !authority && !plainSettingValuePat.MatchString(m[1]) {
+		if !authority && !isPlainSettingValue(m[1]) {
 			return false
 		}
 	}
 	return true
+}
+
+// A flag, a count, or one of the named modes -- nothing open-ended.
+func isPlainSettingValue(val string) bool {
+	return plainSettingValuePat.MatchString(val) || connModeValues[strings.ToLower(val)]
 }
 
 func IsCodeLike(v string) bool {
