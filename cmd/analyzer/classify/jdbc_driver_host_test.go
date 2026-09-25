@@ -255,8 +255,8 @@ func TestIsNonSecretConnString_NewlyBenignKeysCheckedOnBothShapes(t *testing.T) 
 		"an already-benign key is unchanged")
 }
 
-// DB2 writes parameters as /db:prop=val;, which the parameter scan never reads.
-// A colon past the host means unread parameters, on either shape.
+// DB2 delimits parameters with a colon (/db:prop=val;), so the scan reads those
+// too. The key and value decide, exactly as for ";" and "&".
 func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:db2:host:50000/db:password=secret;`,
@@ -268,10 +268,17 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:db2://host:50000:password=secret`,
 		`jdbc:db2:host:50000:password=secret`,
 		`jdbc:db2://host:password=secret`,
+		`jdbc:db2://host:50000/db:apikey=AKIASP2TPHJSQH3FJRUX;`,
+		// A benign property in front does not launder the one behind it.
+		`jdbc:db2://host:50000/db:currentSchema=MYSCHEMA;password=secret`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
-			"a parameter the scan cannot read is not a setting: %s", v)
+			"a colon-delimited secret-bearing key is not a setting: %s", v)
 	}
+	// A benign property delimited by a colon is still a setting.
+	require.True(t,
+		IsNonSecretConnString(`jdbc:db2://host:50000/db:currentSchema=MYSCHEMA;`),
+		"a benign colon-delimited property is a setting")
 	// A colon that no assignment follows is part of the location. Every colon in
 	// 90 days of production traffic is one of these -- a port, an Oracle SID, or a
 	// templated host -- so an assignment is what marks a parameter, not a colon.
@@ -284,6 +291,10 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:mysql://%DB_HOST%:%DB_PORT%/app?ssl=true`,
 		`jdbc:postgresql://localhost:5432/my:db`,
 		`jdbc:postgresql://host:5432/db?user=alice:bob`,
+		`jdbc:postgresql://[::1]:5432/db`,
+		`jdbc:postgresql://node1:5432,node2:5432/db?targetServerType=primary`,
+		`jdbc:mysql://host:3306/db?serverTimezone=GMT+00:00`,
+		`jdbc:db2://host:123456`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
 			"a colon with no assignment behind it is a location: %s", v)

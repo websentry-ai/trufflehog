@@ -64,10 +64,11 @@ var (
 	anthropicIDPat  = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
 	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	// A connection parameter's key with its value, so an option can be checked
-	// against what that option accepts.
-	connParamValuePat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&\s]+)`)
+	connParamKeyPat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
+	// A connection parameter's key with its value. DB2 delimits with a colon
+	// (/db:prop=val;), so that counts as a delimiter too or the parameter goes
+	// unread.
+	connParamValuePat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&\s]+)`)
 	// Vendor credential shapes, each anchored to the whole value.
 	credentialFormatPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
@@ -577,28 +578,6 @@ var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
 
-// Whether a colon introduces a parameter the scan cannot read. DB2 writes
-// /db:prop=val; and the scan starts at ";", "?" or "&", so an assignment behind a
-// colon goes unexamined. A colon followed by anything else is a port, an Oracle
-// SID or a templated host, all of which are part of the location.
-func hasUnreadColonParams(v string) bool {
-	rest := v[len("jdbc:"):]
-	for i, seg := range strings.Split(rest, ":") {
-		if i == 0 {
-			continue
-		}
-		eq := strings.IndexByte(seg, '=')
-		if eq < 0 {
-			continue
-		}
-		// An "=" after a delimiter belongs to a parameter the scan does read.
-		if d := strings.IndexAny(seg, ";?&"); d < 0 || eq < d {
-			return true
-		}
-	}
-	return false
-}
-
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
@@ -611,9 +590,6 @@ func IsNonSecretConnString(v string) bool {
 	}
 	// Credentials ride in front of the host.
 	if strings.Contains(v, "@") {
-		return false
-	}
-	if hasUnreadColonParams(v) {
 		return false
 	}
 	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {
