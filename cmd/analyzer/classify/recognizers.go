@@ -83,10 +83,9 @@ var (
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// What a driver option actually holds: a flag, a count, or a named mode.
 	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
-	portPat      = regexp.MustCompile(`^\d{1,5}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
-	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s:]*)?$`)
+	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
 	dottedIdentPat    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
 	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
@@ -578,25 +577,26 @@ var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
 
-// Whether a colon appears past the authority's host and port.
+// Whether a colon introduces a parameter the scan cannot read. DB2 writes
+// /db:prop=val; and the scan starts at ";", "?" or "&", so an assignment behind a
+// colon goes unexamined. A colon followed by anything else is a port, an Oracle
+// SID or a templated host, all of which are part of the location.
 func hasUnreadColonParams(v string) bool {
-	rest := v[strings.Index(v, "://")+3:]
-	authority, tail := rest, ""
-	if end := strings.IndexAny(rest, "/?;"); end >= 0 {
-		authority, tail = rest[:end], rest[end:]
-	}
-	// A colon in the authority is only a port when a port follows it. Anything
-	// else there is a parameter or an Oracle SID.
-	if i := strings.LastIndexByte(authority, ':'); i >= 0 {
-		if !portPat.MatchString(authority[i+1:]) {
-			return true
+	rest := v[len("jdbc:"):]
+	for i, seg := range strings.Split(rest, ":") {
+		if i == 0 {
+			continue
 		}
-		// An IPv6 host keeps its own colons inside brackets.
-		if host := authority[:i]; strings.ContainsRune(host, ':') && !strings.HasPrefix(host, "[") {
+		eq := strings.IndexByte(seg, '=')
+		if eq < 0 {
+			continue
+		}
+		// An "=" after a delimiter belongs to a parameter the scan does read.
+		if d := strings.IndexAny(seg, ";?&"); d < 0 || eq < d {
 			return true
 		}
 	}
-	return strings.ContainsRune(tail, ':')
+	return false
 }
 
 func IsNonSecretConnString(v string) bool {
@@ -613,9 +613,7 @@ func IsNonSecretConnString(v string) bool {
 	if strings.Contains(v, "@") {
 		return false
 	}
-	// DB2 writes parameters as /db:prop=val;, which the scan below never reads
-	// because it starts at ";", "?" or "&".
-	if authority && hasUnreadColonParams(v) {
+	if hasUnreadColonParams(v) {
 		return false
 	}
 	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {

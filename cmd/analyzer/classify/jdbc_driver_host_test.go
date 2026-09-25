@@ -267,21 +267,25 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		// No path at all, so looking only past one missed it.
 		`jdbc:db2://host:50000:password=secret`,
 		`jdbc:db2:host:50000:password=secret`,
-		// An Oracle SID is written the same way and is reported with them.
-		`jdbc:oracle:thin://host:1521:ORCL`,
-		// One colon, but a port does not follow it.
 		`jdbc:db2://host:password=secret`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a parameter the scan cannot read is not a setting: %s", v)
 	}
-	// A colon in the authority is the port, and is read as one.
+	// A colon that no assignment follows is part of the location. Every colon in
+	// 90 days of production traffic is one of these -- a port, an Oracle SID, or a
+	// templated host -- so an assignment is what marks a parameter, not a colon.
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?sendKey=true&timeout=5000`,
 		`jdbc:postgresql://localhost:5432/app?sslmode=require`,
 		`jdbc:sqlserver://x.database.windows.net:1433;database=db;encrypt=true`,
 		`jdbc:postgresql://localhost/app?sslmode=require`,
+		`jdbc:oracle:thin://host:1521:ORCL`,
+		`jdbc:mysql://%DB_HOST%:%DB_PORT%/app?ssl=true`,
+		`jdbc:postgresql://localhost:5432/my:db`,
+		`jdbc:postgresql://host:5432/db?user=alice:bob`,
 	} {
-		require.True(t, IsNonSecretConnString(v), "a port is not a parameter: %s", v)
+		require.True(t, IsNonSecretConnString(v),
+			"a colon with no assignment behind it is a location: %s", v)
 	}
 }
