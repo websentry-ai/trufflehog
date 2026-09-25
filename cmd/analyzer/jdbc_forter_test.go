@@ -35,10 +35,6 @@ func TestJDBC_LocalDriverHostLocationSuppressed(t *testing.T) {
 		"a JDBC location with no credential must not be reported")
 }
 
-// Not covered here: jdbc:postgresql://host/db?user=x&password=y produces no
-// finding at all, on main as well as with this change. That is a pre-existing
-// gap in the JDBC detector, not something this fix touches -- asserting it would
-// be asserting a bug.
 func TestJDBC_CredentialBearingStillReported(t *testing.T) {
 	// The guards that keep this narrow, each through the real pipeline.
 	for _, tc := range []struct{ name, text string }{
@@ -67,8 +63,8 @@ func TestJDBC_SuppressionIsOptIn(t *testing.T) {
 			"mode is a separate, deliberate step")
 }
 
-// A1/A2: the only production door. scan() is shared, but the handler is what
-// ai-gateway actually posts to, and it is where auth and marshalling live.
+// The only production door. scan() is shared, but the handler is what ai-gateway
+// posts to, and it is where auth and marshalling live.
 func TestJDBC_ThroughAnalyzeHandler(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "enforce")
 	s := newBuiltScanner(t)
@@ -103,9 +99,9 @@ func TestJDBC_ThroughAnalyzeHandler(t *testing.T) {
 		"a credential-bearing string must still be reported over HTTP")
 }
 
-// A3: enabling the mode turns on every rule in the vendor table, not just JDBC.
-// These are the other six, asserted so a change to the shared predicate cannot
-// quietly alter them.
+// Enabling the mode turns on every rule in the vendor table, not just JDBC.
+// These are the other six, so a change to the shared predicate cannot alter them
+// unnoticed.
 func TestJDBC_OtherVendorRulesUnaffected(t *testing.T) {
 	t.Setenv("VENDOR_STRUCTURAL_SUPPRESSION", "enforce")
 	for _, entity := range []string{"JiraToken", "Atlassian", "Privacy", "Onesignal", "URI", "Azure"} {

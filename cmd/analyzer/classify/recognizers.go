@@ -70,18 +70,20 @@ var (
 	// Vendor credential shapes, each anchored to the whole value.
 	credentialFormatPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
-			`|^gh[pousr]_[A-Za-z0-9]{30,}$` + // GitHub token
+			`|^gh[pousr]_[A-Za-z0-9]{20,}$` + // GitHub token
 			`|^github_pat_[A-Za-z0-9_]{40,}$` +
-			`|^sk-[A-Za-z0-9_-]{20,}$` + // OpenAI-style
+			`|^sk-[A-Za-z0-9_-]{14,}$` + // OpenAI-style
 			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}$` + // Stripe
 			`|^xox[bpaser]-[A-Za-z0-9-]{10,}$` + // Slack
 			`|^glpat-[A-Za-z0-9_-]{16,}$` + // GitLab
 			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
+	// What a driver option actually holds: a flag, a count, or a named mode.
+	plainSettingValuePat = regexp.MustCompile(`^(?i:true|false)$|^\d{1,10}$|^[A-Z][A-Z0-9_]{1,23}$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
 	// a driver-specific payload cannot pass as a location.
-	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?(/[^\s]*)?$`)
+	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
 	dottedIdentPat    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
 	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
@@ -545,9 +547,11 @@ func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
 	}
-	// Both shapes count: jdbc:driver://host/db, and jdbc:driver:host:port/db for
+	// Two shapes: jdbc:driver://host/db, and jdbc:driver:host:port/db for the
 	// drivers that never adopted the authority form (aerospike, oracle thin, h2).
-	if !strings.Contains(v, "://") && !jdbcDriverHostPat.MatchString(v) {
+	// The second is new here, so its values are held to a stricter check below.
+	authority := strings.Contains(v, "://")
+	if !authority && !jdbcDriverHostPat.MatchString(v) {
 		return false
 	}
 	// Credentials ride in front of the host, so an "@" means this is more than a
@@ -560,43 +564,20 @@ func IsNonSecretConnString(v string) bool {
 			return false
 		}
 	}
-	// A benign key names a setting, so its value is a setting too. Anything that
-	// reads like a credential means the name is being used to carry one.
 	for _, m := range connParamValuePat.FindAllStringSubmatch(v, -1) {
-		if looksLikeSecretValue(m[1]) {
+		// A benign key names a setting, so a value in a vendor credential format
+		// means the name is being used to carry one instead.
+		if credentialFormatPat.MatchString(m[1]) {
+			return false
+		}
+		// The driver-host form has no prior behaviour to preserve, so its values
+		// must look like settings rather than merely not look like tokens. No
+		// entropy threshold separates a passphrase from an identifier.
+		if !authority && !plainSettingValuePat.MatchString(m[1]) {
 			return false
 		}
 	}
 	return true
-}
-
-// No entropy threshold separates these: an AWS access-key id measures 3.8 and
-// customer-order-service 3.4. Known vendor shapes are matched directly, leaving
-// entropy to catch the opaque tokens no prefix identifies.
-func looksLikeSecretValue(val string) bool {
-	if credentialFormatPat.MatchString(val) {
-		return true
-	}
-	if len(val) < 20 {
-		return false
-	}
-	if !hasLetterAndDigit(val) {
-		return false
-	}
-	return ShannonEntropy(val) >= 4.0
-}
-
-func hasLetterAndDigit(s string) bool {
-	var letter, digit bool
-	for _, r := range s {
-		switch {
-		case r >= '0' && r <= '9':
-			digit = true
-		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
-			letter = true
-		}
-	}
-	return letter && digit
 }
 
 func IsCodeLike(v string) bool {

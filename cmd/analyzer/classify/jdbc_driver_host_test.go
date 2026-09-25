@@ -50,7 +50,7 @@ func TestIsNonSecretConnString_AuthorityFormUnchanged(t *testing.T) {
 	require.False(t, IsNonSecretConnString(`jdbc:`), "too short to be a location")
 }
 
-// A4: shapes at the edge of the pattern. Each is reachable in a real prompt.
+// Shapes at the edge of the pattern. Each is reachable in a real prompt.
 func TestIsNonSecretConnString_EdgeShapes(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -70,9 +70,8 @@ func TestIsNonSecretConnString_EdgeShapes(t *testing.T) {
 	}
 }
 
-// A5: a value that merely looks like a location must not become a way to carry
-// a secret past the rule. The param check is what stops it, so it is asserted
-// on the shapes an attacker would reach for.
+// A value that merely looks like a location must not carry a secret past the
+// rule. The param check is what stops it.
 func TestIsNonSecretConnString_SecretSmuggledIntoALocation(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?tok=AKIAR7Q3XZ9MNP4HT2VK`,
@@ -85,7 +84,7 @@ func TestIsNonSecretConnString_SecretSmuggledIntoALocation(t *testing.T) {
 	}
 }
 
-// A6: the keys that must never be treated as benign, whatever else changes.
+// The keys that must never be treated as benign, whatever else changes.
 func TestIsNonSecretConnString_SecretBearingKeysNeverBenign(t *testing.T) {
 	for _, key := range []string{"password", "pwd", "passwd", "secret", "token", "apikey", "accesskey"} {
 		v := `jdbc:aerospike:localhost:3000/test?` + key + `=somevalue123`
@@ -94,9 +93,8 @@ func TestIsNonSecretConnString_SecretBearingKeysNeverBenign(t *testing.T) {
 	}
 }
 
-// A benign key name must not be usable to carry a credential. Cursor found this
-// hole: the rule read parameter names only, so any allowlisted key laundered
-// whatever value it held.
+// Reading parameter names alone would let any allowlisted key launder whatever
+// value it held.
 func TestIsNonSecretConnString_BenignKeyCannotLaunderASecret(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=AKIAR7Q3XZ9MNP4HT2VK`,
@@ -119,29 +117,54 @@ func TestIsNonSecretConnString_BenignKeysWithRealSettings(t *testing.T) {
 	}
 }
 
-// Ordinary settings run long without being random. Both review engines found
-// these being re-reported when the value check was only length plus entropy.
-func TestIsNonSecretConnString_OrdinarySettingsStaySuppressed(t *testing.T) {
+// The authority form keeps the behaviour it had, so what was suppressed before
+// still is. It does not classify its values: OrderProcessingService and
+// CorrectHorseBatteryStaple both measure 3.5, so entropy cannot tell an
+// identifier from a passphrase.
+func TestIsNonSecretConnString_AuthorityFormSettingsStaySuppressed(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:sqlserver://localhost;applicationName=customer-order-service;encrypt=true`,
 		`jdbc:sqlserver://x.database.windows.net:1433;database=db;encrypt=true;hostNameInCertificate=*.database.windows.net;loginTimeout=30`,
-		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
+		`jdbc:mysql://db.prod.internal:3306/app?serverTimezone=America/New_York&useSSL=false`,
+		`jdbc:postgresql://localhost:5432/app?currentSchema=reporting_schema&sslmode=require`,
+		`jdbc:sqlserver://localhost;applicationName=OrderProcessingService;encrypt=true`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
-			"a long setting value is still a setting: %s", v)
+			"an authority-form setting is still a setting: %s", v)
 	}
 }
 
-// A vendor credential format is recognised by its shape, not by its entropy.
-// Real AWS access-key ids sit below the entropy threshold -- this one is 3.82 --
-// so an entropy-only value check let a benign key name launder them.
-func TestIsNonSecretConnString_CredentialFormatBeatsEntropy(t *testing.T) {
+// Shape, not entropy: a real AWS access-key id measures 3.8, under any threshold
+// that leaves hostnames suppressed.
+func TestIsNonSecretConnString_VendorFormatIsNeverASetting(t *testing.T) {
 	for _, v := range []string{
 		`jdbc:aerospike:localhost:3000/test?timeout=AKIASP2TPHJSQH3FJRUX`,
-		`jdbc:aerospike:localhost:3000/test?sendKey=AKIAR7Q3XZ9MNP4HT2VK`,
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX`,
 		`jdbc:postgresql://host:5432/db?ssl=glpat-x1Y2z3A4b5C6d7E8`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a credential-shaped value is not a setting: %s", v)
+	}
+}
+
+// The driver-host form has no prior behaviour to preserve, so its values must
+// positively look like settings. That is what catches a laundered passphrase.
+func TestIsNonSecretConnString_DriverHostFormRequiresPlainSettings(t *testing.T) {
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?user=MyCompanyPassword2024`,
+		`jdbc:aerospike:localhost:3000/test?user=CorrectHorseBatteryStaple`,
+		`jdbc:aerospike:localhost:3000/test?user=PasswordPassword1234`,
+		`jdbc:aerospike:localhost:3000/test?timeout=hunter2hunter2`,
+	} {
+		require.False(t, IsNonSecretConnString(v),
+			"only a flag, a count or a named mode is a setting here: %s", v)
+	}
+	for _, v := range []string{
+		`jdbc:aerospike:localhost:3000/test?timeout=5000&sendKey=true`,
+		`jdbc:aerospike:localhost:3000/test?useBoolBin=false&authMode=INTERNAL`,
+		// The same options with the namespace left off.
+		`jdbc:aerospike:localhost:3000?sendKey=true&timeout=5000&authMode=INTERNAL`,
+	} {
+		require.True(t, IsNonSecretConnString(v), "a driver option is a setting: %s", v)
 	}
 }
