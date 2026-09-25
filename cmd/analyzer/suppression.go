@@ -34,7 +34,10 @@ const (
 	reasonPemPublicBlock     = "structural_pem_public_block"
 	reasonStructuralVetoable = "structural_vetoable_id"
 	reasonBenignIDContext    = "structural_benign_id_context"
+	reasonGPGKeyID           = "structural_gpg_key_id"
 )
+
+const gpgKeyLabelWindow = 16
 
 const benignIDContextWindow = 24
 
@@ -188,6 +191,9 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 		if insidePublicPEMBlock(data, f.raw) {
 			return true, reasonPemPublicBlock
 		}
+		if gpgKeyIDSuppressed(data, f.raw) {
+			return true, reasonGPGKeyID
+		}
 		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) &&
 			!credentialSuffixLabeled(data, f.raw) {
 			return true, reasonStructuralVetoable
@@ -197,6 +203,43 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 		}
 	}
 	return false, ""
+}
+
+// gpgKeyIDSuppressed reports whether EVERY occurrence of raw sits directly after
+// gpg's "gpg: key " log label. It does not go through suppressByContext because
+// that label contains the word "key", which the credential-context veto there
+// would read as a credential assignment; instead every occurrence must carry the
+// label, so a key id that also appears under a real credential label elsewhere
+// in the document is kept.
+func gpgKeyIDSuppressed(data []byte, raw string) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
+		return false
+	}
+	found := false
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		end := pos + len(rb)
+		if (pos > 0 && isHexByte(data[pos-1])) || (end < len(data) && isHexByte(data[end])) {
+			// Part of a longer hex run; not this value.
+			off = pos + 1
+			continue
+		}
+		lo := pos - gpgKeyLabelWindow
+		if lo < 0 {
+			lo = 0
+		}
+		if !classify.IsGPGKeyIDInContext(raw, string(data[lo:pos])) {
+			return false
+		}
+		found = true
+		off = pos + 1
+	}
+	return found
 }
 
 func benignIDContextAt(data []byte, start int) bool {
