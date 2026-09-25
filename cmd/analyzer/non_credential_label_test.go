@@ -478,6 +478,10 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`{"webhook_secret": {"version": 1, "sha256": "` + secret + `"}}`,
 		`{"webhook_secret": {"enabled": true, "sha256": "` + secret + `"}}`,
 		`{"password": {"n": null, "sha256": "` + secret + `"}}`,
+		// an unquoted container key names its container the same way
+		"password: {primary: {sha256: " + secret + "}}",
+		"password: {primary: {\"sha256\": \"" + secret + "\"}}",
+		"webhook_secret: {\n  primary: {\n    sha256: " + secret + "\n  }\n}",
 		// an indented format nests by column, not by bracket
 		"webhook_secret:\n  encoding: base64\n  sha256: " + secret,
 		"webhook_secret:\n  encoding: \"base64\"\n  sha256: \"" + secret + "\"",
@@ -513,6 +517,7 @@ func TestACredentialWordCannotIntroduceAName(t *testing.T) {
 		`{"report": {"name": "x", "sha256": "` + secret + `"}}`,
 		`{"config": {"primary": {"sha256": "` + secret + `"}}}`,
 		`{"config": {"version": 1, "sha256": "` + secret + `"}}`,
+		"config: {primary: {sha256: " + secret + "}}",
 		"api_key: " + neighbour + "\nsha256: " + secret,
 		"config:\n  encoding: base64\n  sha256: " + secret,
 	}

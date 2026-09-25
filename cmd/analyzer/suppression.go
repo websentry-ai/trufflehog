@@ -346,8 +346,15 @@ func startsAName(data []byte, j int) bool {
 	case ':', '=', ';', '?', '&':
 		// These sit inside one line, where the token in front decides what
 		// follows: "Cookie:" and "a=1&" list assignments, while "auth:" and
-		// "signing?" name the credential the value belongs to.
-		return !credentialIntroducerBefore(data, k-1)
+		// "signing?" name the credential the value belongs to. A word that is
+		// neither may still sit inside something that is.
+		if credentialIntroducerBefore(data, k-1) {
+			return false
+		}
+		if !namesAContainer(data, k-1) {
+			return true
+		}
+		return !introducedByCredentialWord(data, k-1, newWalkBudget())
 	case '"', '\'', '`', ',', '{', '[', '(':
 		// Transparent: whatever introduced the bracket or quote introduces the
 		// name too. A key in {"sha256": …} is read before this point, while
@@ -388,10 +395,11 @@ func quotedKeyStandsAlone(data []byte, quote int) bool {
 	return false
 }
 
-// introducedByCredentialWord reports whether a credential word stands in front
-// of the list or bracket at p. A quote there is left alone: from the right a
-// value's closing quote looks exactly like a key's opening one, and reading
-// past it would give up the form this rule exists for.
+// introducedByCredentialWord reports whether a credential word introduces the
+// name that follows p, reading outward through siblings, brackets and indented
+// blocks until it finds one or runs out of budget. A quote is where it stops:
+// from the right a value's closing quote looks exactly like a key's opening
+// one, and reading past it would give up the form this rule exists for.
 func introducedByCredentialWord(data []byte, p int, b *walkBudget) bool {
 	q := p
 	if q < len(data) {
@@ -499,7 +507,17 @@ func introducedByCredentialWord(data []byte, p int, b *walkBudget) bool {
 					q = start
 					continue
 				}
-				return credentialIntroducerBefore(data, q)
+				if credentialIntroducerBefore(data, q) {
+					return true
+				}
+				if !namesAContainer(data, q) {
+					return false
+				}
+				// An unquoted key names its container the way a quoted one
+				// does, and a container that is not a credential leaves the
+				// one outside it still to check.
+				q = start
+				continue
 			}
 			q--
 		}
@@ -572,9 +590,9 @@ func enclosedByCredentialKey(data []byte, nl int, b *walkBudget) bool {
 		}
 		start := lineStartBefore(data, i)
 		end := lastNonBlank(data, lineEndBeforeComment(data, i))
-		if end >= start && data[end] == ':' {
+		if key := keyEndOnLine(data, start, end); key >= 0 {
 			if ind := indentAt(data, start); ind < indent {
-				if credentialIntroducerBefore(data, end) {
+				if credentialIntroducerBefore(data, key) {
 					return true
 				}
 				indent = ind // keep looking further out
@@ -586,6 +604,28 @@ func enclosedByCredentialKey(data []byte, nl int, b *walkBudget) bool {
 		i = start - 1
 	}
 	return false
+}
+
+// keyEndOnLine returns the index of the separator that ends this line's key,
+// or -1 when the line does not open one. A line may end on the colon itself or
+// on the brace the colon introduced.
+func keyEndOnLine(data []byte, start, end int) int {
+	if end < start {
+		return -1
+	}
+	switch data[end] {
+	case ':':
+		return end
+	case '{', '[', '(':
+		i := end
+		for i > start && (data[i-1] == ' ' || data[i-1] == '\t') {
+			i--
+		}
+		if i > start && (data[i-1] == ':' || data[i-1] == '=') {
+			return i - 1
+		}
+	}
+	return -1
 }
 
 // indentAt counts the blank columns the line starting at start opens with.
@@ -634,6 +674,30 @@ func lastNonBlank(data []byte, end int) int {
 		return -1 // only blank space in view; the answer is out of reach
 	}
 	return i - 1
+}
+
+// namesAContainer reports whether the token ending at sep is the key of a
+// structure rather than a plain word. Only a key is worth stepping out of:
+// following anything else leads across quote boundaries, where a header's
+// closing quote is indistinguishable from the next one's opening quote.
+func namesAContainer(data []byte, sep int) bool {
+	e := sep
+	for e > 0 && (data[e-1] == ' ' || data[e-1] == '\t' || data[e-1] == ':' ||
+		data[e-1] == '=' || isQuoteByte(data[e-1])) {
+		e--
+	}
+	start := e
+	for start > 0 && !classify.IsLabelSeparatorByte(data[start-1]) {
+		start--
+	}
+	if start == 0 {
+		return false
+	}
+	switch data[start-1] {
+	case '{', '[', '(':
+		return true
+	}
+	return false
 }
 
 // credentialIntroducerBefore reports whether the token ending just before the
