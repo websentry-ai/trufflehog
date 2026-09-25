@@ -271,10 +271,15 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:db2://host:50000/db:apikey=AKIASP2TPHJSQH3FJRUX;`,
 		// A benign property in front does not launder the one behind it.
 		`jdbc:db2://host:50000/db:currentSchema=MYSCHEMA;password=secret`,
-		// A colon ends a value as well as starting a key, or one value swallows
-		// the next parameter and its credential is never checked.
+		// A second assignment behind a colon is its own parameter, not part of the
+		// value in front of it.
 		`jdbc:db2://host:50000/db:currentSchema=MYSCHEMA:sendKey=MyCompanyPassword2024`,
 		`jdbc:postgresql://host:5432/db?ssl=true:timeout=AKIASP2TPHJSQH3FJRUX`,
+		// A colon suffix that is not an assignment stays part of the value, so a
+		// valid prefix cannot hide it.
+		`jdbc:postgresql://host:5432/db?timeout=5000:AKIASP2TPHJSQH3FJRUX`,
+		`jdbc:aerospike:localhost:3000/test?sendKey=true:MyCompanyPassword2024`,
+		`jdbc:aerospike:localhost:3000/test?authMode=INTERNAL:hunter2`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)

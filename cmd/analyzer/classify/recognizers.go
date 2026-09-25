@@ -65,10 +65,6 @@ var (
 	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
 	connParamKeyPat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	// A connection parameter's key with its value. DB2 delimits with a colon
-	// (/db:prop=val;), so a colon both starts a key and ends a value -- otherwise
-	// one value swallows the next parameter and its credential goes unchecked.
-	connParamValuePat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=\s*([^;?&:\s]+)`)
 	// Vendor credential shapes, each anchored to the whole value.
 	credentialFormatPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
@@ -578,6 +574,27 @@ var connModeValues = map[string]bool{
 	"internal": true, "external": true, "external_insecure": true, "pki": true,
 }
 
+// connParams splits a connection string into its key/value parameters. A
+// delimiter opens a new one only when a key and "=" follow it, so DB2's
+// /db:prop=val; is read while a colon inside a value (GMT+00:00) is not a
+// boundary and stays part of it.
+func connParams(v string) [][2]string {
+	at := connParamKeyPat.FindAllStringSubmatchIndex(v, -1)
+	out := make([][2]string, 0, len(at))
+	for i, m := range at {
+		end := len(v)
+		if i+1 < len(at) {
+			end = at[i+1][0]
+		}
+		val := strings.TrimLeft(v[m[1]:end], " \t")
+		if j := strings.IndexAny(val, " \t\r\n"); j >= 0 {
+			val = val[:j]
+		}
+		out = append(out, [2]string{v[m[2]:m[3]], val})
+	}
+	return out
+}
+
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
@@ -592,21 +609,19 @@ func IsNonSecretConnString(v string) bool {
 	if strings.Contains(v, "@") {
 		return false
 	}
-	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {
-		if !connBenignKeys[strings.ToLower(m[1])] {
+	for _, kv := range connParams(v) {
+		key, val := strings.ToLower(kv[0]), kv[1]
+		if !connBenignKeys[key] {
 			return false
 		}
-	}
-	for _, m := range connParamValuePat.FindAllStringSubmatch(v, -1) {
 		// A credential shape on a benign key means the name is carrying one.
-		if credentialFormatPat.MatchString(m[2]) {
+		if credentialFormatPat.MatchString(val) {
 			return false
 		}
 		// The driver-host form has no prior behaviour to preserve, so its values
 		// must look like settings rather than merely not look like tokens. A key
 		// this rule newly made benign has none either, on whichever shape.
-		key := strings.ToLower(m[1])
-		if (!authority || connNewlyBenignKeys[key]) && !isPlainSettingValue(key, m[2]) {
+		if (!authority || connNewlyBenignKeys[key]) && !isPlainSettingValue(key, val) {
 			return false
 		}
 	}
