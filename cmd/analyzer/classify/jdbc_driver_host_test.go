@@ -284,6 +284,10 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		// is stuck to unless the colon pieces are checked as well.
 		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop:extra`,
 		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX:extra`,
+		// Any delimiter can carry the suffix, not only a colon.
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop&extra`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop;extra`,
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX?extra`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)
