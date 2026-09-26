@@ -633,6 +633,12 @@ var connModeValues = map[string]bool{
 // delimiter opens a new one only when a key and "=" follow it, so DB2's
 // /db:prop=val; is read while a colon inside a value (GMT+00:00) is not a
 // boundary and stays part of it.
+// A delimiter inside a value: it does not open a parameter without a key and "=",
+// so the text either side of it is checked on its own.
+func isConnValueDelim(r rune) bool {
+	return r == ':' || r == ';' || r == '&' || r == '?'
+}
+
 func connParams(v string) [][2]string {
 	at := connParamKeyPat.FindAllStringSubmatchIndex(v, -1)
 	out := make([][2]string, 0, len(at))
@@ -672,12 +678,12 @@ func IsNonSecretConnString(v string) bool {
 			return false
 		}
 		// A credential shape on a benign key means the name is carrying one. The
-		// colon pieces count too, since the format is anchored and a suffix would
-		// otherwise hide the token it is stuck to.
+		// format is anchored, so a suffix would hide the token it is stuck to
+		// unless each delimited piece is checked as well.
 		if credentialFormatPat.MatchString(val) {
 			return false
 		}
-		for _, piece := range strings.Split(val, ":") {
+		for _, piece := range strings.FieldsFunc(val, isConnValueDelim) {
 			if credentialFormatPat.MatchString(piece) {
 				return false
 			}
