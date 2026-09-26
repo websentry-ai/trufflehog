@@ -3,6 +3,7 @@ package classify
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	regexp "github.com/wasilibs/go-re2"
@@ -66,8 +67,26 @@ var (
 	anthropicIDPat  = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
 	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
 	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	connParamKeyPat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
+	// Vendor credential shapes, each anchored to the whole value.
+	credentialFormatPat = regexp.MustCompile(
+		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
+			`|^gh[pousr]_[A-Za-z0-9]{20,}$` + // GitHub token
+			`|^github_pat_[A-Za-z0-9_]{40,}$` +
+			`|^sk-[A-Za-z0-9]{20,}$` + // OpenAI
+			`|^sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{40,}$` +
+			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}$` + // Stripe
+			`|^xox[bpaser]-[A-Za-z0-9-]{10,}$` + // Slack
+			`|^glpat-[A-Za-z0-9_-]{16,}$` + // GitLab
+			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
+			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
+			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
+	// What a driver option actually holds: a flag, a count, or a named mode.
+	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
+	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
+	// a driver-specific payload cannot pass as a location.
+	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
+	dottedIdentPat    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
 	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
 	modelAtVerPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)*@20\d{6}$`)
@@ -570,24 +589,125 @@ var connBenignKeys = map[string]bool{
 	"targetservertype": true, "currentschema": true, "schema": true,
 	"user": true, "username": true, "uid": true, "host": true, "port": true,
 	"database": true, "db": true, "protocol": true, "driver": true,
+
+	// Aerospike. An unknown key counts as secret-bearing, so each is listed.
+	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
+	"sendkey": true, "refusescan": true, "useboolbin": true,
+	"useservicesalternate": true, "authmode": true,
+}
+
+// The keys above that were not benign before. Benign-listing them widens both
+// shapes, so their values are checked on both rather than only on the new one.
+var connNewlyBenignKeys = map[string]bool{
+	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
+	"sendkey": true, "refusescan": true, "useboolbin": true,
+	"useservicesalternate": true, "authmode": true,
+}
+
+// What each option accepts, for the driver-host form. 123456 is a plausible
+// count and a plausible password, so the key decides, not the shape. An option
+// missing here has no checkable value and is reported.
+var connOptionKinds = map[string]string{
+	"timeout": "count", "totaltimeout": "count", "recordsettimeoutms": "count",
+	"logintimeout": "count", "connecttimeout": "count", "sockettimeout": "count",
+	"port": "port", "portnumber": "port",
+
+	"sendkey": "flag", "refusescan": "flag", "useboolbin": "flag",
+	"useservicesalternate": "flag", "encrypt": "flag", "ssl": "flag",
+	"usessl": "flag", "requiressl": "flag", "tcpkeepalive": "flag",
+	"readonly": "flag", "autoreconnect": "flag", "useunicode": "flag",
+	"allowpublickeyretrieval": "flag", "integratedsecurity": "flag",
+	"trustservercertificate": "flag", "multisubnetfailover": "flag",
+	"verifyservercertificate": "flag",
+
+	"authmode": "mode",
+}
+
+// The modes those options name, listed because no word shape separates a mode
+// from a passphrase.
+var connModeValues = map[string]bool{
+	"internal": true, "external": true, "external_insecure": true, "pki": true,
+}
+
+// connParams splits a connection string into its key/value parameters. A
+// delimiter opens a new one only when a key and "=" follow it, so DB2's
+// /db:prop=val; is read while a colon inside a value (GMT+00:00) is not a
+// boundary and stays part of it.
+func connParams(v string) [][2]string {
+	at := connParamKeyPat.FindAllStringSubmatchIndex(v, -1)
+	out := make([][2]string, 0, len(at))
+	for i, m := range at {
+		end := len(v)
+		if i+1 < len(at) {
+			end = at[i+1][0]
+		}
+		val := strings.TrimLeft(v[m[1]:end], " \t")
+		if j := strings.IndexAny(val, " \t\r\n"); j >= 0 {
+			val = val[:j]
+		}
+		// The last value runs to the end of the string, so a closing ";" or "&"
+		// would otherwise stay on it and no setting would match exactly.
+		out = append(out, [2]string{v[m[2]:m[3]], strings.TrimRight(val, ";&?")})
+	}
+	return out
 }
 
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
 	}
-	if !strings.Contains(v, "://") {
+	// jdbc:driver:host:port/db is the form aerospike, oracle thin and h2 use.
+	// Being new here, its values are held to the stricter check below.
+	authority := strings.Contains(v, "://")
+	if !authority && !jdbcDriverHostPat.MatchString(v) {
 		return false
 	}
+	// Credentials ride in front of the host.
 	if strings.Contains(v, "@") {
 		return false
 	}
-	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {
-		if !connBenignKeys[strings.ToLower(m[1])] {
+	for _, kv := range connParams(v) {
+		key, val := strings.ToLower(kv[0]), kv[1]
+		if !connBenignKeys[key] {
+			return false
+		}
+		// A credential shape on a benign key means the name is carrying one. The
+		// colon pieces count too, since the format is anchored and a suffix would
+		// otherwise hide the token it is stuck to.
+		if credentialFormatPat.MatchString(val) {
+			return false
+		}
+		for _, piece := range strings.Split(val, ":") {
+			if credentialFormatPat.MatchString(piece) {
+				return false
+			}
+		}
+		// The driver-host form has no prior behaviour to preserve, so its values
+		// must look like settings rather than merely not look like tokens. A key
+		// this rule newly made benign has none either, on whichever shape.
+		if (!authority || connNewlyBenignKeys[key]) && !isPlainSettingValue(key, val) {
 			return false
 		}
 	}
 	return true
+}
+
+// Whether this option's value is the kind of value the option takes.
+func isPlainSettingValue(key, val string) bool {
+	switch connOptionKinds[strings.ToLower(key)] {
+	case "flag":
+		return flagValuePat.MatchString(val)
+	case "count":
+		// A Java int in every driver, which is the bound; no digit length is.
+		n, err := strconv.ParseInt(val, 10, 32)
+		return err == nil && n >= 0
+	case "port":
+		n, err := strconv.Atoi(val)
+		return err == nil && n >= 1 && n <= 65535
+	case "mode":
+		return connModeValues[strings.ToLower(val)]
+	}
+	return false
 }
 
 func IsCodeLike(v string) bool {
