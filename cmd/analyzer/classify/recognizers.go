@@ -633,12 +633,6 @@ var connModeValues = map[string]bool{
 // delimiter opens a new one only when a key and "=" follow it, so DB2's
 // /db:prop=val; is read while a colon inside a value (GMT+00:00) is not a
 // boundary and stays part of it.
-// A delimiter inside a value: it does not open a parameter without a key and "=",
-// so the text either side of it is checked on its own.
-func isConnValueDelim(r rune) bool {
-	return r == ':' || r == ';' || r == '&' || r == '?'
-}
-
 func connParams(v string) [][2]string {
 	at := connParamKeyPat.FindAllStringSubmatchIndex(v, -1)
 	out := make([][2]string, 0, len(at))
@@ -656,6 +650,12 @@ func connParams(v string) [][2]string {
 		out = append(out, [2]string{v[m[2]:m[3]], strings.TrimRight(val, ";&?")})
 	}
 	return out
+}
+
+// A delimiter inside a value: it does not open a parameter without a key and "=",
+// so the text either side of it is checked on its own.
+func isConnValueDelim(r rune) bool {
+	return r == ':' || r == ';' || r == '&' || r == '?'
 }
 
 func IsNonSecretConnString(v string) bool {
