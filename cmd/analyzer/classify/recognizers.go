@@ -81,6 +81,22 @@ var (
 			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
+	// The same formats without the end anchor, for a piece that has a token with
+	// something glued to it. The fixed-length arms need this: AKIA plus sixteen
+	// characters stops matching once a suffix runs on, where an open-ended arm
+	// such as gh[pousr]_ still matches.
+	credentialPrefixPat = regexp.MustCompile(
+		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}` +
+			`|^gh[pousr]_[A-Za-z0-9]{20,}` +
+			`|^github_pat_[A-Za-z0-9_]{40,}` +
+			`|^sk-[A-Za-z0-9]{20,}` +
+			`|^sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{40,}` +
+			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}` +
+			`|^xox[bpaser]-[A-Za-z0-9-]{10,}` +
+			`|^glpat-[A-Za-z0-9_-]{16,}` +
+			`|^AIza[A-Za-z0-9_-]{35}` +
+			`|^dop_v1_[a-f0-9]{64}` +
+			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}`)
 	// What a driver option actually holds: a flag, a count, or a named mode.
 	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
@@ -687,7 +703,7 @@ func IsNonSecretConnString(v string) bool {
 		}
 		notToken := func(r rune) bool { return !isConnTokenChar(r) }
 		for _, piece := range strings.FieldsFunc(val, notToken) {
-			if credentialFormatPat.MatchString(piece) {
+			if credentialPrefixPat.MatchString(piece) {
 				return false
 			}
 		}

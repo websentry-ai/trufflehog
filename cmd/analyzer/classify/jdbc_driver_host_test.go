@@ -293,6 +293,10 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop=x`,
 		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop#extra`,
 		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX.extra`,
+		// A suffix of token characters does not split, so the fixed-length arms are
+		// matched by prefix as well -- AKIA plus sixteen stops at seventeen.
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUXEXTRA`,
+		`jdbc:postgresql://host:5432/db?ssl=AIzaSyA1234567890abcdefghijklmnopqrstuvEXTRA`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)
