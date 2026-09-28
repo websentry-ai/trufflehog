@@ -81,13 +81,18 @@ var (
 			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
-	// The fixed-length formats without the end anchor, for a piece that has one of
-	// them with token characters glued on: AKIA plus sixteen stops matching at
-	// seventeen. The open-ended arms are left anchored, because an unanchored
-	// `{n,}` of a narrower class matches a name the arm should not claim --
-	// sk-<twenty alphanumerics>-worker is a service, not a key.
+	// The formats without the end anchor, for a piece that has one of them with
+	// token characters glued on. Whether an arm can afford this is about its
+	// prefix, not its length: no name starts "ghp_" or "AKIA", so matching those
+	// by prefix is safe, while "sk-" is how services are named and
+	// sk-<twenty alphanumerics>-worker must stay a name. The sk/pk/rk family is
+	// therefore left out and keeps its anchor.
 	credentialPrefixPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}` +
+			`|^gh[pousr]_[A-Za-z0-9]{20,}` +
+			`|^github_pat_[A-Za-z0-9_]{40,}` +
+			`|^xox[bpaser]-[A-Za-z0-9-]{10,}` +
+			`|^glpat-[A-Za-z0-9_-]{16,}` +
 			`|^AIza[A-Za-z0-9_-]{35}` +
 			`|^dop_v1_[a-f0-9]{64}` +
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}`)

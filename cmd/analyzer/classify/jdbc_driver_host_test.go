@@ -220,6 +220,7 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 		// An open-ended arm keeps its end anchor, or twenty alphanumerics and a
 		// hyphen would claim a service name.
 		`jdbc:sqlserver://localhost;applicationName=sk-abcdefghijklmnopqrst-worker;encrypt=true`,
+		`jdbc:postgresql://host:5432/db?ssl=pk_live_abcdefghijklmnop_prod`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
 			"a hyphenated service name is not an api key: %s", v)
@@ -300,6 +301,11 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		// matched by prefix as well -- AKIA plus sixteen stops at seventeen.
 		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUXEXTRA`,
 		`jdbc:postgresql://host:5432/db?ssl=AIzaSyA1234567890abcdefghijklmnopqrstuvEXTRA`,
+		// "-" and "_" are token characters, so they do not split either. An arm
+		// whose prefix no name would use is matched by prefix for that reason.
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop-extra`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop_extra`,
+		`jdbc:postgresql://host:5432/db?ssl=glpat-x1Y2z3A4b5C6d7E8-extra`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)
