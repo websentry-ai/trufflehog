@@ -217,6 +217,9 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 		// The named variants allow hyphens, so they must be long enough that a
 		// service name cannot reach them.
 		`jdbc:sqlserver://localhost;applicationName=sk-admin-billing-service-prod;encrypt=true`,
+		// An open-ended arm keeps its end anchor, or twenty alphanumerics and a
+		// hyphen would claim a service name.
+		`jdbc:sqlserver://localhost;applicationName=sk-abcdefghijklmnopqrst-worker;encrypt=true`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
 			"a hyphenated service name is not an api key: %s", v)
