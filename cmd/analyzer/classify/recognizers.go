@@ -652,10 +652,12 @@ func connParams(v string) [][2]string {
 	return out
 }
 
-// A delimiter inside a value: it does not open a parameter without a key and "=",
-// so the text either side of it is checked on its own.
+// Whether a rune cannot appear inside a vendor credential. Every format in
+// credentialFormatPat is letters, digits, "_" and "-", so anything else in a value
+// separates a token from whatever is stuck to it.
 func isConnValueDelim(r rune) bool {
-	return r == ':' || r == ';' || r == '&' || r == '?'
+	return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+		r >= '0' && r <= '9' || r == '_' || r == '-')
 }
 
 func IsNonSecretConnString(v string) bool {
@@ -678,8 +680,8 @@ func IsNonSecretConnString(v string) bool {
 			return false
 		}
 		// A credential shape on a benign key means the name is carrying one. The
-		// format is anchored, so a suffix would hide the token it is stuck to
-		// unless each delimited piece is checked as well.
+		// format is anchored, so each piece is checked too, or a suffix hides the
+		// token it is stuck to.
 		if credentialFormatPat.MatchString(val) {
 			return false
 		}
