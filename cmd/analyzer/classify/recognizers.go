@@ -652,12 +652,12 @@ func connParams(v string) [][2]string {
 	return out
 }
 
-// Whether a rune cannot appear inside a vendor credential. Every format in
+// Whether a rune can appear inside a vendor credential. Every format in
 // credentialFormatPat is letters, digits, "_" and "-", so anything else in a value
 // separates a token from whatever is stuck to it.
-func isConnValueDelim(r rune) bool {
-	return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
-		r >= '0' && r <= '9' || r == '_' || r == '-')
+func isConnTokenChar(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+		r >= '0' && r <= '9' || r == '_' || r == '-'
 }
 
 func IsNonSecretConnString(v string) bool {
@@ -685,7 +685,8 @@ func IsNonSecretConnString(v string) bool {
 		if credentialFormatPat.MatchString(val) {
 			return false
 		}
-		for _, piece := range strings.FieldsFunc(val, isConnValueDelim) {
+		notToken := func(r rune) bool { return !isConnTokenChar(r) }
+		for _, piece := range strings.FieldsFunc(val, notToken) {
 			if credentialFormatPat.MatchString(piece) {
 				return false
 			}
