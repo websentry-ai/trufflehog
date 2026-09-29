@@ -81,12 +81,9 @@ var (
 			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
 			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
-	// The formats without the end anchor, for a piece that has one of them with
-	// token characters glued on. Whether an arm can afford this is about its
-	// prefix, not its length: no name starts "ghp_", "AKIA" or "pk_live_", so
-	// matching those by prefix is safe. Only plain "sk-" is left out, because that
-	// is how services are named and sk-<twenty alphanumerics>-worker must stay a
-	// name; Stripe's "_live_"/"_test_" infix is not that collision.
+	// Unanchored, for a token with something glued to its end. Safe where no name
+	// would use the prefix, which excludes plain "sk-": that is how services are
+	// named, and sk-<twenty alphanumerics>-worker must stay one.
 	credentialPrefixPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}` +
 			`|^gh[pousr]_[A-Za-z0-9]{20,}` +
@@ -668,9 +665,8 @@ func connParams(v string) [][2]string {
 	return out
 }
 
-// Whether a rune can appear inside a vendor credential. Every format in
-// credentialFormatPat is letters, digits, "_" and "-", so anything else in a value
-// separates a token from whatever is stuck to it.
+// Whether a rune can appear inside a vendor credential. Anything else in a value
+// separates a token from what is stuck to it.
 func isConnTokenChar(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
 		r >= '0' && r <= '9' || r == '_' || r == '-'
@@ -696,8 +692,7 @@ func IsNonSecretConnString(v string) bool {
 			return false
 		}
 		// A credential shape on a benign key means the name is carrying one. The
-		// format is anchored, so each piece is checked too, or a suffix hides the
-		// token it is stuck to.
+		// format is anchored, so the pieces are checked too.
 		if credentialFormatPat.MatchString(val) {
 			return false
 		}
