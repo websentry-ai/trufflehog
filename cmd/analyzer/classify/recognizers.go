@@ -83,16 +83,17 @@ var (
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
 	// The formats without the end anchor, for a piece that has one of them with
 	// token characters glued on. Whether an arm can afford this is about its
-	// prefix, not its length: no name starts "ghp_" or "AKIA", so matching those
-	// by prefix is safe, while "sk-" is how services are named and
-	// sk-<twenty alphanumerics>-worker must stay a name. The sk/pk/rk family is
-	// therefore left out and keeps its anchor.
+	// prefix, not its length: no name starts "ghp_", "AKIA" or "pk_live_", so
+	// matching those by prefix is safe. Only plain "sk-" is left out, because that
+	// is how services are named and sk-<twenty alphanumerics>-worker must stay a
+	// name; Stripe's "_live_"/"_test_" infix is not that collision.
 	credentialPrefixPat = regexp.MustCompile(
 		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}` +
 			`|^gh[pousr]_[A-Za-z0-9]{20,}` +
 			`|^github_pat_[A-Za-z0-9_]{40,}` +
 			`|^xox[bpaser]-[A-Za-z0-9-]{10,}` +
 			`|^glpat-[A-Za-z0-9_-]{16,}` +
+			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}` +
 			`|^AIza[A-Za-z0-9_-]{35}` +
 			`|^dop_v1_[a-f0-9]{64}` +
 			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}`)
