@@ -60,40 +60,16 @@ var (
 	// The optional trailing ":" or "-" is the grep -A/-B line prefix
 	// ("<file>:" on a match line, "<file>-" on a context line), which the
 	// whitespace tokenizer leaves glued to the filename.
-	filenamePat     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:` + fileExtGroup + `)[:-]?$`)
-	lowerPathPat    = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
-	oktaIDPat       = regexp.MustCompile(`^(?:0[0o][a-z]|aus|fwf)[a-zA-Z0-9]{17}$`)
-	aiObjectIDPat   = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
-	anthropicIDPat  = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
-	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
-	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connParamKeyPat = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	// Vendor credential shapes, each anchored to the whole value.
-	credentialFormatPat = regexp.MustCompile(
-		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}$` + // AWS access-key id
-			`|^gh[pousr]_[A-Za-z0-9]{20,}$` + // GitHub token
-			`|^github_pat_[A-Za-z0-9_]{40,}$` +
-			`|^sk-[A-Za-z0-9]{20,}$` + // OpenAI
-			`|^sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{40,}$` +
-			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}$` + // Stripe
-			`|^xox[bpaser]-[A-Za-z0-9-]{10,}$` + // Slack
-			`|^glpat-[A-Za-z0-9_-]{16,}$` + // GitLab
-			`|^AIza[A-Za-z0-9_-]{35}$` + // Google api key
-			`|^dop_v1_[a-f0-9]{64}$` + // DigitalOcean
-			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}$`) // Shopify
-	// Unanchored, for a token with something glued to its end. Safe where no name
-	// would use the prefix, which excludes plain "sk-": that is how services are
-	// named, and sk-<twenty alphanumerics>-worker must stay one.
-	credentialPrefixPat = regexp.MustCompile(
-		`^(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}` +
-			`|^gh[pousr]_[A-Za-z0-9]{20,}` +
-			`|^github_pat_[A-Za-z0-9_]{40,}` +
-			`|^xox[bpaser]-[A-Za-z0-9-]{10,}` +
-			`|^glpat-[A-Za-z0-9_-]{16,}` +
-			`|^(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}` +
-			`|^AIza[A-Za-z0-9_-]{35}` +
-			`|^dop_v1_[a-f0-9]{64}` +
-			`|^shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}`)
+	filenamePat         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:` + fileExtGroup + `)[:-]?$`)
+	lowerPathPat        = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
+	oktaIDPat           = regexp.MustCompile(`^(?:0[0o][a-z]|aus|fwf)[a-zA-Z0-9]{17}$`)
+	aiObjectIDPat       = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
+	anthropicIDPat      = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
+	prefixedUUIDPat     = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
+	snakeIdentPat       = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
+	connParamKeyPat     = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
+	credentialFormatPat = regexp.MustCompile(credentialArms(false))
+	credentialPrefixPat = regexp.MustCompile(credentialArms(true))
 	// What a driver option actually holds: a flag, a count, or a named mode.
 	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
 	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
@@ -670,6 +646,41 @@ func connParams(v string) [][2]string {
 func isConnTokenChar(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
 		r >= '0' && r <= '9' || r == '_' || r == '-'
+}
+
+// Vendor credential shapes. prefixSafe marks the ones whose prefix no service
+// name would use, so a token with something glued to its end is still one; plain
+// "sk-" is not, since sk-<twenty alphanumerics>-worker must stay a name.
+var credentialFormats = []struct {
+	pat        string
+	prefixSafe bool
+}{
+	{`(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}`, true}, // AWS access-key id
+	{`gh[pousr]_[A-Za-z0-9]{20,}`, true},          // GitHub token
+	{`github_pat_[A-Za-z0-9_]{40,}`, true},        // GitHub fine-grained
+	{`sk-[A-Za-z0-9]{20,}`, false},                // OpenAI
+	{`sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{40,}`, false},
+	{`(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}`, true}, // Stripe
+	{`xox[bpaser]-[A-Za-z0-9-]{10,}`, true},               // Slack
+	{`glpat-[A-Za-z0-9_-]{16,}`, true},                    // GitLab
+	{`AIza[A-Za-z0-9_-]{35}`, true},                       // Google api key
+	{`dop_v1_[a-f0-9]{64}`, true},                         // DigitalOcean
+	{`shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}`, true},          // Shopify
+}
+
+// One list builds both patterns, so a vendor added above cannot be missed by the
+// prefix one. Anchored at both ends for a whole value, at the start for a piece.
+func credentialArms(prefixOnly bool) string {
+	arms := make([]string, 0, len(credentialFormats))
+	for _, f := range credentialFormats {
+		switch {
+		case !prefixOnly:
+			arms = append(arms, "^"+f.pat+"$")
+		case f.prefixSafe:
+			arms = append(arms, "^"+f.pat)
+		}
+	}
+	return strings.Join(arms, "|")
 }
 
 func IsNonSecretConnString(v string) bool {
