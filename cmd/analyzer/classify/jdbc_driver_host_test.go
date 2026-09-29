@@ -217,6 +217,8 @@ func TestIsNonSecretConnString_VendorPrefixDoesNotCollideWithSettings(t *testing
 		// The named variants allow hyphens, so they must be long enough that a
 		// service name cannot reach them.
 		`jdbc:sqlserver://localhost;applicationName=sk-admin-billing-service-prod;encrypt=true`,
+		// An open-ended arm keeps its anchor, or this becomes a key.
+		`jdbc:sqlserver://localhost;applicationName=sk-abcdefghijklmnopqrst-worker;encrypt=true`,
 	} {
 		require.True(t, IsNonSecretConnString(v),
 			"a hyphenated service name is not an api key: %s", v)
@@ -284,6 +286,23 @@ func TestIsNonSecretConnString_ColonParametersAreNeverUnread(t *testing.T) {
 		// is stuck to unless the colon pieces are checked as well.
 		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop:extra`,
 		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX:extra`,
+		// Any character a vendor format cannot contain ends the token.
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop&extra`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop;extra`,
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX?extra`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop,extra`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop=x`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop#extra`,
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUX.extra`,
+		// A token-character suffix does not split, so arms match by prefix too.
+		`jdbc:postgresql://host:5432/db?user=AKIASP2TPHJSQH3FJRUXEXTRA`,
+		`jdbc:postgresql://host:5432/db?ssl=AIzaSyA1234567890abcdefghijklmnopqrstuvEXTRA`,
+		// "-" and "_" are token characters, so they do not split either.
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop-extra`,
+		`jdbc:postgresql://host:5432/db?ssl=ghp_0123456789abcdefghijklmnop_extra`,
+		`jdbc:postgresql://host:5432/db?ssl=glpat-x1Y2z3A4b5C6d7E8-extra`,
+		`jdbc:postgresql://host:5432/db?ssl=pk_live_abcdefghijklmnop_prod`,
+		`jdbc:postgresql://host:5432/db?ssl=sk_live_abcdefghijklmnop_extra`,
 	} {
 		require.False(t, IsNonSecretConnString(v),
 			"a colon-delimited secret-bearing key is not a setting: %s", v)
