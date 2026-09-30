@@ -3,6 +3,7 @@ package classify
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	regexp "github.com/wasilibs/go-re2"
@@ -32,39 +33,49 @@ var envRefPatternStrings = []string{
 const fileExtGroup = `py|js|ts|jsx|tsx|mjs|cjs|go|rs|rb|java|kt|kts|c|h|hpp|hh|cc|cpp|cxx|cs|php|sh|bash|zsh|ps1|json|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|md|mdx|rst|txt|sql|graphql|proto|tf|tfvars|lock|mod|sum|gradle|swift|scala|clj|cljs|ex|exs|erl|vue|svelte|env|properties|csv|tsv|log|pdf|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp|rtf|png|jpg|jpeg|gif|bmp|svg|webp|ico|tiff|heic|mp3|mp4|mov|avi|mkv|wav|flac|ogg|webm|zip|tar|gz|tgz|bz2|xz|7z|rar|jar|war|dll|so|dylib|exe|pkg|dmg|iso|woff|woff2|ttf|otf|eot|bin|dat|bak`
 
 var (
-	uuidPat         = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
-	uuidSuffixPat   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:[/_:.-][A-Za-z0-9._~%@-]{1,12})+$`)
-	ulidPat         = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
-	modelIDPat      = regexp.MustCompile(`^[a-z]{2,}(?:[.-][a-z0-9]{1,8})*[.-](?:20\d{2}-\d{2}-\d{2}|20\d{6})$`)
-	hexLiteralPat   = regexp.MustCompile(`^0[xX][0-9a-fA-F]{8,}$`)
-	bech32Pat       = regexp.MustCompile(`^(?:bc1|tb1|bcrt1|ltc1|tltc1)[ac-hj-np-z02-9]{20,87}$`)
-	traceparentPat  = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`)
-	hexHashPat      = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
-	hex32Pat        = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
-	uuidishPat      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{0,12}$`)
-	decimalPat      = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
-	hostPathPat     = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
-	urlPathPat      = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
-	relPathPat      = regexp.MustCompile(`^(?:[A-Za-z0-9._~%@-]+/)+[A-Za-z0-9._~%@-]*\.(?:` + fileExtGroup + `)$|^(?:[a-z0-9._-]+/){2,}$`)
-	npmScopedPat    = regexp.MustCompile(`^@[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`)
-	urlishPat       = regexp.MustCompile(`^//|://`)
-	orgIDPat        = regexp.MustCompile(`^org-[A-Za-z0-9]+$`)
-	datetimePat     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$`)
-	datePrefixPat   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}(?::\d{2}){0,2})?$`)
-	schemePat       = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
-	maskPat         = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
-	stripeObjPat    = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
-	secretCharPat   = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
-	codeDelimPat    = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
-	filenamePat     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:` + fileExtGroup + `)$`)
-	lowerPathPat    = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
-	oktaIDPat       = regexp.MustCompile(`^(?:0[0o][a-z]|aus|fwf)[a-zA-Z0-9]{17}$`)
-	aiObjectIDPat   = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
-	anthropicIDPat  = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
-	prefixedUUIDPat = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
-	snakeIdentPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
-	connParamKeyPat = regexp.MustCompile(`(?i)[;?&]\s*([a-z][a-z0-9_.\-]*)\s*=`)
-	dottedIdentPat  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	uuidPat        = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}(?:-[0-9a-fA-F]{1,12})?$`)
+	uuidSuffixPat  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:[/_:.-][A-Za-z0-9._~%@-]{1,12})+$`)
+	ulidPat        = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
+	modelIDPat     = regexp.MustCompile(`^[a-z]{2,}(?:[.-][a-z0-9]{1,8})*[.-](?:20\d{2}-\d{2}-\d{2}|20\d{6})$`)
+	hexLiteralPat  = regexp.MustCompile(`^0[xX][0-9a-fA-F]{8,}$`)
+	bech32Pat      = regexp.MustCompile(`^(?:bc1|tb1|bcrt1|ltc1|tltc1)[ac-hj-np-z02-9]{20,87}$`)
+	traceparentPat = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`)
+	hexHashPat     = regexp.MustCompile(`^[0-9a-fA-F]{24}$|^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$`)
+	hex32Pat       = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	uuidishPat     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{0,12}$`)
+	decimalPat     = regexp.MustCompile(`^[0-9][0-9.\-]*$`)
+	hostPathPat    = regexp.MustCompile(`^[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(/.*)?$`)
+	urlPathPat     = regexp.MustCompile(`^/[A-Za-z0-9._~%-]+(/[A-Za-z0-9._~%-]+)*/?$`)
+	relPathPat     = regexp.MustCompile(`^(?:[A-Za-z0-9._~%@-]+/)+[A-Za-z0-9._~%@-]*\.(?:` + fileExtGroup + `)$|^(?:[a-z0-9._-]+/){2,}$`)
+	npmScopedPat   = regexp.MustCompile(`^@[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`)
+	urlishPat      = regexp.MustCompile(`^//|://`)
+	orgIDPat       = regexp.MustCompile(`^org-[A-Za-z0-9]+$`)
+	datetimePat    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$`)
+	datePrefixPat  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}(?::\d{2}){0,2})?$`)
+	schemePat      = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
+	maskPat        = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
+	stripeObjPat   = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt)_[A-Za-z0-9]{12,}$`)
+	secretCharPat  = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
+	codeDelimPat   = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
+	// The optional trailing ":" or "-" is the grep -A/-B line prefix
+	// ("<file>:" on a match line, "<file>-" on a context line), which the
+	// whitespace tokenizer leaves glued to the filename.
+	filenamePat         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:` + fileExtGroup + `)[:-]?$`)
+	lowerPathPat        = regexp.MustCompile(`^(?:[a-z0-9._~@-]+/){2,}[a-z0-9._~@-]*$`)
+	oktaIDPat           = regexp.MustCompile(`^(?:0[0o][a-z]|aus|fwf)[a-zA-Z0-9]{17}$`)
+	aiObjectIDPat       = regexp.MustCompile(`^(?:chatcmpl|cmpl|asst|assistant|thread|run|step|msg|message|toolu|call|resp|file|ftjob|batch|vs|proj)[-_][A-Za-z0-9]{6,}$`)
+	anthropicIDPat      = regexp.MustCompile(`^(?:toolu|msg)_(?:bdrk|vrtx)_[A-Za-z0-9]{6,}$`)
+	prefixedUUIDPat     = regexp.MustCompile(`^(?:pj|pt|proj|req|run|job|task|ws)[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1,12}$`)
+	snakeIdentPat       = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}$`)
+	connParamKeyPat     = regexp.MustCompile(`(?i)[;?&:]\s*([a-z][a-z0-9_.\-]*)\s*=`)
+	credentialFormatPat = regexp.MustCompile(credentialArms(false))
+	credentialPrefixPat = regexp.MustCompile(credentialArms(true))
+	// What a driver option actually holds: a flag, a count, or a named mode.
+	flagValuePat = regexp.MustCompile(`^(?i:true|false|null)$`)
+	// jdbc:<driver>:<host>[:port][/db]. The host segment must look like a host, so
+	// a driver-specific payload cannot pass as a location.
+	jdbcDriverHostPat = regexp.MustCompile(`(?i)^jdbc:[a-z0-9]{2,20}:[a-z0-9._-]+(:\d{1,5})?([/?][^\s]*)?$`)
+	dottedIdentPat    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 
 	emailPat        = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
 	modelAtVerPat   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.\-][a-z0-9]+)*@20\d{6}$`)
@@ -75,6 +86,19 @@ var (
 	affixedUUIDPat  = regexp.MustCompile(`^[A-Za-z0-9]{1,4}[-_][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	orgDigestPat    = regexp.MustCompile(`^[a-zA-Z][a-zA-Z]*[.\-]+(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 	uuidFragmentPat = regexp.MustCompile(`^-?[0-9a-fA-F]{2,8}(?:-[0-9a-fA-F]{1,12}){1,4}-?$`)
+
+	// 2026-09-15 log batch.
+	// Google Analytics client-id cookie value: GA1.<n>.<random>.<unix ts>.
+	gaClientIDPat = regexp.MustCompile(`^GA1\.\d\.\d{6,}\.\d{6,}$`)
+	// Twilio resource SIDs: two-letter type prefix + 32 lowercase hex. Only the
+	// non-credential resource types are listed. AC (account) and SK (API key)
+	// are deliberately absent: each pairs with a secret and the paired Twilio
+	// detectors need them visible.
+	twilioResourceSIDPat = regexp.MustCompile(`^(?:AP|MG|PN|CA|SM|MM|CH|IS|WS)[0-9a-f]{32}$`)
+	// gpg import/list output labels every key id and fingerprint with
+	// "gpg: key <hex>:"; the word "key" there is the log format, not a
+	// credential assignment.
+	gpgKeyLabelPat = regexp.MustCompile(`(?i)gpg:\s+key\s+$`)
 )
 
 var genericStructuralRecognizers = []Recognizer{
@@ -121,6 +145,8 @@ var entropyExclusionRecognizers = []Recognizer{
 	{"pkg_version", pkgVersionPat},
 	{"cli_date_flag", cliDateFlagPat},
 	{"langfuse_public_key", pkLangfusePat},
+	{"ga_client_id", gaClientIDPat},
+	{"twilio_resource_sid", twilioResourceSIDPat},
 }
 
 func MaskPatterns() []string { return copyOf(maskPatternStrings) }
@@ -134,8 +160,27 @@ func EntropyExclusionRecognizers() []Recognizer {
 }
 
 func IsExcludedEntropyValue(v string) bool {
+	return isExcludedEntropyValue(v, false)
+}
+
+// IsExcludedEntropyValueInContext is IsExcludedEntropyValue with one guard:
+// when credentialAssigned is true (the value is the RHS of an api_key/secret/
+// token/... assignment), a value that is excluded ONLY because it is filename-
+// shaped is NOT excluded. A real high-entropy secret can coincidentally end in
+// a known extension plus a grep separator (e.g. "<secret>.md-"), and the
+// value-only filename shape must never silently drop a credential-assigned
+// secret before proximity analysis. All other exclusions (paths, uuids, etc.)
+// still apply: the carve-out is the filename rule alone.
+func IsExcludedEntropyValueInContext(v string, credentialAssigned bool) bool {
+	return isExcludedEntropyValue(v, credentialAssigned)
+}
+
+func isExcludedEntropyValue(v string, credentialAssigned bool) bool {
 	for _, r := range entropyExclusionRecognizers {
 		if r.Match(v) {
+			if credentialAssigned && r.Name == "filename" {
+				continue
+			}
 			return true
 		}
 	}
@@ -401,13 +446,31 @@ func IsHexDigestInContext(value, before string) bool {
 
 var hexIDLabelPat = regexp.MustCompile(`(?i)(?:span[_-]?id|trace(?:parent|state)?|trace[_-]?id|parent[_-]?id|segment[_-]?id|correlation[_-]?id|event[_-]?id|session[_-]?id|request[_-]?id|x-?ray|x-amzn-trace(?:[_-]?id)?|build ?hash|content[_-]?hash|debug[_-]?id)[\s=:@/-]*$|(?i)(?:self|root)\s*=\s*$`)
 
-var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$")
+// The last alternative is a bare quoted JSON key "id" (or 'id'): an object's own
+// identifier slot. Unquoted `id =` is not matched, and neither is any *_id key
+// outside the listed prefixes (client_id pairs with a secret).
+var benignIDContextPat = regexp.MustCompile("(?i)(?:parent|file|folder|document|object|resource|artifact|message|thread|node|commit|request|record|entity|upload|blob|trace|span|correlation|segment|event|debug)[_-]?id[\"'`]?\\s*[:=]\\s*[\"'`]?\\s*$|/(?:files|folders|documents|drive|d|uploads|objects|blobs|records)/[\\s\"'`+]*$|[\"']id[\"']\\s*:\\s*[\"']?\\s*$")
 
 func IsBenignIDContext(before string) bool {
 	return benignIDContextPat.MatchString(before)
 }
 
-var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|secret|passwd|password|token|credential|access[_-]?key|private[_-]?key|client[_-]?secret)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
+// IsGPGKeyIDInContext reports whether value is a gpg key id (16 hex) or
+// fingerprint (40 hex) sitting right after gpg's own "gpg: key " log label.
+// This is checked separately from the other context rules because that label
+// contains the word "key", which the credential-context veto would otherwise
+// treat as evidence of a credential.
+func IsGPGKeyIDInContext(value, before string) bool {
+	if (len(value) != 16 && len(value) != 40) || !isAllHex(value) {
+		return false
+	}
+	return gpgKeyLabelPat.MatchString(before)
+}
+
+// Labels arrive glued (appsecret=, clientSecret=) as often as delimited
+// (signing_key=), so only the bare "key" alternative carries \b -- that is
+// the one that would otherwise match inside monkey= or turkey=.
+var credentialAssignPat = regexp.MustCompile("(?i)(?:api[_-]?key|[a-z0-9]*[_-]key|\\bkey|secret|passwd|pwd|password|token|credentials?|authorization|bearer)[\"'`\\] ]*[:=]\\s*[\"'`]?\\s*$")
 
 func IsCredentialAssignment(before string) bool {
 	return credentialAssignPat.MatchString(before)
@@ -515,24 +578,168 @@ var connBenignKeys = map[string]bool{
 	"targetservertype": true, "currentschema": true, "schema": true,
 	"user": true, "username": true, "uid": true, "host": true, "port": true,
 	"database": true, "db": true, "protocol": true, "driver": true,
+
+	// Aerospike. An unknown key counts as secret-bearing, so each is listed.
+	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
+	"sendkey": true, "refusescan": true, "useboolbin": true,
+	"useservicesalternate": true, "authmode": true,
+}
+
+// The keys above that were not benign before. Benign-listing them widens both
+// shapes, so their values are checked on both rather than only on the new one.
+var connNewlyBenignKeys = map[string]bool{
+	"timeout": true, "totaltimeout": true, "recordsettimeoutms": true,
+	"sendkey": true, "refusescan": true, "useboolbin": true,
+	"useservicesalternate": true, "authmode": true,
+}
+
+// What each option accepts, for the driver-host form. 123456 is a plausible
+// count and a plausible password, so the key decides, not the shape. An option
+// missing here has no checkable value and is reported.
+var connOptionKinds = map[string]string{
+	"timeout": "count", "totaltimeout": "count", "recordsettimeoutms": "count",
+	"logintimeout": "count", "connecttimeout": "count", "sockettimeout": "count",
+	"port": "port", "portnumber": "port",
+
+	"sendkey": "flag", "refusescan": "flag", "useboolbin": "flag",
+	"useservicesalternate": "flag", "encrypt": "flag", "ssl": "flag",
+	"usessl": "flag", "requiressl": "flag", "tcpkeepalive": "flag",
+	"readonly": "flag", "autoreconnect": "flag", "useunicode": "flag",
+	"allowpublickeyretrieval": "flag", "integratedsecurity": "flag",
+	"trustservercertificate": "flag", "multisubnetfailover": "flag",
+	"verifyservercertificate": "flag",
+
+	"authmode": "mode",
+}
+
+// The modes those options name, listed because no word shape separates a mode
+// from a passphrase.
+var connModeValues = map[string]bool{
+	"internal": true, "external": true, "external_insecure": true, "pki": true,
+}
+
+// connParams splits a connection string into its key/value parameters. A
+// delimiter opens a new one only when a key and "=" follow it, so DB2's
+// /db:prop=val; is read while a colon inside a value (GMT+00:00) is not a
+// boundary and stays part of it.
+func connParams(v string) [][2]string {
+	at := connParamKeyPat.FindAllStringSubmatchIndex(v, -1)
+	out := make([][2]string, 0, len(at))
+	for i, m := range at {
+		end := len(v)
+		if i+1 < len(at) {
+			end = at[i+1][0]
+		}
+		val := strings.TrimLeft(v[m[1]:end], " \t")
+		if j := strings.IndexAny(val, " \t\r\n"); j >= 0 {
+			val = val[:j]
+		}
+		// The last value runs to the end of the string, so a closing ";" or "&"
+		// would otherwise stay on it and no setting would match exactly.
+		out = append(out, [2]string{v[m[2]:m[3]], strings.TrimRight(val, ";&?")})
+	}
+	return out
+}
+
+// Whether a rune can appear inside a vendor credential. Anything else in a value
+// separates a token from what is stuck to it.
+func isConnTokenChar(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+		r >= '0' && r <= '9' || r == '_' || r == '-'
+}
+
+// Vendor credential shapes. prefixSafe marks the ones whose prefix no service
+// name would use, so a token with something glued to its end is still one; plain
+// "sk-" is not, since sk-<twenty alphanumerics>-worker must stay a name.
+var credentialFormats = []struct {
+	pat        string
+	prefixSafe bool
+}{
+	{`(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}`, true}, // AWS access-key id
+	{`gh[pousr]_[A-Za-z0-9]{20,}`, true},          // GitHub token
+	{`github_pat_[A-Za-z0-9_]{40,}`, true},        // GitHub fine-grained
+	{`sk-[A-Za-z0-9]{20,}`, false},                // OpenAI
+	{`sk-(?:proj|ant|admin|svcacct)-[A-Za-z0-9_-]{40,}`, false},
+	{`(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}`, true}, // Stripe
+	{`xox[bpaser]-[A-Za-z0-9-]{10,}`, true},               // Slack
+	{`glpat-[A-Za-z0-9_-]{16,}`, true},                    // GitLab
+	{`AIza[A-Za-z0-9_-]{35}`, true},                       // Google api key
+	{`dop_v1_[a-f0-9]{64}`, true},                         // DigitalOcean
+	{`shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}`, true},          // Shopify
+}
+
+// One list builds both patterns, so a vendor added above cannot be missed by the
+// prefix one. Anchored at both ends for a whole value, at the start for a piece.
+func credentialArms(prefixOnly bool) string {
+	arms := make([]string, 0, len(credentialFormats))
+	for _, f := range credentialFormats {
+		switch {
+		case !prefixOnly:
+			arms = append(arms, "^"+f.pat+"$")
+		case f.prefixSafe:
+			arms = append(arms, "^"+f.pat)
+		}
+	}
+	return strings.Join(arms, "|")
 }
 
 func IsNonSecretConnString(v string) bool {
 	if !strings.HasPrefix(strings.ToLower(v), "jdbc:") {
 		return false
 	}
-	if !strings.Contains(v, "://") {
+	// jdbc:driver:host:port/db is the form aerospike, oracle thin and h2 use.
+	// Being new here, its values are held to the stricter check below.
+	authority := strings.Contains(v, "://")
+	if !authority && !jdbcDriverHostPat.MatchString(v) {
 		return false
 	}
+	// Credentials ride in front of the host.
 	if strings.Contains(v, "@") {
 		return false
 	}
-	for _, m := range connParamKeyPat.FindAllStringSubmatch(v, -1) {
-		if !connBenignKeys[strings.ToLower(m[1])] {
+	for _, kv := range connParams(v) {
+		key, val := strings.ToLower(kv[0]), kv[1]
+		if !connBenignKeys[key] {
+			return false
+		}
+		// A credential shape on a benign key means the name is carrying one. The
+		// format is anchored, so the pieces are checked too.
+		if credentialFormatPat.MatchString(val) {
+			return false
+		}
+		notToken := func(r rune) bool { return !isConnTokenChar(r) }
+		for _, piece := range strings.FieldsFunc(val, notToken) {
+			if credentialFormatPat.MatchString(piece) ||
+				credentialPrefixPat.MatchString(piece) {
+				return false
+			}
+		}
+		// The driver-host form has no prior behaviour to preserve, so its values
+		// must look like settings rather than merely not look like tokens. A key
+		// this rule newly made benign has none either, on whichever shape.
+		if (!authority || connNewlyBenignKeys[key]) && !isPlainSettingValue(key, val) {
 			return false
 		}
 	}
 	return true
+}
+
+// Whether this option's value is the kind of value the option takes.
+func isPlainSettingValue(key, val string) bool {
+	switch connOptionKinds[strings.ToLower(key)] {
+	case "flag":
+		return flagValuePat.MatchString(val)
+	case "count":
+		// A Java int in every driver, which is the bound; no digit length is.
+		n, err := strconv.ParseInt(val, 10, 32)
+		return err == nil && n >= 0
+	case "port":
+		n, err := strconv.Atoi(val)
+		return err == nil && n >= 1 && n <= 65535
+	case "mode":
+		return connModeValues[strings.ToLower(val)]
+	}
+	return false
 }
 
 func IsCodeLike(v string) bool {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 )
@@ -38,12 +39,28 @@ var vendorStructuralRules = map[string]vendorRule{
 	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 }
 
+// embeddedVendors are detectors whose real token is always a standalone run, so
+// a match glued to an identifier byte on either side ("app-<hex>@host",
+// "fastly-<tok>-exporter") is a fragment of a larger identifier, not the token.
+// Box is here because its keyword "box" also matches inside "Dropbox",
+// "sandbox" and "inbox", and its 32-alphanumeric shape is any hex32 id.
+var embeddedVendors = map[string]bool{
+	"FastlyPersonalToken": true,
+	"Box":                 true,
+}
+
 func isCuratedVendor(entity string) bool {
-	if entity == "FastlyPersonalToken" {
+	if embeddedVendors[entity] {
 		return true
 	}
 	_, ok := vendorStructuralRules[entity]
 	return ok
+}
+
+// "_" and "-" are word characters to \b, so box_token= hides "token" from the
+// context pattern. Split them before matching.
+func labelSeparatorsToSpace(s string) string {
+	return strings.NewReplacer("_", " ", "-", " ", ".", " ").Replace(s)
 }
 
 func isIdentByte(b byte) bool {
@@ -60,8 +77,27 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	}) {
 		return true, reasonVendorStructuralDigest
 	}
-	if f.EntityType == "FastlyPersonalToken" && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+	if embeddedVendors[f.EntityType] && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		n := len(f.raw)
+		if f.EntityType == "Box" {
+			// A bare hyphen is not enough for Box: its token is 32 alphanumerics,
+			// so "box_token=app-<tok>" and "<tok>-prod" are ordinary credentials
+			// with a neighbour. Only the Dropbox app-id fragment, "app-<hex>@",
+			// is a non-secret -- and not even that when a credential label
+			// introduces it, which the shared veto cannot see because its window
+			// ends inside the "app-" prefix.
+			if s < 4 || !strings.EqualFold(string(d[s-4:s]), "app-") ||
+				s+n >= len(d) || d[s+n] != '@' {
+				return false
+			}
+			lo := s - 4 - credentialContextWindow
+			if lo < 0 {
+				lo = 0
+			}
+			before := string(d[lo : s-4])
+			return !classify.IsCredentialContext(labelSeparatorsToSpace(before)) &&
+				!classify.IsCredentialAssignment(before)
+		}
 		left := s > 0 && isIdentByte(d[s-1])
 		right := s+n < len(d) && isIdentByte(d[s+n])
 		return left || right
