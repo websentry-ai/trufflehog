@@ -120,9 +120,13 @@ readinessProbe:
   httpGet:
     path: /health
     port: http
-  periodSeconds: 10
+  # Tightened so a pod saturated by an in-flight CPU-bound scan is pulled from
+  # the Service endpoints in ~10s (2x5s) instead of ~30s, shifting new requests
+  # to a warm peer rather than queueing behind the scan. successThreshold=1
+  # (default) means it rejoins one probe after it frees up.
+  periodSeconds: 5
   timeoutSeconds: 3
-  failureThreshold: 3
+  failureThreshold: 2
 
 livenessProbe:
   httpGet:

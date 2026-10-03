@@ -38,11 +38,16 @@ autoscaling:
   targetCPUUtilizationPercentage: 75
   targetMemoryUtilizationPercentage: 75
 
-# KEDA on prod. Floor 2 (HA), ceiling 4. Scales on scan request rate.
-# THRESHOLD "2" scan-rps/pod (prod peaks ~4.3). Near-idle service.
+# KEDA on prod. Floor 3 (HA + scan-burst headroom), ceiling 4. Scales on scan
+# request rate. THRESHOLD "2" scan-rps/pod (prod peaks ~4.3). A trufflehog scan
+# is CPU-bound on a 1-core pod (limits.cpu=1), so an active scan can saturate a
+# pod and starve /health there (observed ~7s stalls on a fresh connection).
+# Floor 3 keeps a free pod for new requests while one pod is mid-scan; paired
+# with a tighter readinessProbe (base values) that pulls a saturated pod out of
+# rotation faster so traffic shifts to a warm peer.
 keda:
   enabled: true
-  minReplicaCount: 2
+  minReplicaCount: 3
   maxReplicaCount: 4
   pollingInterval: 30
   cooldownPeriod: 300
