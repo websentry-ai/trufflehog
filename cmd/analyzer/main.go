@@ -10,7 +10,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,6 +302,7 @@ func dedupeIdentical(in []analyzeResult) []analyzeResult {
 func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byte, threshold float64, runeBase int) []analyzeResult {
 	reqID := reqIDFrom(ctx)
 	out := []analyzeResult{}
+	runes := &runeIndex{data: data}
 	for _, match := range core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
@@ -330,7 +330,7 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 			if res.HasChunkOffset() {
 				at = int(res.ChunkOffset())
 			}
-			start, end, ok := offsets(data, res.Raw, at)
+			start, end, ok := runes.offsets(res.Raw, at)
 			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
@@ -389,19 +389,34 @@ func dedupeOverlapping(in []analyzeResult) []analyzeResult {
 // placeLogins adds each login unless a vendor finding covers its whole password,
 // in which case the vendor keeps its name. Otherwise the login replaces what it
 // overlaps, since a narrower finding would leave part of the password unredacted.
+// kept is sorted and non-overlapping, so what a login overlaps is one run of it.
 func placeLogins(kept, logins []analyzeResult) []analyzeResult {
+	dropped := make([]bool, len(kept))
+	out := make([]analyzeResult, 0, len(kept)+len(logins))
 	for _, l := range logins {
-		covered := slices.ContainsFunc(kept, func(k analyzeResult) bool {
-			return entityRank(k.EntityType) < entityRank(l.EntityType) && k.Start <= l.Start && k.End >= l.End
-		})
+		lo := sort.Search(len(kept), func(i int) bool { return kept[i].End > l.Start })
+		hi, covered := lo, false
+		for ; hi < len(kept) && kept[hi].Start < l.End; hi++ {
+			k := kept[hi]
+			if !dropped[hi] && entityRank(k.EntityType) < entityRank(l.EntityType) && k.Start <= l.Start && k.End >= l.End {
+				covered = true
+			}
+		}
 		if covered {
 			continue
 		}
-		kept = slices.DeleteFunc(kept, func(k analyzeResult) bool { return k.Start < l.End && l.Start < k.End })
-		kept = append(kept, l)
+		for i := lo; i < hi; i++ {
+			dropped[i] = true
+		}
+		out = append(out, l)
 	}
-	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
-	return kept
+	for i, k := range kept {
+		if !dropped[i] {
+			out = append(out, k)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Start < out[j].Start })
+	return out
 }
 
 func entityRank(name string) int {
@@ -469,19 +484,33 @@ func hasLongRepeatRun(s string, n int) bool {
 // offsets locates raw in data: at byte at when the detector reported where its
 // match was, otherwise at raw's first occurrence.
 func offsets(data, raw []byte, at int) (int, int, bool) {
+	return (&runeIndex{data: data}).offsets(raw, at)
+}
+
+// runeIndex turns byte offsets into rune offsets, counting on from the previous
+// lookup, so one detector's ascending results cost one pass over the data.
+type runeIndex struct {
+	data       []byte
+	byte, rune int
+}
+
+func (x *runeIndex) offsets(raw []byte, at int) (int, int, bool) {
 	if len(raw) == 0 {
 		return 0, 0, false
 	}
 	i := at
-	if i < 0 || i+len(raw) > len(data) || !bytes.Equal(data[i:i+len(raw)], raw) {
-		i = bytes.Index(data, raw)
+	if i < 0 || i+len(raw) > len(x.data) || !bytes.Equal(x.data[i:i+len(raw)], raw) {
+		i = bytes.Index(x.data, raw)
 	}
 	if i < 0 {
 		return 0, 0, false
 	}
-	start := utf8.RuneCount(data[:i])
-	end := start + utf8.RuneCount(raw)
-	return start, end, true
+	if i < x.byte {
+		x.byte, x.rune = 0, 0
+	}
+	x.rune += utf8.RuneCount(x.data[x.byte:i])
+	x.byte = i
+	return x.rune, x.rune + utf8.RuneCount(raw), true
 }
 
 func authorized(r *http.Request, apiKey string) bool {

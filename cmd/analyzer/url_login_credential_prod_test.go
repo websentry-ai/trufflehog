@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -334,4 +335,16 @@ func TestURLLogin_ADigestLookingPasswordIsReported(t *testing.T) {
 		text := "ssh://" + user + ":" + hex64 + "@host.acme.io/repo"
 		require.NotEmpty(t, entitiesOver(t, s, text, hex64), user)
 	}
+}
+
+// Placing logins stays near-linear, so a request full of them cannot hold a
+// scan far past its deadline.
+func TestURLLogin_ManyLoginsScanQuickly(t *testing.T) {
+	s := prodScanner(t)
+	const n = 50000
+	text := strings.Repeat("ssh://u:aB7x@h\n", n)
+	start := time.Now()
+	got := s.scan(context.Background(), []byte(text), 0.75)
+	require.Len(t, got, n)
+	require.Less(t, time.Since(start), 3*time.Second)
 }

@@ -146,6 +146,20 @@ func TestOffsetsUseTheReportedPosition(t *testing.T) {
 	}
 }
 
+// Lookups out of order, as results from different detectors arrive, still give
+// each one its own rune offset.
+func TestRuneIndexHandlesLookupsInAnyOrder(t *testing.T) {
+	data := []byte("é one — two — three")
+	x := &runeIndex{data: data}
+	for _, w := range []string{"three", "one", "two", "three"} {
+		start, _, ok := x.offsets([]byte(w), -1)
+		want := utf8.RuneCountInString(string(data[:strings.Index(string(data), w)]))
+		if !ok || start != want {
+			t.Fatalf("%s: start %d, want %d", w, start, want)
+		}
+	}
+}
+
 func TestOffsetsAreRuneOffsetsNotByteOffsets(t *testing.T) {
 	prefix := "note — context — "
 	data := []byte(prefix + fakeGithubPAT + " end")
