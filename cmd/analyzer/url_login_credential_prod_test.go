@@ -343,22 +343,22 @@ func TestURLLogin_ADigestLookingPasswordIsReported(t *testing.T) {
 }
 
 // Placing logins stays near-linear, so a request full of them cannot hold a
-// scan far past its deadline. Four times the logins must cost well under the
-// sixteen times a quadratic pass would; a ratio holds on a slow runner too.
+// scan far past its deadline. Eight times the logins costs about eight times as
+// long here and sixty-four times on a quadratic pass; the bound sits between.
 func TestURLLogin_ManyLoginsScanQuickly(t *testing.T) {
 	s := prodScanner(t)
 	took := func(n int) time.Duration {
 		text := []byte(strings.Repeat("ssh://u:aB7x@h\n", n))
 		best := time.Duration(1 << 62)
-		for range 2 {
+		for range 3 {
 			start := time.Now()
 			require.Len(t, s.scan(context.Background(), text, 0.75), n)
 			best = min(best, time.Since(start))
 		}
 		return best
 	}
-	small, large := took(12500), took(50000)
-	require.Less(t, large, 8*small, "12.5k logins took %v, 50k took %v", small, large)
+	small, large := took(12500), took(100000)
+	require.Less(t, large, 24*small, "12.5k logins took %v, 100k took %v", small, large)
 }
 
 // The shared placeholder filter is for tokens in free text; a real login password
@@ -368,5 +368,21 @@ func TestURLLogin_ARealPasswordWithAPlaceholderLookIsReported(t *testing.T) {
 	for _, pw := range []string{"Q7mN2vRt00000000Z9kP", "Xexample9Kq2Lm", "pReplace7Qz4mW"} {
 		text := "ssh://svc:" + pw + "@host.acme.io/repo"
 		require.NotEmpty(t, entitiesOver(t, s, text, pw), pw)
+	}
+}
+
+// A URL and an address in neighbouring JSON or CSV fields are not a login.
+func TestURLLogin_FieldsAroundAURLAreNotALogin(t *testing.T) {
+	s := prodScanner(t)
+	for _, text := range []string{
+		`{"url":"https://acme.io","email":"jane@acme.com"}`,
+		`{"url":"http://host:8080","email":"jane@acme.com"}`,
+		`{'url':'https://u:x','email':'jane@acme.com'}`,
+		"x,https://app.acme.io:443,jane@acme.com",
+		"url=https://acme.io;contact:jane@acme.com",
+	} {
+		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
+			require.NotEqual(t, "url-login-credential", r.EntityType, text)
+		}
 	}
 }

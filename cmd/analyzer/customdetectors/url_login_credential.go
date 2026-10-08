@@ -11,12 +11,13 @@ import (
 
 const URLLoginCredentialName = "url-login-credential"
 
-// "?" and "#" end the authority. The password is unbounded, since a long token is
-// the case this exists for, and the match ends at "@" so any host shape counts,
-// IPv6 brackets included.
+// The user and password hold only RFC 3986 login characters, less "," and ";",
+// so the match cannot run across JSON or CSV fields into a later address. The
+// password is unbounded, since a long token is the case this exists for, and the
+// match ends at "@" so any host shape counts, IPv6 brackets included.
 var urlLoginRegex = regexp.MustCompile(`(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
 	`|mongodb(?:\+srv)?|(?:postgres(?:ql)?|mysql|mariadb)(?:\+\w+)?|ldaps?|smtps?|imaps?)` +
-	`://[^\s/?#@:]*:([^\s/?#@]{3,})@`)
+	`://[A-Za-z0-9\-._~%!$&()*+=]*:([A-Za-z0-9\-._~%!$&'()*+=:]{3,})@`)
 
 // urlLoginDetector reports the password in scheme://user:password@host, which
 // vendor detectors mostly miss (URI caps it at 50 characters, JWT skips HS256).
