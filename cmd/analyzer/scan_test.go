@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -122,48 +121,28 @@ func TestReadinessNotReadyWithoutDetectors(t *testing.T) {
 func TestOffsets(t *testing.T) {
 	data := []byte("token " + fakeGithubPAT + " end")
 
-	start, end, _, ok := offsets(data, []byte(fakeGithubPAT), "", 0)
+	start, end, ok := offsets(data, []byte(fakeGithubPAT), -1)
 	if !ok || string(data[start:end]) != fakeGithubPAT {
 		t.Fatalf("located match wrong: ok=%v span=%d:%d", ok, start, end)
 	}
-	if _, _, _, ok := offsets(data, []byte("not-in-text"), "", 0); ok {
+	if _, _, ok := offsets(data, []byte("not-in-text"), -1); ok {
 		t.Error("expected ok=false for absent raw")
 	}
-	if _, _, _, ok := offsets(data, nil, "", 0); ok {
+	if _, _, ok := offsets(data, nil, -1); ok {
 		t.Error("expected ok=false for empty raw")
 	}
 }
 
-// With the full match supplied, raw is located inside it rather than at its
-// first occurrence in the text.
-func TestOffsetsLocateRawInsideTheMatch(t *testing.T) {
+// A reported position wins over the first occurrence; a position that does not
+// hold raw is ignored.
+func TestOffsetsUseTheReportedPosition(t *testing.T) {
 	data := []byte("svc then https://svc:svc@acme.io")
-	start, end, _, ok := offsets(data, []byte("svc"), "https://svc:svc@", 0)
-	if !ok || start != strings.Index(string(data), ":svc@")+1 || end != start+3 {
-		t.Fatalf("located raw wrong: ok=%v span=%d:%d", ok, start, end)
+	at := strings.Index(string(data), ":svc@") + 1
+	if start, _, ok := offsets(data, []byte("svc"), at); !ok || start != at {
+		t.Fatalf("expected the reported position %d, got %d (ok=%v)", at, start, ok)
 	}
-	start, _, _, ok = offsets(data, []byte("svc"), "not-in-text", 0)
-	if !ok || start != 0 {
-		t.Fatalf("expected fallback to the first occurrence: ok=%v start=%d", ok, start)
-	}
-}
-
-// Searching on from the previous copy's end lands each repeat on the next copy.
-func TestOffsetsWalkRepeatedCopies(t *testing.T) {
-	data := []byte("ssh://svc:pw1@h and ssh://svc:pw1@h")
-	match := "ssh://svc:pw1@"
-	var starts []int
-	for i, from := 0, 0; i < 3; i++ {
-		start, _, after, ok := offsets(data, []byte("pw1"), match, from)
-		if !ok {
-			t.Fatal("expected a match")
-		}
-		starts = append(starts, start)
-		from = after
-	}
-	// The third result has no copy left and falls back to the first.
-	if want := []int{10, 30, 10}; fmt.Sprint(starts) != fmt.Sprint(want) {
-		t.Fatalf("starts = %v, want %v", starts, want)
+	if start, _, ok := offsets(data, []byte("svc"), 1); !ok || start != 0 {
+		t.Fatalf("expected fallback to the first occurrence, got %d (ok=%v)", start, ok)
 	}
 }
 
@@ -171,7 +150,7 @@ func TestOffsetsAreRuneOffsetsNotByteOffsets(t *testing.T) {
 	prefix := "note — context — "
 	data := []byte(prefix + fakeGithubPAT + " end")
 
-	start, end, _, ok := offsets(data, []byte(fakeGithubPAT), "", 0)
+	start, end, ok := offsets(data, []byte(fakeGithubPAT), -1)
 	if !ok {
 		t.Fatal("expected match")
 	}

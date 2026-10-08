@@ -259,3 +259,33 @@ func TestURLLogin_AUUIDPasswordUnderAVendorKeywordIsReported(t *testing.T) {
 		require.NotEmpty(t, entitiesOver(t, s, text, uuid), user)
 	}
 }
+
+// A shorter scheme inside a longer one ("ssh" in "git+ssh") is the same text;
+// each login is still reported on its own password.
+func TestURLLogin_ANestedSchemeDoesNotStealTheSpan(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakePassword(24, 81)
+	for _, text := range []string{
+		"git+ssh://svc:" + pw + "@a.acme.io/x then ssh://svc:" + pw + "@b.acme.io/y",
+		"sftp://u:" + pw + "@a.acme.io/x then ftp://u:" + pw + "@b.acme.io/y",
+	} {
+		var got []int
+		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
+			if r.End-r.Start == len(pw) && text[r.Start:r.End] == pw {
+				got = append(got, r.Start)
+			}
+		}
+		require.Len(t, got, 2, text)
+	}
+}
+
+// Dummy logins ahead of a real one do not use up a match budget.
+func TestURLLogin_ARealLoginAfterManyDummiesIsReported(t *testing.T) {
+	s := prodScanner(t)
+	dummies := strings.Repeat("ssh://u:pass@h\n", 100)
+	for _, n := range []int{24, 3000} {
+		pw := fakePassword(n, int64(91+n))
+		text := dummies + "ssh://svc:" + pw + "@real.acme.io/repo"
+		require.NotEmpty(t, entitiesOver(t, s, text, pw), "password of %d", n)
+	}
+}

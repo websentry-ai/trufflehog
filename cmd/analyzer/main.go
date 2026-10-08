@@ -289,8 +289,6 @@ func dedupeIdentical(in []analyzeResult) []analyzeResult {
 func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byte, threshold float64, runeBase int) []analyzeResult {
 	reqID := reqIDFrom(ctx)
 	out := []analyzeResult{}
-	// Where the next copy of a repeated result is looked for.
-	next := map[string]int{}
 	for _, match := range core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
@@ -314,9 +312,11 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}
-			key := entity + "\x00" + res.GetPrimarySecretValue() + "\x00" + string(res.Raw)
-			start, end, after, ok := offsets(data, res.Raw, res.GetPrimarySecretValue(), next[key])
-			next[key] = after
+			at := -1
+			if res.HasChunkOffset() {
+				at = int(res.ChunkOffset())
+			}
+			start, end, ok := offsets(data, res.Raw, at)
 			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
@@ -434,33 +434,22 @@ func hasLongRepeatRun(s string, n int) bool {
 	return false
 }
 
-// offsets locates raw in data from byte from, so that repeated results land on
-// successive copies; after is where the next search starts. Given the full match,
-// which ends in the reported group, raw is its last occurrence there rather than
-// an earlier copy in the text or the username.
-func offsets(data, raw []byte, match string, from int) (start, end, after int, ok bool) {
+// offsets locates raw in data: at byte at when the detector reported where its
+// match was, otherwise at raw's first occurrence.
+func offsets(data, raw []byte, at int) (int, int, bool) {
 	if len(raw) == 0 {
-		return 0, 0, from, false
+		return 0, 0, false
 	}
-	find := func(needle []byte) int {
-		if i := bytes.Index(data[from:], needle); i >= 0 {
-			return from + i
-		}
-		return bytes.Index(data, needle)
-	}
-	i := find(raw)
-	after = i + len(raw)
-	if m := find([]byte(match)); match != "" && m >= 0 {
-		if j := bytes.LastIndex([]byte(match), raw); j >= 0 {
-			i, after = m+j, m+len(match)
-		}
+	i := at
+	if i < 0 || i+len(raw) > len(data) || !bytes.Equal(data[i:i+len(raw)], raw) {
+		i = bytes.Index(data, raw)
 	}
 	if i < 0 {
-		return 0, 0, from, false
+		return 0, 0, false
 	}
-	start = utf8.RuneCount(data[:i])
-	end = start + utf8.RuneCount(raw)
-	return start, end, after, true
+	start := utf8.RuneCount(data[:i])
+	end := start + utf8.RuneCount(raw)
+	return start, end, true
 }
 
 func authorized(r *http.Request, apiKey string) bool {
