@@ -24,10 +24,11 @@ func NewURLLoginCredential() (detectors.Detector, error) {
 		Regex: map[string]string{
 			// "?" and "#" end the authority, so neither the user nor the password
 			// may contain them. The password has no upper bound: a long token is
-			// the case this exists for, and the long-form pass sees it whole.
+			// the case this exists for, and the long-form pass sees it whole. The
+			// match ends at "@", so any host shape counts, IPv6 brackets included.
 			"secret": `(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
 				`|mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mariadb|ldaps?|smtps?|imaps?)` +
-				`://[^\s/?#@:]*:([^\s/?#@]{3,})@[A-Za-z0-9.-]+`,
+				`://[^\s/?#@:]*:([^\s/?#@]{3,})@`,
 		},
 		ExcludeRegexesCapture: dbConnectionURIExcludeRegexes(),
 	}

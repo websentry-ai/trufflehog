@@ -139,6 +139,8 @@ func TestURLLogin_PlaceholderPasswordsAreNotReported(t *testing.T) {
 		"https://user:pass@example.com/api",
 		"amqp://guest:guest@localhost:5672/",
 		"https://deploy:changeme@git.acme.io/team/repo.git",
+		"postgres://postgres:postgres@localhost:5432/postgres",
+		"mysql://root:mysql@127.0.0.1:3306/app",
 	} {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
 			require.NotEqual(t, "url-login-credential", r.EntityType, text)
@@ -168,4 +170,33 @@ func TestURLLogin_PlaceholderFilterFollowsTheSuppressionMode(t *testing.T) {
 	text := "postgres://user:password@localhost:5432/db"
 	require.Empty(t, entitiesOver(t, s, text, "password"))
 	require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, off, text, "password"))
+}
+
+// The span is the password inside the login, not an earlier copy of the same
+// value: the redaction has to land on the credential.
+func TestURLLogin_TheSpanIsThePasswordInTheLogin(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakePassword(24, 41)
+	for _, text := range []string{
+		"rotated " + pw + " today; git clone ssh://svc:" + pw + "@git.acme.io/team/repo.git",
+		"mysql://" + pw + ":" + pw + "@db.acme.io/app",
+	} {
+		want := strings.Index(text, ":"+pw+"@") + 1
+		var spans [][2]int
+		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
+			if r.EntityType == "url-login-credential" {
+				spans = append(spans, [2]int{r.Start, r.End})
+			}
+		}
+		require.Equal(t, [][2]int{{want, want + len(pw)}}, spans, text)
+	}
+}
+
+func TestURLLogin_AnIPv6HostIsCaught(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakePassword(24, 51)
+	for _, host := range []string{"[::1]:5432", "[2001:db8::5]", "[fe80::1%25en0]:22"} {
+		text := "postgres://app:" + pw + "@" + host + "/prod"
+		require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, s, text, pw), host)
+	}
 }

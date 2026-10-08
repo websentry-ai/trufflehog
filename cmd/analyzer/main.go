@@ -312,7 +312,7 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}
-			start, end, ok := offsets(data, res.Raw)
+			start, end, ok := offsets(data, res.Raw, res.GetPrimarySecretValue())
 			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
@@ -430,11 +430,20 @@ func hasLongRepeatRun(s string, n int) bool {
 	return false
 }
 
-func offsets(data, raw []byte) (int, int, bool) {
+// offsets locates raw in data. Custom detectors also hand over their full match,
+// which ends in the reported group, so raw is taken as its last occurrence
+// there: the same value can appear earlier in the text, or in the match itself
+// (a user named like its password).
+func offsets(data, raw []byte, match string) (int, int, bool) {
 	if len(raw) == 0 {
 		return 0, 0, false
 	}
 	i := bytes.Index(data, raw)
+	if m := bytes.Index(data, []byte(match)); match != "" && m >= 0 {
+		if j := bytes.LastIndex([]byte(match), raw); j >= 0 {
+			i = m + j
+		}
+	}
 	if i < 0 {
 		return 0, 0, false
 	}

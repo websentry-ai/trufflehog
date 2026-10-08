@@ -121,15 +121,29 @@ func TestReadinessNotReadyWithoutDetectors(t *testing.T) {
 func TestOffsets(t *testing.T) {
 	data := []byte("token " + fakeGithubPAT + " end")
 
-	start, end, ok := offsets(data, []byte(fakeGithubPAT))
+	start, end, ok := offsets(data, []byte(fakeGithubPAT), "")
 	if !ok || string(data[start:end]) != fakeGithubPAT {
 		t.Fatalf("located match wrong: ok=%v span=%d:%d", ok, start, end)
 	}
-	if _, _, ok := offsets(data, []byte("not-in-text")); ok {
+	if _, _, ok := offsets(data, []byte("not-in-text"), ""); ok {
 		t.Error("expected ok=false for absent raw")
 	}
-	if _, _, ok := offsets(data, nil); ok {
+	if _, _, ok := offsets(data, nil, ""); ok {
 		t.Error("expected ok=false for empty raw")
+	}
+}
+
+// With the full match supplied, raw is located inside it rather than at its
+// first occurrence in the text.
+func TestOffsetsLocateRawInsideTheMatch(t *testing.T) {
+	data := []byte("svc then https://svc:svc@acme.io")
+	start, end, ok := offsets(data, []byte("svc"), "https://svc:svc@")
+	if !ok || start != strings.Index(string(data), ":svc@")+1 || end != start+3 {
+		t.Fatalf("located raw wrong: ok=%v span=%d:%d", ok, start, end)
+	}
+	start, _, ok = offsets(data, []byte("svc"), "not-in-text")
+	if !ok || start != 0 {
+		t.Fatalf("expected fallback to the first occurrence: ok=%v start=%d", ok, start)
 	}
 }
 
@@ -137,7 +151,7 @@ func TestOffsetsAreRuneOffsetsNotByteOffsets(t *testing.T) {
 	prefix := "note — context — "
 	data := []byte(prefix + fakeGithubPAT + " end")
 
-	start, end, ok := offsets(data, []byte(fakeGithubPAT))
+	start, end, ok := offsets(data, []byte(fakeGithubPAT), "")
 	if !ok {
 		t.Fatal("expected match")
 	}
