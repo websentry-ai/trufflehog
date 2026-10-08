@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"unicode"
 
 	regexp "github.com/wasilibs/go-re2"
 )
@@ -834,6 +835,42 @@ var placeholderUserinfo = map[string]bool{
 	"user:pass": true, "user:password": true, "username:password": true,
 	"user:secret": true, "admin:admin": true, "admin:password": true,
 	"user:pass123": true, "username:pass": true, "root:root": true,
+}
+
+// IsPlaceholderPassword matches a URL-login password that is a well-known dummy
+// value, for detectors that report the password alone rather than the URI. Like
+// IsPlaceholderURI it keys only on the credential, never the host.
+func IsPlaceholderPassword(v string) bool {
+	lower := strings.ToLower(v)
+	if placeholderPasswords[lower] {
+		return true
+	}
+	for _, m := range []string{"your_", "your-", "change-me", "change_me", "do-not-use", "do_not_use"} {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	// Single-word markers count only as a whole word, so a real password that
+	// happens to contain one ("Xexample9Kq2") is still reported.
+	for _, w := range strings.FieldsFunc(lower, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if placeholderWords[w] {
+			return true
+		}
+	}
+	return false
+}
+
+var placeholderWords = map[string]bool{
+	"example": true, "redacted": true, "placeholder": true, "dummy": true, "sample": true, "changeme": true,
+	"replace": true, "yourkey": true, "yourtoken": true, "yourpassword": true, "xxxx": true,
+}
+
+// The password halves of placeholderUserinfo, plus the defaults of local brokers,
+// database images and anonymous FTP.
+var placeholderPasswords = map[string]bool{
+	"pass": true, "password": true, "passwd": true, "secret": true, "pass123": true,
+	"admin": true, "root": true, "guest": true, "changeme": true,
+	"postgres": true, "mysql": true, "anonymous": true,
 }
 
 // IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken

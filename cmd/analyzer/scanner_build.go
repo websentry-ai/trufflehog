@@ -105,11 +105,14 @@ func longFormDetectors(dets []detectors.Detector) []detectors.Detector {
 		if sz, ok := d.(interface{ MaxSecretSize() int64 }); ok && sz.MaxSecretSize() > scanWindowPeek {
 			long = true
 		}
-		// The PEM block is matched by a custom regex, and every custom detector
-		// reports the same fixed size whatever its pattern, so the declared size
-		// does not describe this one. It has no upper bound at all.
-		if cd, ok := d.(interface{ GetName() string }); ok && cd.GetName() == customdetectors.PrivateKeyName {
-			long = true
+		// Every custom detector reports the same fixed size whatever its pattern, so
+		// the declared size does not describe these two: a PEM block has no upper
+		// bound, and a URL login with a long token can outgrow the window overlap.
+		if cd, ok := d.(interface{ GetName() string }); ok {
+			switch cd.GetName() {
+			case customdetectors.PrivateKeyName, customdetectors.URLLoginCredentialName:
+				long = true
+			}
 		}
 		if long {
 			out = append(out, d)
@@ -158,6 +161,13 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	feature.UserDetectorEnabled.Store(true)
 
 	dets := defaults.DefaultDetectors()
+	// Not behind the generic switch: it keys on a password in a URL's login slot,
+	// not on a keyword near a run of characters.
+	urlLogin, err := customdetectors.NewURLLoginCredential()
+	if err != nil {
+		return nil, err
+	}
+	dets = append(dets, urlLogin)
 	if cfg.genericSecretsEnabled {
 		gs, err := customdetectors.NewGenericSecret()
 		if err != nil {
