@@ -322,7 +322,8 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 			if score < threshold {
 				continue
 			}
-			if isObviousPlaceholder(string(res.Raw)) {
+			// A login's password meets its own placeholder rule in suppression.
+			if entity != customdetectors.URLLoginCredentialName && isObviousPlaceholder(string(res.Raw)) {
 				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}

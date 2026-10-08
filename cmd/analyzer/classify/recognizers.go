@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"unicode"
 
 	regexp "github.com/wasilibs/go-re2"
 )
@@ -840,7 +841,28 @@ var placeholderUserinfo = map[string]bool{
 // value, for detectors that report the password alone rather than the URI. Like
 // IsPlaceholderURI it keys only on the credential, never the host.
 func IsPlaceholderPassword(v string) bool {
-	return placeholderPasswords[strings.ToLower(v)]
+	lower := strings.ToLower(v)
+	if placeholderPasswords[lower] {
+		return true
+	}
+	for _, m := range []string{"your_", "your-", "change-me", "change_me", "do-not-use", "do_not_use"} {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	// Single-word markers count only as a whole word, so a real password that
+	// happens to contain one ("Xexample9Kq2") is still reported.
+	for _, w := range strings.FieldsFunc(lower, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if placeholderWords[w] {
+			return true
+		}
+	}
+	return false
+}
+
+var placeholderWords = map[string]bool{
+	"example": true, "redacted": true, "placeholder": true, "dummy": true, "sample": true,
+	"replace": true, "yourkey": true, "yourtoken": true, "yourpassword": true, "xxxx": true,
 }
 
 // The password halves of placeholderUserinfo, plus the defaults of local brokers,

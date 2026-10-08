@@ -147,6 +147,10 @@ func TestURLLogin_PlaceholderPasswordsAreNotReported(t *testing.T) {
 		`"postgres://{0}:{1}@{2}/db".format(user, pw, host)`,
 		`"mysql://%(user)s:%(password)s@%(host)s/app" % cfg`,
 		"redis://:$(REDIS_PASS)@cache.acme.io:6379",
+		"postgres://user:your_password@localhost:5432/db",
+		"https://deploy:my-dummy-pass@git.acme.io/team/repo.git",
+		"mysql://app:REDACTED@db.acme.io/app",
+		"https://u:change-me@pkg.acme.io/simple/",
 		`fmt.Sprintf("postgres://%s:%s@%s/db", u, p, h)`,
 	} {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
@@ -338,13 +342,30 @@ func TestURLLogin_ADigestLookingPasswordIsReported(t *testing.T) {
 }
 
 // Placing logins stays near-linear, so a request full of them cannot hold a
-// scan far past its deadline.
+// scan far past its deadline. Four times the logins must cost well under the
+// sixteen times a quadratic pass would; a ratio holds on a slow runner too.
 func TestURLLogin_ManyLoginsScanQuickly(t *testing.T) {
 	s := prodScanner(t)
-	const n = 50000
-	text := strings.Repeat("ssh://u:aB7x@h\n", n)
-	start := time.Now()
-	got := s.scan(context.Background(), []byte(text), 0.75)
-	require.Len(t, got, n)
-	require.Less(t, time.Since(start), 3*time.Second)
+	took := func(n int) time.Duration {
+		text := []byte(strings.Repeat("ssh://u:aB7x@h\n", n))
+		best := time.Duration(1 << 62)
+		for range 2 {
+			start := time.Now()
+			require.Len(t, s.scan(context.Background(), text, 0.75), n)
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	small, large := took(12500), took(50000)
+	require.Less(t, large, 8*small, "12.5k logins took %v, 50k took %v", small, large)
+}
+
+// The shared placeholder filter is for tokens in free text; a real login password
+// that contains a repeat run or a marker inside a word is still reported.
+func TestURLLogin_ARealPasswordWithAPlaceholderLookIsReported(t *testing.T) {
+	s := prodScanner(t)
+	for _, pw := range []string{"Q7mN2vRt00000000Z9kP", "Xexample9Kq2Lm", "pReplace7Qz4mW"} {
+		text := "ssh://svc:" + pw + "@host.acme.io/repo"
+		require.NotEmpty(t, entitiesOver(t, s, text, pw), pw)
+	}
 }
