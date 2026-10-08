@@ -233,9 +233,22 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	}
 
 	// Overlap resolution and suppression both reason about the request as a
-	// whole, so they run once on the merged set rather than inside a window.
-	merged := dedupeOverlapping(dedupeIdentical(all))
-	return s.record(ctx, s.applySuppression(ctx, merged, data, shapes))
+	// whole, so they run once on the merged set rather than inside a window. A
+	// URL login yields only to a finding that survives suppression, so a vendor
+	// match dropped as noise cannot take the login down with it.
+	var logins, others []analyzeResult
+	for _, r := range dedupeIdentical(all) {
+		if r.EntityType == customdetectors.URLLoginCredentialName {
+			logins = append(logins, r)
+		} else {
+			others = append(others, r)
+		}
+	}
+	kept := s.applySuppression(ctx, dedupeOverlapping(others), data, shapes)
+	if len(logins) > 0 {
+		kept = dedupeOverlapping(append(kept, s.applySuppression(ctx, logins, data, shapes)...))
+	}
+	return s.record(ctx, kept)
 }
 
 // runeBoundary moves i forward to the next rune start, so slicing never cuts a

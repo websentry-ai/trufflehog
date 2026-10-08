@@ -114,9 +114,7 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 		return false, ""
 	}
 	if rule.vetoable {
-		// A URL's password slot is a credential context too.
-		if !contextSuppressed(data, f.raw, alwaysBenignAt) || credentialSuffixLabeled(data, f.raw) ||
-			customdetectors.IsURLLoginPassword(data, f.raw) {
+		if !contextSuppressed(data, f.raw, alwaysBenignAt) || credentialSuffixLabeled(data, f.raw) {
 			return false, ""
 		}
 	}

@@ -142,6 +142,11 @@ func TestURLLogin_PlaceholderPasswordsAreNotReported(t *testing.T) {
 		"postgres://postgres:postgres@localhost:5432/postgres",
 		"mysql://root:mysql@127.0.0.1:3306/app",
 		"ftp://anonymous:anonymous@ftp.acme.org/pub/",
+		`url = f"postgresql://{user}:{password}@{host}/{db}"`,
+		`"postgres://{0}:{1}@{2}/db".format(user, pw, host)`,
+		`"mysql://%(user)s:%(password)s@%(host)s/app" % cfg`,
+		"redis://:$(REDIS_PASS)@cache.acme.io:6379",
+		`fmt.Sprintf("postgres://%s:%s@%s/db", u, p, h)`,
 	} {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
 			require.NotEqual(t, "url-login-credential", r.EntityType, text)
@@ -287,5 +292,20 @@ func TestURLLogin_ARealLoginAfterManyDummiesIsReported(t *testing.T) {
 		pw := fakePassword(n, int64(91+n))
 		text := dummies + "ssh://svc:" + pw + "@real.acme.io/repo"
 		require.NotEmpty(t, entitiesOver(t, s, text, pw), "password of %d", n)
+	}
+}
+
+// A vendor match on part of the password that is then dropped as an identifier
+// fragment must not take the login with it.
+func TestURLLogin_ASuppressedVendorFragmentDoesNotDropTheLogin(t *testing.T) {
+	s := prodScanner(t)
+	for _, pw := range []string{
+		"Abcdefghij1234567890KLMNOPQRSTuv-more",
+		"app-0123456789abcdef0123456789abcdef",
+	} {
+		for _, user := range []string{"fastly", "box"} {
+			text := "ssh://" + user + ":" + pw + "@host.acme.io/x"
+			require.NotEmpty(t, entitiesOver(t, s, text, pw), text)
+		}
 	}
 }

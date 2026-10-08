@@ -18,16 +18,6 @@ var urlLoginRegex = regexp.MustCompile(`(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\
 	`|mongodb(?:\+srv)?|(?:postgres(?:ql)?|mysql|mariadb)(?:\+\w+)?|ldaps?|smtps?|imaps?)` +
 	`://[^\s/?#@:]*:([^\s/?#@]{3,})@`)
 
-// IsURLLoginPassword reports whether raw is the password of a URL login in data.
-func IsURLLoginPassword(data []byte, raw string) bool {
-	for _, m := range urlLoginRegex.FindAllSubmatch(data, -1) {
-		if string(m[1]) == raw {
-			return true
-		}
-	}
-	return false
-}
-
 // urlLoginDetector reports the password in scheme://user:password@host, which
 // vendor detectors mostly miss (URI caps it at 50 characters, JWT skips HS256).
 // Its schemes are the ones the email recognizer treats as a login slot. It is
@@ -37,7 +27,9 @@ type urlLoginDetector struct{ exclude []*regexp.Regexp }
 
 func NewURLLoginCredential() (detectors.Detector, error) {
 	var d urlLoginDetector
-	for _, p := range dbConnectionURIExcludeRegexes() {
+	// Code that builds the URL leaves a template field in the password slot.
+	templates := []string{`^\{[^{}]*\}$`, `^%\([^)]*\)s$`, `^\$\(.*\)$`, `^%s$`}
+	for _, p := range append(dbConnectionURIExcludeRegexes(), templates...) {
 		re, err := regexp.Compile(p)
 		if err != nil {
 			return nil, err
