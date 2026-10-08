@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -179,7 +180,13 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 		// A request that cannot be scanned says so in its status: an empty list on
 		// 200 would read as "no secrets" to a caller that never scanned anything.
 		var req analyzeRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err == nil {
+			// The decoder stops at the first value, so bytes past it, and past the
+			// limit, go unread unless drained here.
+			_, err = io.Copy(io.Discard, r.Body)
+		}
+		if err != nil || req.Text == "" {
 			status = http.StatusBadRequest
 			var tooLarge *http.MaxBytesError
 			if errors.As(err, &tooLarge) {

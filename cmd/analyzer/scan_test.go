@@ -347,17 +347,26 @@ func TestAnalyzeRejectsWhatItCannotScan(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		rec := httptest.NewRecorder()
 		h(rec, req)
+		// A client that ignores the status still parses an empty list.
+		if rec.Code != http.StatusOK && strings.TrimSpace(rec.Body.String()) != "[]" {
+			t.Errorf("status %d body %q, want []", rec.Code, rec.Body.String())
+		}
 		return rec.Code
 	}
 	oversized, _ := json.Marshal(analyzeRequest{Text: strings.Repeat("a", maxBodyBytes)})
+	small := `{"text":"nothing secret here","score_threshold":0.75}`
+	// A body of exactly the limit is accepted; one byte more is not.
+	exact := `{"text":"` + strings.Repeat("a", maxBodyBytes-len(`{"text":""}`)) + `"}`
 	for name, c := range map[string]struct {
 		body string
 		want int
 	}{
-		"oversized":  {string(oversized), http.StatusRequestEntityTooLarge},
-		"not json":   {"{not json", http.StatusBadRequest},
-		"empty text": {`{"text":""}`, http.StatusBadRequest},
-		"just fits":  {`{"text":"nothing secret here","score_threshold":0.75}`, http.StatusOK},
+		"oversized":               {string(oversized), http.StatusRequestEntityTooLarge},
+		"not json":                {"{not json", http.StatusBadRequest},
+		"empty text":              {`{"text":""}`, http.StatusBadRequest},
+		"small":                   {small, http.StatusOK},
+		"exactly the limit":       {exact, http.StatusOK},
+		"trailing past the limit": {small + strings.Repeat(" ", maxBodyBytes), http.StatusRequestEntityTooLarge},
 	} {
 		if got := call(c.body); got != c.want {
 			t.Errorf("%s: status %d, want %d", name, got, c.want)
