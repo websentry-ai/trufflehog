@@ -189,12 +189,13 @@ func extractFileAndLine(meta map[string]map[string]any) (file string, line int64
 // never empty, which the SARIF spec requires.
 func sarifArtifactURI(file, sourceType, sourceName string) string {
 	// SARIF requires a valid URI reference: paths are percent-encoded, and the
-	// fallback scheme uses '-' since '_' is not a scheme character.
+	// fallback scheme uses '-' since '_' is not a scheme character. The source
+	// name goes in the path, as an authority can't hold spaces or colons.
 	if file != "" {
 		return (&url.URL{Path: filepath.ToSlash(file)}).String()
 	}
 	scheme := strings.ToLower(strings.ReplaceAll(sourceType, "_", "-"))
-	return fmt.Sprintf("%s://%s", scheme, url.PathEscape(sourceName))
+	return (&url.URL{Scheme: scheme, Path: "/" + sourceName}).String()
 }
 
 // sarifFingerprint derives a stable identifier for a finding so SARIF consumers can recognize
