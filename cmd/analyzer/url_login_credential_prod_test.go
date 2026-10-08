@@ -325,3 +325,13 @@ func TestURLLogin_APartialVendorMatchDoesNotTruncateTheSpan(t *testing.T) {
 	}
 	require.Equal(t, [][2]int{{want, want + len(pw)}}, spans)
 }
+
+// A username that reads like a checksum label does not make the password one.
+func TestURLLogin_ADigestLookingPasswordIsReported(t *testing.T) {
+	s := prodScanner(t)
+	const hex64 = "233338fa7422c031c2a4c3f3ddcb39f2e16e13f21b97f7692e8dc384e12c1151"
+	for _, user := range []string{"sha256", "md5", "checksum"} {
+		text := "ssh://" + user + ":" + hex64 + "@host.acme.io/repo"
+		require.NotEmpty(t, entitiesOver(t, s, text, hex64), user)
+	}
+}

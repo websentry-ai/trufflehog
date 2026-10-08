@@ -70,6 +70,14 @@ func isIdentByte(b byte) bool {
 }
 
 func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
+	// A login's password is a credential by its position, so the context rules
+	// below, written for tokens in free text, don't apply; only its own rule does.
+	if f.EntityType == customdetectors.URLLoginCredentialName {
+		if rule := vendorStructuralRules[f.EntityType]; rule.match(f.raw) {
+			return true, rule.reason
+		}
+		return false, ""
+	}
 	if contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		lo := s - digestContextWindow
 		if lo < 0 {
