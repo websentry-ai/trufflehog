@@ -434,12 +434,10 @@ func hasLongRepeatRun(s string, n int) bool {
 	return false
 }
 
-// offsets locates raw in data, looking from byte from so that a result repeated
-// for each copy of a value lands on each copy in turn; after is where the next
-// copy is looked for. Custom detectors also hand over their full match, which
-// ends in the reported group, so raw is taken as its last occurrence there: the
-// same value can appear earlier in the text, or in the match itself (a user
-// named like its password).
+// offsets locates raw in data from byte from, so that repeated results land on
+// successive copies; after is where the next search starts. Given the full match,
+// which ends in the reported group, raw is its last occurrence there rather than
+// an earlier copy in the text or the username.
 func offsets(data, raw []byte, match string, from int) (start, end, after int, ok bool) {
 	if len(raw) == 0 {
 		return 0, 0, from, false

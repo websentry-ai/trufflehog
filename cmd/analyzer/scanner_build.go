@@ -105,10 +105,9 @@ func longFormDetectors(dets []detectors.Detector) []detectors.Detector {
 		if sz, ok := d.(interface{ MaxSecretSize() int64 }); ok && sz.MaxSecretSize() > scanWindowPeek {
 			long = true
 		}
-		// Every custom detector reports the same fixed size whatever its pattern,
-		// so the declared size does not describe these two. The PEM block has no
-		// upper bound at all, and a URL login can run past the window overlap
-		// with a long token as its password.
+		// Every custom detector reports the same fixed size whatever its pattern, so
+		// the declared size does not describe these two: a PEM block has no upper
+		// bound, and a URL login with a long token can outgrow the window overlap.
 		if cd, ok := d.(interface{ GetName() string }); ok {
 			switch cd.GetName() {
 			case customdetectors.PrivateKeyName, customdetectors.URLLoginCredentialName:

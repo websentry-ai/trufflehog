@@ -1,6 +1,8 @@
 package customdetectors
 
 import (
+	"regexp"
+
 	"github.com/trufflesecurity/trufflehog/v3/pkg/custom_detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/custom_detectorspb"
@@ -8,12 +10,28 @@ import (
 
 const URLLoginCredentialName = "url-login-credential"
 
-// NewURLLoginCredential reports the password in scheme://user:password@host.
-//
-// The vendor detectors leave most of this uncovered: URI caps the password at 50
-// characters, JWT skips HS256 tokens, and nothing covers ssh, git, sftp or the
-// SQL schemes. The scheme list is the one the email recognizer treats as a login
-// slot, so whatever it stops calling an address is reported here instead.
+// "?" and "#" end the authority. The password is unbounded, since a long token is
+// the case this exists for, and the match ends at "@" so any host shape counts,
+// IPv6 brackets included.
+const urlLoginPattern = `(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
+	`|mongodb(?:\+srv)?|(?:postgres(?:ql)?|mysql|mariadb)(?:\+\w+)?|ldaps?|smtps?|imaps?)` +
+	`://[^\s/?#@:]*:([^\s/?#@]{3,})@`
+
+var urlLoginRegex = regexp.MustCompile(urlLoginPattern)
+
+// IsURLLoginPassword reports whether raw is the password of a URL login in data.
+func IsURLLoginPassword(data []byte, raw string) bool {
+	for _, m := range urlLoginRegex.FindAllSubmatch(data, -1) {
+		if string(m[1]) == raw {
+			return true
+		}
+	}
+	return false
+}
+
+// NewURLLoginCredential reports the password in scheme://user:password@host,
+// which vendor detectors mostly miss (URI caps it at 50 characters, JWT skips
+// HS256). Its schemes are the ones the email recognizer treats as a login slot.
 func NewURLLoginCredential() (detectors.Detector, error) {
 	pb := &custom_detectorspb.CustomRegex{
 		Name: URLLoginCredentialName,
@@ -21,15 +39,7 @@ func NewURLLoginCredential() (detectors.Detector, error) {
 			"http", "ws", "ftp", "ssh", "git", "svn", "redis", "amqp", "mongodb",
 			"postgres", "mysql", "mariadb", "ldap", "smtp", "imap",
 		},
-		Regex: map[string]string{
-			// "?" and "#" end the authority, so neither the user nor the password
-			// may contain them. The password has no upper bound: a long token is
-			// the case this exists for, and the long-form pass sees it whole. The
-			// match ends at "@", so any host shape counts, IPv6 brackets included.
-			"secret": `(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
-				`|mongodb(?:\+srv)?|(?:postgres(?:ql)?|mysql|mariadb)(?:\+\w+)?|ldaps?|smtps?|imaps?)` +
-				`://[^\s/?#@:]*:([^\s/?#@]{3,})@`,
-		},
+		Regex:                 map[string]string{"secret": urlLoginPattern},
 		ExcludeRegexesCapture: dbConnectionURIExcludeRegexes(),
 	}
 	return custom_detectors.NewWebhookCustomRegex(pb)

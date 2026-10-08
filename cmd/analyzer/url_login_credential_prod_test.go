@@ -248,3 +248,14 @@ func TestURLLogin_AVendorTokenInTheLoginKeepsItsName(t *testing.T) {
 		require.Equal(t, []string{"Github"}, entitiesOver(t, s, text, fakeGithubPAT))
 	}
 }
+
+// A vendor that wins the password's span and is then dropped as noise must not
+// take the login with it: in a login slot the value is a credential.
+func TestURLLogin_AUUIDPasswordUnderAVendorKeywordIsReported(t *testing.T) {
+	s := prodScanner(t)
+	const uuid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+	for _, user := range []string{"privacy", "onesignal"} {
+		text := "ssh://" + user + ":" + uuid + "@host.acme.io/repo"
+		require.NotEmpty(t, entitiesOver(t, s, text, uuid), user)
+	}
+}
