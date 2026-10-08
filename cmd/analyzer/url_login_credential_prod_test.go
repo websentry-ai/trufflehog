@@ -151,6 +151,7 @@ func TestURLLogin_PlaceholderPasswordsAreNotReported(t *testing.T) {
 		"https://deploy:my-dummy-pass@git.acme.io/team/repo.git",
 		"mysql://app:REDACTED@db.acme.io/app",
 		"https://u:change-me@pkg.acme.io/simple/",
+		"ssh://svc:my-changeme@host.acme.io/repo",
 		`fmt.Sprintf("postgres://%s:%s@%s/db", u, p, h)`,
 	} {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {

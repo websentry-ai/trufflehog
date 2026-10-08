@@ -861,7 +861,7 @@ func IsPlaceholderPassword(v string) bool {
 }
 
 var placeholderWords = map[string]bool{
-	"example": true, "redacted": true, "placeholder": true, "dummy": true, "sample": true,
+	"example": true, "redacted": true, "placeholder": true, "dummy": true, "sample": true, "changeme": true,
 	"replace": true, "yourkey": true, "yourtoken": true, "yourpassword": true, "xxxx": true,
 }
 
