@@ -145,6 +145,13 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	feature.NewRelicInsightsQueryKeyDetectorEnabled.Store(true)
 	feature.NewRelicLicenseKeyDetectorEnabled.Store(true)
 	feature.LobDetectorEnabled.Store(true)
+	feature.KongKonnectDetectorEnabled.Store(true)
+	feature.NewRelicMobileAppTokenDetectorEnabled.Store(true)
+	feature.ResendDetectorEnabled.Store(true)
+	feature.WeightsAndBiasesV2DetectorEnabled.Store(true)
+	// The webhook URL pins its host and a 32-hex workflow id, and it reports only
+	// when the URL carries its sig signing key.
+	feature.MSTeamsWebhookV2DetectorEnabled.Store(true)
 	// sk- plus exactly 48 alphanumerics, and the chunk must also carry the
 	// keyword, so ordinary text cannot reach it. Legacy OpenAI keys match too and
 	// surface under this name -- a mislabelled secret, not a false positive.
