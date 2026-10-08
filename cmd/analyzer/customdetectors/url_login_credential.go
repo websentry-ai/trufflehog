@@ -17,7 +17,7 @@ const URLLoginCredentialName = "url-login-credential"
 // match ends at "@" so any host shape counts, IPv6 brackets included.
 var urlLoginRegex = regexp.MustCompile(`(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
 	`|mongodb(?:\+srv)?|cloudinary|mqtts?|nats|rtsps?|ldaps?|smtps?|imaps?` +
-	`|(?:postgres(?:ql)?|mysql|mariadb|oracle|mssql|sqlserver|clickhouse|snowflake)(?:\+\w+)?)` +
+	`|(?:postgres(?:ql)?|mysql|mariadb|oracle|mssql|sqlserver|clickhouses?|snowflake)(?:\+\w+)?)` +
 	`://[A-Za-z0-9\-._~%!$&'()*+=]*:([A-Za-z0-9\-._~%!$&'()*+=:]{3,})@`)
 
 // A port glued to an address ("db.acme.io:5432&jane@acme.com") reads like a

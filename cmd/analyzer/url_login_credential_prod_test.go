@@ -62,7 +62,7 @@ func TestURLLogin_EveryLoginSchemeIsCaughtUnderProdConfig(t *testing.T) {
 	schemes := []string{"https", "http", "wss", "ftp", "sftp", "ssh", "git", "svn",
 		"postgres", "postgresql", "mysql", "mariadb", "redis", "rediss", "mongodb",
 		"amqp", "ldap", "smtp", "imap", "oracle", "mssql", "sqlserver", "clickhouse",
-		"snowflake", "cloudinary", "mqtt", "mqtts", "nats", "rtsp"}
+		"snowflake", "cloudinary", "mqtt", "mqtts", "nats", "rtsp", "rtsps", "clickhouses"}
 	for i, scheme := range schemes {
 		for _, n := range []int{8, 30, 60, 120, 900} {
 			pw := fakePassword(n, int64(i*1000+n))
@@ -144,6 +144,8 @@ func TestURLLogin_PlaceholderPasswordsAreNotReported(t *testing.T) {
 		"postgres://postgres:postgres@localhost:5432/postgres",
 		"mysql://root:mysql@127.0.0.1:3306/app",
 		"ftp://anonymous:anonymous@ftp.acme.org/pub/",
+		"oracle://scott:tiger@localhost:1521/XE",
+		"clickhouse://default:default@localhost:9000/default",
 		`url = f"postgresql://{user}:{password}@{host}/{db}"`,
 		`"postgres://{0}:{1}@{2}/db".format(user, pw, host)`,
 		`"mysql://%(user)s:%(password)s@%(host)s/app" % cfg`,
