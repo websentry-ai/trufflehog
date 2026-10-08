@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -233,9 +234,9 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	}
 
 	// Overlap resolution and suppression both reason about the request as a
-	// whole, so they run once on the merged set rather than inside a window. A
-	// URL login yields only to a finding that survives suppression, so a vendor
-	// match dropped as noise cannot take the login down with it.
+	// whole, so they run once on the merged set rather than inside a window. URL
+	// logins are placed after suppression, so a vendor match dropped as noise
+	// cannot take a login down with it.
 	var logins, others []analyzeResult
 	for _, r := range dedupeIdentical(all) {
 		if r.EntityType == customdetectors.URLLoginCredentialName {
@@ -246,7 +247,7 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	}
 	kept := s.applySuppression(ctx, dedupeOverlapping(others), data, shapes)
 	if len(logins) > 0 {
-		kept = dedupeOverlapping(append(kept, s.applySuppression(ctx, logins, data, shapes)...))
+		kept = placeLogins(kept, s.applySuppression(ctx, logins, data, shapes))
 	}
 	return s.record(ctx, kept)
 }
@@ -380,6 +381,24 @@ func dedupeOverlapping(in []analyzeResult) []analyzeResult {
 		if !overlaps {
 			kept = append(kept, f)
 		}
+	}
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
+	return kept
+}
+
+// placeLogins adds each login unless a vendor finding covers its whole password,
+// in which case the vendor keeps its name. Otherwise the login replaces what it
+// overlaps, since a narrower finding would leave part of the password unredacted.
+func placeLogins(kept, logins []analyzeResult) []analyzeResult {
+	for _, l := range logins {
+		covered := slices.ContainsFunc(kept, func(k analyzeResult) bool {
+			return entityRank(k.EntityType) < entityRank(l.EntityType) && k.Start <= l.Start && k.End >= l.End
+		})
+		if covered {
+			continue
+		}
+		kept = slices.DeleteFunc(kept, func(k analyzeResult) bool { return k.Start < l.End && l.Start < k.End })
+		kept = append(kept, l)
 	}
 	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
 	return kept

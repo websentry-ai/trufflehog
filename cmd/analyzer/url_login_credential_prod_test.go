@@ -309,3 +309,19 @@ func TestURLLogin_ASuppressedVendorFragmentDoesNotDropTheLogin(t *testing.T) {
 		}
 	}
 }
+
+// A vendor match on only part of the password gives way to the whole login, or
+// the rest of the password would stay visible.
+func TestURLLogin_APartialVendorMatchDoesNotTruncateTheSpan(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakeGithubPAT + "-Q7mN2vRt9"
+	text := "ssh://svc:" + pw + "@host.acme.io/repo"
+	want := strings.Index(text, pw)
+	var spans [][2]int
+	for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
+		if r.Start < want+len(pw) && r.End > want {
+			spans = append(spans, [2]int{r.Start, r.End})
+		}
+	}
+	require.Equal(t, [][2]int{{want, want + len(pw)}}, spans)
+}
