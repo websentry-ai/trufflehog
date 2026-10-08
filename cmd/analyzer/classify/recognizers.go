@@ -836,6 +836,20 @@ var placeholderUserinfo = map[string]bool{
 	"user:pass123": true, "username:pass": true, "root:root": true,
 }
 
+// IsPlaceholderPassword matches a URL-login password that is a well-known dummy
+// value, for detectors that report the password alone rather than the URI. Like
+// IsPlaceholderURI it keys only on the credential, never the host.
+func IsPlaceholderPassword(v string) bool {
+	return placeholderPasswords[strings.ToLower(v)]
+}
+
+// The password halves of placeholderUserinfo, plus the defaults that ship with
+// local brokers and the like (guest:guest is RabbitMQ's).
+var placeholderPasswords = map[string]bool{
+	"pass": true, "password": true, "passwd": true, "secret": true, "pass123": true,
+	"admin": true, "root": true, "guest": true, "changeme": true,
+}
+
 // IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken
 // built-in detectors: UUIDs and UUID fragments, mongo/hex object ids, all-lowercase
 // dictionary kebab keys, and dictionary camelCase identifiers. Real Atlassian tokens
