@@ -165,6 +165,7 @@ func TestFromProto_RejectsInvalidConfig(t *testing.T) {
 		{name: "no mechanism", auth: &custom_detectorspb.VerifierAuth{}},
 		{name: "empty token endpoint", auth: ropcAuth("", "")},
 		{name: "http token endpoint without unsafe", auth: ropcAuth("http://idp.example.com/token", "")},
+		{name: "uppercase HTTP token endpoint without unsafe", auth: ropcAuth("HTTP://idp.example.com/token", "")},
 		{name: "invalid token header", auth: ropcAuth("https://idp.example.com/token", "Bad Header")},
 		{
 			name: "no grant",

@@ -13,6 +13,8 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/context"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/version"
+	"net/url"
+	"path/filepath"
 )
 
 // SARIF (Static Analysis Results Interchange Format) 2.1.0 identifiers.
@@ -186,10 +188,13 @@ func extractFileAndLine(meta map[string]map[string]any) (file string, line int64
 // Elasticsearch) it falls back to a "<sourcetype>://<sourcename>" URI so the location field is
 // never empty, which the SARIF spec requires.
 func sarifArtifactURI(file, sourceType, sourceName string) string {
+	// SARIF requires a valid URI reference: paths are percent-encoded, and the
+	// fallback scheme uses '-' since '_' is not a scheme character.
 	if file != "" {
-		return file
+		return (&url.URL{Path: filepath.ToSlash(file)}).String()
 	}
-	return fmt.Sprintf("%s://%s", strings.ToLower(sourceType), sourceName)
+	scheme := strings.ToLower(strings.ReplaceAll(sourceType, "_", "-"))
+	return fmt.Sprintf("%s://%s", scheme, url.PathEscape(sourceName))
 }
 
 // sarifFingerprint derives a stable identifier for a finding so SARIF consumers can recognize

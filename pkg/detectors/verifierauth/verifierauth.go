@@ -141,7 +141,8 @@ func ValidateEndpoint(endpoint string, unsafe bool) error {
 		return fmt.Errorf("no endpoint")
 	}
 
-	if strings.HasPrefix(endpoint, "http://") && !unsafe {
+	// Schemes are case-insensitive, and Go's client sends HTTP:// in plain text.
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(endpoint)), "http://") && !unsafe {
 		return fmt.Errorf("http endpoint must have unsafe=true")
 	}
 	return nil

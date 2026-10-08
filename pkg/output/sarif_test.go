@@ -88,7 +88,7 @@ func TestSarifPrinter_PrintAndFlush(t *testing.T) {
 	esFinding := run.Results[1]
 	assert.Equal(t, "Slack", esFinding.RuleID)
 	assert.Equal(t, sarifLevelWarning, esFinding.Level)
-	assert.Equal(t, "source_type_elasticsearch://my-cluster", esFinding.Locations[0].PhysicalLocation.ArtifactLocation.URI)
+	assert.Equal(t, "source-type-elasticsearch://my-cluster", esFinding.Locations[0].PhysicalLocation.ArtifactLocation.URI)
 	assert.Nil(t, esFinding.Locations[0].PhysicalLocation.Region)
 }
 
@@ -142,5 +142,7 @@ func TestSarifPrinter_FingerprintStableAcrossVerificationChange(t *testing.T) {
 
 func TestSarifArtifactURI(t *testing.T) {
 	assert.Equal(t, "config/prod.yaml", sarifArtifactURI("config/prod.yaml", "SOURCE_TYPE_GIT", "my-repo"))
-	assert.Equal(t, "source_type_elasticsearch://my-cluster", sarifArtifactURI("", "SOURCE_TYPE_ELASTICSEARCH", "my-cluster"))
+	assert.Equal(t, "source-type-elasticsearch://my-cluster", sarifArtifactURI("", "SOURCE_TYPE_ELASTICSEARCH", "my-cluster"))
+	assert.Equal(t, "docs/my%20notes.md", sarifArtifactURI("docs/my notes.md", "SOURCE_TYPE_GIT", "my-repo"))
+	assert.Equal(t, "source-type-postman://team%20workspace", sarifArtifactURI("", "SOURCE_TYPE_POSTMAN", "team workspace"))
 }

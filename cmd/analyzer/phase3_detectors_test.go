@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/defaults"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/feature"
 )
@@ -65,9 +66,9 @@ func TestPhase3IgnoresProseAndNearMisses(t *testing.T) {
 	}
 }
 
-// The flags are what enable these detectors: with them off, none of the fixtures
-// is reported. Teams v2 stays off -- its sig accepts any run of characters.
-func TestPhase3DetectorsAreOffWithoutTheirFlags(t *testing.T) {
+// Each flag switches its detector on and off, and building the scanner leaves
+// Teams v2 off -- its sig accepts any run of characters.
+func TestPhase3FlagsControlTheirDetectors(t *testing.T) {
 	flags := []*atomic.Bool{
 		&feature.KongKonnectDetectorEnabled, &feature.NewRelicMobileAppTokenDetectorEnabled,
 		&feature.ResendDetectorEnabled, &feature.WeightsAndBiasesV2DetectorEnabled,
@@ -81,18 +82,32 @@ func TestPhase3DetectorsAreOffWithoutTheirFlags(t *testing.T) {
 			f.Store(saved[i])
 		}
 	})
-	for _, f := range flags {
-		f.Store(false)
+	registered := func() map[string]bool {
+		got := map[string]bool{}
+		for _, d := range defaults.DefaultDetectors() {
+			name := d.Type().String()
+			// W&B v1 and v2 share a type, so v2 is told apart by its version.
+			if v, ok := d.(detectors.Versioner); ok && name == "WeightsAndBiases" && v.Version() == 2 {
+				name = "WeightsAndBiasesV2"
+			}
+			got[name] = true
+		}
+		return got
 	}
-	got := map[string]bool{}
-	for _, d := range defaults.DefaultDetectors() {
-		got[d.Type().String()] = true
-	}
-	for _, name := range []string{"KongKonnect", "NewRelicMobileAppToken", "Resend"} {
-		if got[name] {
-			t.Errorf("%s is registered with its flag off", name)
+	names := []string{"KongKonnect", "NewRelicMobileAppToken", "Resend", "WeightsAndBiasesV2"}
+	for _, on := range []bool{true, false} {
+		for _, f := range flags {
+			f.Store(on)
+		}
+		got := registered()
+		for _, name := range names {
+			if got[name] != on {
+				t.Errorf("%s registered=%v with its flag set to %v", name, got[name], on)
+			}
 		}
 	}
+	feature.MSTeamsWebhookV2DetectorEnabled.Store(false)
+	newBuiltScanner(t)
 	if feature.MSTeamsWebhookV2DetectorEnabled.Load() {
 		t.Error("the Teams v2 webhook detector is enabled")
 	}
