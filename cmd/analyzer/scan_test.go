@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -332,6 +333,34 @@ func TestScanIgnoresCloudflareLookalikes(t *testing.T) {
 			if strings.Contains(r.EntityType, "Cloudflare") {
 				t.Errorf("%q flagged as %s, expected no Cloudflare finding", text, r.EntityType)
 			}
+		}
+	}
+}
+
+// A request the handler cannot scan must not look like a clean one: an empty
+// list on 200 is what a caller reads as "no secrets".
+func TestAnalyzeRejectsWhatItCannotScan(t *testing.T) {
+	const apiKey = "test-analyzer-key"
+	h := newBuiltScanner(t).analyzeHandler(apiKey)
+	call := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/analyze", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		return rec.Code
+	}
+	oversized, _ := json.Marshal(analyzeRequest{Text: strings.Repeat("a", maxBodyBytes)})
+	for name, c := range map[string]struct {
+		body string
+		want int
+	}{
+		"oversized":  {string(oversized), http.StatusRequestEntityTooLarge},
+		"not json":   {"{not json", http.StatusBadRequest},
+		"empty text": {`{"text":""}`, http.StatusBadRequest},
+		"just fits":  {`{"text":"nothing secret here","score_threshold":0.75}`, http.StatusOK},
+	} {
+		if got := call(c.body); got != c.want {
+			t.Errorf("%s: status %d, want %d", name, got, c.want)
 		}
 	}
 }

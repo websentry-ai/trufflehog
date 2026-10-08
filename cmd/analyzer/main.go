@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -175,10 +176,18 @@ func (s *scanner) analyzeHandler(apiKey string) http.HandlerFunc {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
+		// A request that cannot be scanned says so in its status: an empty list on
+		// 200 would read as "no secrets" to a caller that never scanned anything.
 		var req analyzeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
 			status = http.StatusBadRequest
-			writeJSON(w, []analyzeResult{})
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode([]analyzeResult{})
 			return
 		}
 		scannedBytes.Observe(float64(len(req.Text)))
