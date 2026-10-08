@@ -61,7 +61,8 @@ func TestURLLogin_EveryLoginSchemeIsCaughtUnderProdConfig(t *testing.T) {
 	s := prodScanner(t)
 	schemes := []string{"https", "http", "wss", "ftp", "sftp", "ssh", "git", "svn",
 		"postgres", "postgresql", "mysql", "mariadb", "redis", "rediss", "mongodb",
-		"amqp", "ldap", "smtp", "imap"}
+		"amqp", "ldap", "smtp", "imap", "oracle", "mssql", "sqlserver", "clickhouse",
+		"snowflake", "cloudinary", "mqtt", "mqtts", "nats", "rtsp"}
 	for i, scheme := range schemes {
 		for _, n := range []int{8, 30, 60, 120, 900} {
 			pw := fakePassword(n, int64(i*1000+n))
@@ -245,7 +246,8 @@ func TestURLLogin_EachCopyOfARepeatedLoginIsReported(t *testing.T) {
 func TestURLLogin_ADriverSuffixedSchemeIsCaught(t *testing.T) {
 	s := prodScanner(t)
 	pw := fakePassword(24, 71)
-	for _, scheme := range []string{"postgresql+psycopg2", "postgres+asyncpg", "mysql+pymysql", "mariadb+mariadbconnector"} {
+	for _, scheme := range []string{"postgresql+psycopg2", "postgres+asyncpg", "mysql+pymysql", "mariadb+mariadbconnector",
+		"oracle+oracledb", "mssql+pyodbc", "mssql+pymssql", "clickhouse+native"} {
 		text := scheme + "://app:" + pw + "@db.acme.io/prod"
 		require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, s, text, pw), scheme)
 	}
