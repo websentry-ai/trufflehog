@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 )
 
 const (
@@ -30,13 +31,14 @@ type vendorRule struct {
 }
 
 var vendorStructuralRules = map[string]vendorRule{
-	"JiraToken": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
-	"Atlassian": {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
-	"Privacy":   {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
-	"Onesignal": {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
-	"URI":       {match: classify.IsPlaceholderURI, reason: reasonVendorStructuralNoise},
-	"Azure":     {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
-	"JDBC":      {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
+	"JiraToken":                            {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
+	"Atlassian":                            {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
+	"Privacy":                              {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
+	"Onesignal":                            {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
+	"URI":                                  {match: classify.IsPlaceholderURI, reason: reasonVendorStructuralNoise},
+	customdetectors.URLLoginCredentialName: {match: classify.IsPlaceholderPassword, reason: reasonVendorStructuralNoise},
+	"Azure":                                {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
+	"JDBC":                                 {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 }
 
 // embeddedVendors are detectors whose real token is always a standalone run, so
@@ -68,6 +70,14 @@ func isIdentByte(b byte) bool {
 }
 
 func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
+	// A login's password is a credential by its position, so the context rules
+	// below, written for tokens in free text, don't apply; only its own rule does.
+	if f.EntityType == customdetectors.URLLoginCredentialName {
+		if rule := vendorStructuralRules[f.EntityType]; rule.match(f.raw) {
+			return true, rule.reason
+		}
+		return false, ""
+	}
 	if contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		lo := s - digestContextWindow
 		if lo < 0 {

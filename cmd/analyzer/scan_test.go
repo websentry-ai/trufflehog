@@ -121,15 +121,42 @@ func TestReadinessNotReadyWithoutDetectors(t *testing.T) {
 func TestOffsets(t *testing.T) {
 	data := []byte("token " + fakeGithubPAT + " end")
 
-	start, end, ok := offsets(data, []byte(fakeGithubPAT))
+	start, end, ok := offsets(data, []byte(fakeGithubPAT), -1)
 	if !ok || string(data[start:end]) != fakeGithubPAT {
 		t.Fatalf("located match wrong: ok=%v span=%d:%d", ok, start, end)
 	}
-	if _, _, ok := offsets(data, []byte("not-in-text")); ok {
+	if _, _, ok := offsets(data, []byte("not-in-text"), -1); ok {
 		t.Error("expected ok=false for absent raw")
 	}
-	if _, _, ok := offsets(data, nil); ok {
+	if _, _, ok := offsets(data, nil, -1); ok {
 		t.Error("expected ok=false for empty raw")
+	}
+}
+
+// A reported position wins over the first occurrence; a position that does not
+// hold raw is ignored.
+func TestOffsetsUseTheReportedPosition(t *testing.T) {
+	data := []byte("svc then https://svc:svc@acme.io")
+	at := strings.Index(string(data), ":svc@") + 1
+	if start, _, ok := offsets(data, []byte("svc"), at); !ok || start != at {
+		t.Fatalf("expected the reported position %d, got %d (ok=%v)", at, start, ok)
+	}
+	if start, _, ok := offsets(data, []byte("svc"), 1); !ok || start != 0 {
+		t.Fatalf("expected fallback to the first occurrence, got %d (ok=%v)", start, ok)
+	}
+}
+
+// Lookups out of order, as results from different detectors arrive, still give
+// each one its own rune offset.
+func TestRuneIndexHandlesLookupsInAnyOrder(t *testing.T) {
+	data := []byte("é one — two — three")
+	x := &runeIndex{data: data}
+	for _, w := range []string{"three", "one", "two", "three"} {
+		start, _, ok := x.offsets([]byte(w), -1)
+		want := utf8.RuneCountInString(string(data[:strings.Index(string(data), w)]))
+		if !ok || start != want {
+			t.Fatalf("%s: start %d, want %d", w, start, want)
+		}
 	}
 }
 
@@ -137,7 +164,7 @@ func TestOffsetsAreRuneOffsetsNotByteOffsets(t *testing.T) {
 	prefix := "note — context — "
 	data := []byte(prefix + fakeGithubPAT + " end")
 
-	start, end, ok := offsets(data, []byte(fakeGithubPAT))
+	start, end, ok := offsets(data, []byte(fakeGithubPAT), -1)
 	if !ok {
 		t.Fatal("expected match")
 	}
