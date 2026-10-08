@@ -1,7 +1,7 @@
 //go:build detectors
 // +build detectors
 
-package appoptics
+package kong
 
 import (
 	"context"
@@ -11,22 +11,21 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-
-	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
-
 	"github.com/trufflesecurity/trufflehog/v3/pkg/common"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/detector_typepb"
 )
 
-func TestAppoptics_FromChunk(t *testing.T) {
+func TestKong_FromChunk(t *testing.T) {
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	testSecrets, err := common.GetSecret(ctx, "trufflehog-testing", "detectors5")
 	if err != nil {
 		t.Fatalf("could not get test secrets from GCP: %s", err)
 	}
-	secret := testSecrets.MustGetField("APPOPTICS")
-	inactiveSecret := testSecrets.MustGetField("APPOPTICS_INACTIVE")
+	secret := testSecrets.MustGetField("KONG_KPAT")
+	inactiveSecret := testSecrets.MustGetField("KONG_KPAT_INACTIVE")
 
 	type args struct {
 		ctx    context.Context
@@ -46,13 +45,16 @@ func TestAppoptics_FromChunk(t *testing.T) {
 			s:    Scanner{},
 			args: args{
 				ctx:    context.Background(),
-				data:   []byte(fmt.Sprintf("You can find a appoptics secret %s within", secret)),
+				data:   []byte(fmt.Sprintf("You can find a kong secret %s within", secret)),
 				verify: true,
 			},
 			want: []detectors.Result{
 				{
-					DetectorType: detector_typepb.DetectorType_AppOptics,
+					DetectorType: detector_typepb.DetectorType_KongKonnect,
 					Verified:     true,
+					ExtraData: map[string]string{
+						"rotation_guide": "https://developer.konghq.com/konnect-api/#konnect-api-authentication",
+					},
 				},
 			},
 			wantErr:             false,
@@ -63,12 +65,12 @@ func TestAppoptics_FromChunk(t *testing.T) {
 			s:    Scanner{},
 			args: args{
 				ctx:    context.Background(),
-				data:   []byte(fmt.Sprintf("You can find a appoptics secret %s within but not valid", inactiveSecret)), // the secret would satisfy the regex but not pass validation
+				data:   []byte(fmt.Sprintf("You can find a kong secret %s within but not valid", inactiveSecret)), // the secret would satisfy the regex but not pass validation
 				verify: true,
 			},
 			want: []detectors.Result{
 				{
-					DetectorType: detector_typepb.DetectorType_AppOptics,
+					DetectorType: detector_typepb.DetectorType_KongKonnect,
 					Verified:     false,
 				},
 			},
@@ -87,12 +89,46 @@ func TestAppoptics_FromChunk(t *testing.T) {
 			wantErr:             false,
 			wantVerificationErr: false,
 		},
+		{
+			name: "found, would be verified if not for timeout",
+			s:    Scanner{client: common.SaneHttpClientTimeOut(1 * time.Microsecond)},
+			args: args{
+				ctx:    context.Background(),
+				data:   []byte(fmt.Sprintf("You can find a kong secret %s within", secret)),
+				verify: true,
+			},
+			want: []detectors.Result{
+				{
+					DetectorType: detector_typepb.DetectorType_KongKonnect,
+					Verified:     false,
+				},
+			},
+			wantErr:             false,
+			wantVerificationErr: true,
+		},
+		{
+			name: "found, verified but unexpected api surface",
+			s:    Scanner{client: common.ConstantResponseHttpClient(404, "")},
+			args: args{
+				ctx:    context.Background(),
+				data:   []byte(fmt.Sprintf("You can find a kong secret %s within", secret)),
+				verify: true,
+			},
+			want: []detectors.Result{
+				{
+					DetectorType: detector_typepb.DetectorType_KongKonnect,
+					Verified:     false,
+				},
+			},
+			wantErr:             false,
+			wantVerificationErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := tt.s.FromData(tt.args.ctx, tt.args.verify, tt.args.data)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Appoptics.FromData() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Kong.FromData() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			for i := range got {
@@ -103,9 +139,10 @@ func TestAppoptics_FromChunk(t *testing.T) {
 					t.Fatalf("wantVerificationError = %v, verification error = %v", tt.wantVerificationErr, got[i].VerificationError())
 				}
 			}
-			ignoreOpts := cmpopts.IgnoreFields(detectors.Result{}, "Raw", "verificationError")
-			if diff := cmp.Diff(got, tt.want, ignoreOpts); diff != "" {
-				t.Errorf("Appoptics.FromData() %s diff: (-got +want)\n%s", tt.name, diff)
+			ignoreOpts := cmpopts.IgnoreFields(detectors.Result{}, "Raw", "verificationError", "SecretParts")
+			ignoreUnexported := cmpopts.IgnoreUnexported(detectors.Result{})
+			if diff := cmp.Diff(got, tt.want, ignoreOpts, ignoreUnexported); diff != "" {
+				t.Errorf("Kong.FromData() %s diff: (-got +want)\n%s", tt.name, diff)
 			}
 		})
 	}

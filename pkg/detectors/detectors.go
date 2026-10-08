@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/verifierauth"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/detector_typepb"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/detectorspb"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/source_metadatapb"
@@ -90,6 +91,15 @@ type EndpointCustomizer interface {
 	SetCloudEndpoint(string)
 	UseCloudEndpoint(bool)
 	UseFoundEndpoints(bool)
+}
+
+// VerifierAuthCustomizer is an optional interface for detectors whose
+// configured verification endpoints sit behind an auth proxy. It is separate
+// from EndpointCustomizer so existing implementers are unaffected; detectors
+// that embed EndpointSetter get it for free, and route their verification
+// requests through EndpointSetter.VerificationClient to apply it.
+type VerifierAuthCustomizer interface {
+	SetVerifierAuth(*verifierauth.Config)
 }
 
 type CloudProvider interface {
@@ -179,6 +189,17 @@ func (r *Result) SetPrimarySecretLine(line int64) {
 // GetPrimarySecretValue return primary secret match value
 func (r *Result) GetPrimarySecretValue() string {
 	return r.primarySecret.Value
+}
+
+// ClearSecrets removes fields that may contain raw secret material.
+func (r *Result) ClearSecrets() {
+	r.Raw = nil
+	r.RawV2 = nil
+	r.SecretParts = nil
+	r.primarySecret = struct {
+		Value string
+		Line  int64
+	}{}
 }
 
 // SetChunkOffset records the byte position of this result's secret within the chunk data.
@@ -374,4 +395,11 @@ func withDedupKey(ctx context.Context, detType detector_typepb.DetectorType, cre
 // with NewClientWithDedup or WithDedup — it is the only way to activate deduplication.
 func DoWithDedup(client *http.Client, detType detector_typepb.DetectorType, credential string, req *http.Request) (*http.Response, error) {
 	return client.Do(req.WithContext(withDedupKey(req.Context(), detType, credential)))
+}
+
+// ResultVerifier is an optional interface that a detector can implement to verify a single
+// previously-extracted result independently of the chunk it came from, which lets the
+// verification cache verify only cache misses instead of re-verifying an entire chunk.
+type ResultVerifier interface {
+	VerifyResult(ctx context.Context, result *Result)
 }

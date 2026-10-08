@@ -761,6 +761,47 @@ func (m *Bitbucket) validate(all bool) error {
 			}
 		}
 
+	case *Bitbucket_ApiToken:
+		if v == nil {
+			err := BitbucketValidationError{
+				field:  "Credential",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetApiToken()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, BitbucketValidationError{
+						field:  "ApiToken",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, BitbucketValidationError{
+						field:  "ApiToken",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetApiToken()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return BitbucketValidationError{
+					field:  "ApiToken",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -4160,6 +4201,20 @@ func (m *S3) validate(all bool) error {
 
 	// no validation rules for EnableResumption
 
+	if _, err := url.Parse(m.GetEndpoint()); err != nil {
+		err = S3ValidationError{
+			field:  "Endpoint",
+			reason: "value must be a valid URI",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for Region
+
 	switch v := m.Credential.(type) {
 	case *S3_AccessKey:
 		if v == nil {
@@ -4824,6 +4879,17 @@ func (m *Gerrit) validate(all bool) error {
 	// no validation rules for SkipBinaries
 
 	// no validation rules for SkipArchives
+
+	if val := m.GetApiTimeoutSeconds(); val < 0 || val > 3600 {
+		err := GerritValidationError{
+			field:  "ApiTimeoutSeconds",
+			reason: "value must be inside range [0, 3600]",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	switch v := m.Credential.(type) {
 	case *Gerrit_BasicAuth:
