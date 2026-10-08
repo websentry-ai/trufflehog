@@ -141,6 +141,7 @@ func TestURLLogin_PlaceholderPasswordsAreNotReported(t *testing.T) {
 		"https://deploy:changeme@git.acme.io/team/repo.git",
 		"postgres://postgres:postgres@localhost:5432/postgres",
 		"mysql://root:mysql@127.0.0.1:3306/app",
+		"ftp://anonymous:anonymous@ftp.acme.org/pub/",
 	} {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
 			require.NotEqual(t, "url-login-credential", r.EntityType, text)
@@ -198,5 +199,52 @@ func TestURLLogin_AnIPv6HostIsCaught(t *testing.T) {
 	for _, host := range []string{"[::1]:5432", "[2001:db8::5]", "[fe80::1%25en0]:22"} {
 		text := "postgres://app:" + pw + "@" + host + "/prod"
 		require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, s, text, pw), host)
+	}
+}
+
+// A login pasted twice is reported twice, each copy on its own span: redaction
+// works by span, so a collapsed second copy would stay visible.
+func TestURLLogin_EachCopyOfARepeatedLoginIsReported(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakePassword(24, 61)
+	for _, text := range []string{
+		"ssh://svc:" + pw + "@one.acme.io/a and ssh://svc:" + pw + "@two.acme.io/b",
+		"ssh://svc:" + pw + "@git.acme.io/a and again ssh://svc:" + pw + "@git.acme.io/a",
+	} {
+		var want, got [][2]int
+		for i, rest := 0, text; ; {
+			j := strings.Index(rest, ":"+pw+"@")
+			if j < 0 {
+				break
+			}
+			want = append(want, [2]int{i + j + 1, i + j + 1 + len(pw)})
+			i, rest = i+j+1, rest[j+1:]
+		}
+		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
+			if r.EntityType == "url-login-credential" {
+				got = append(got, [2]int{r.Start, r.End})
+			}
+		}
+		require.Len(t, want, 2)
+		require.Equal(t, want, got, text)
+	}
+}
+
+// SQLAlchemy names the driver after a "+".
+func TestURLLogin_ADriverSuffixedSchemeIsCaught(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakePassword(24, 71)
+	for _, scheme := range []string{"postgresql+psycopg2", "postgres+asyncpg", "mysql+pymysql", "mariadb+mariadbconnector"} {
+		text := scheme + "://app:" + pw + "@db.acme.io/prod"
+		require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, s, text, pw), scheme)
+	}
+}
+
+// On the same span as a vendor detector, the vendor's specific name wins.
+func TestURLLogin_AVendorTokenInTheLoginKeepsItsName(t *testing.T) {
+	s := prodScanner(t)
+	text := "git clone ssh://x-access-token:" + fakeGithubPAT + "@github.com/acme/repo.git"
+	for range 20 {
+		require.Equal(t, []string{"Github"}, entitiesOver(t, s, text, fakeGithubPAT))
 	}
 }

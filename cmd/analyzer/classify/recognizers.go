@@ -844,11 +844,12 @@ func IsPlaceholderPassword(v string) bool {
 }
 
 // The password halves of placeholderUserinfo, plus the defaults that ship with
-// local brokers and database images (guest:guest is RabbitMQ's).
+// local brokers and database images (guest:guest is RabbitMQ's), and anonymous
+// FTP's.
 var placeholderPasswords = map[string]bool{
 	"pass": true, "password": true, "passwd": true, "secret": true, "pass123": true,
 	"admin": true, "root": true, "guest": true, "changeme": true,
-	"postgres": true, "mysql": true,
+	"postgres": true, "mysql": true, "anonymous": true,
 }
 
 // IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken

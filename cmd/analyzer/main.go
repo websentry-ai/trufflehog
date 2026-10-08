@@ -289,6 +289,8 @@ func dedupeIdentical(in []analyzeResult) []analyzeResult {
 func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byte, threshold float64, runeBase int) []analyzeResult {
 	reqID := reqIDFrom(ctx)
 	out := []analyzeResult{}
+	// Where the next copy of a repeated result is looked for.
+	next := map[string]int{}
 	for _, match := range core.FindDetectorMatches(data) {
 		found, err := match.FromData(ctx, false, data)
 		if err != nil {
@@ -312,7 +314,9 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}
-			start, end, ok := offsets(data, res.Raw, res.GetPrimarySecretValue())
+			key := entity + "\x00" + res.GetPrimarySecretValue() + "\x00" + string(res.Raw)
+			start, end, after, ok := offsets(data, res.Raw, res.GetPrimarySecretValue(), next[key])
+			next[key] = after
 			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
@@ -372,7 +376,7 @@ func entityRank(name string) int {
 	switch name {
 	case customdetectors.EntropyName:
 		return 2
-	case customdetectors.GenericSecretName:
+	case customdetectors.GenericSecretName, customdetectors.URLLoginCredentialName:
 		return 1
 	default:
 		return 0
@@ -430,26 +434,35 @@ func hasLongRepeatRun(s string, n int) bool {
 	return false
 }
 
-// offsets locates raw in data. Custom detectors also hand over their full match,
-// which ends in the reported group, so raw is taken as its last occurrence
-// there: the same value can appear earlier in the text, or in the match itself
-// (a user named like its password).
-func offsets(data, raw []byte, match string) (int, int, bool) {
+// offsets locates raw in data, looking from byte from so that a result repeated
+// for each copy of a value lands on each copy in turn; after is where the next
+// copy is looked for. Custom detectors also hand over their full match, which
+// ends in the reported group, so raw is taken as its last occurrence there: the
+// same value can appear earlier in the text, or in the match itself (a user
+// named like its password).
+func offsets(data, raw []byte, match string, from int) (start, end, after int, ok bool) {
 	if len(raw) == 0 {
-		return 0, 0, false
+		return 0, 0, from, false
 	}
-	i := bytes.Index(data, raw)
-	if m := bytes.Index(data, []byte(match)); match != "" && m >= 0 {
+	find := func(needle []byte) int {
+		if i := bytes.Index(data[from:], needle); i >= 0 {
+			return from + i
+		}
+		return bytes.Index(data, needle)
+	}
+	i := find(raw)
+	after = i + len(raw)
+	if m := find([]byte(match)); match != "" && m >= 0 {
 		if j := bytes.LastIndex([]byte(match), raw); j >= 0 {
-			i = m + j
+			i, after = m+j, m+len(match)
 		}
 	}
 	if i < 0 {
-		return 0, 0, false
+		return 0, 0, from, false
 	}
-	start := utf8.RuneCount(data[:i])
-	end := start + utf8.RuneCount(raw)
-	return start, end, true
+	start = utf8.RuneCount(data[:i])
+	end = start + utf8.RuneCount(raw)
+	return start, end, after, true
 }
 
 func authorized(r *http.Request, apiKey string) bool {

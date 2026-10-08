@@ -27,7 +27,7 @@ func NewURLLoginCredential() (detectors.Detector, error) {
 			// the case this exists for, and the long-form pass sees it whole. The
 			// match ends at "@", so any host shape counts, IPv6 brackets included.
 			"secret": `(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
-				`|mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mariadb|ldaps?|smtps?|imaps?)` +
+				`|mongodb(?:\+srv)?|(?:postgres(?:ql)?|mysql|mariadb)(?:\+\w+)?|ldaps?|smtps?|imaps?)` +
 				`://[^\s/?#@:]*:([^\s/?#@]{3,})@`,
 		},
 		ExcludeRegexesCapture: dbConnectionURIExcludeRegexes(),
