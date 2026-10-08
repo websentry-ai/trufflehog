@@ -380,9 +380,26 @@ func TestURLLogin_FieldsAroundAURLAreNotALogin(t *testing.T) {
 		`{'url':'https://u:x','email':'jane@acme.com'}`,
 		"x,https://app.acme.io:443,jane@acme.com",
 		"url=https://acme.io;contact:jane@acme.com",
+		"postgres://db.acme.io:5432&email=jane@acme.com",
+		"postgres://db.acme.io:5432)jane@acme.com",
+		"http://host:8080&jane@acme.com",
 	} {
 		for _, r := range s.scan(context.Background(), []byte(text), 0.75) {
 			require.NotEqual(t, "url-login-credential", r.EntityType, text)
 		}
+	}
+}
+
+// A password that starts like a port is still a login when a real host follows,
+// and a user may hold any RFC 3986 login character, an apostrophe included.
+func TestURLLogin_PortShapedPasswordsAndPlainNamesAreLogins(t *testing.T) {
+	s := prodScanner(t)
+	pw := fakePassword(16, 101)
+	for _, c := range []struct{ text, secret string }{
+		{"ssh://svc:1234&" + pw + "@git.acme.io/team/repo.git", "1234&" + pw},
+		{"ssh://svc:1234)" + pw + "@[::1]:22/repo", "1234)" + pw},
+		{"ssh://o'brien:" + pw + "@git.acme.io/team/repo.git", pw},
+	} {
+		require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, s, c.text, c.secret), c.text)
 	}
 }

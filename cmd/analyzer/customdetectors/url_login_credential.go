@@ -17,7 +17,15 @@ const URLLoginCredentialName = "url-login-credential"
 // match ends at "@" so any host shape counts, IPv6 brackets included.
 var urlLoginRegex = regexp.MustCompile(`(?i)\b(?:https?|wss?|s?ftps?|ssh|git(?:\+\w+)?|svn(?:\+\w+)?|rediss?|amqps?` +
 	`|mongodb(?:\+srv)?|(?:postgres(?:ql)?|mysql|mariadb)(?:\+\w+)?|ldaps?|smtps?|imaps?)` +
-	`://[A-Za-z0-9\-._~%!$&()*+=]*:([A-Za-z0-9\-._~%!$&'()*+=:]{3,})@`)
+	`://[A-Za-z0-9\-._~%!$&'()*+=]*:([A-Za-z0-9\-._~%!$&'()*+=:]{3,})@`)
+
+// A port glued to an address ("db.acme.io:5432&jane@acme.com") reads like a
+// password starting with digits; only a host with a path or port after it, as
+// in a real URL, makes it a login.
+var (
+	portShaped   = regexp.MustCompile(`^\d+[^A-Za-z0-9]`)
+	hostThenPath = regexp.MustCompile(`^(?:\[[^\]\s]*\]|[A-Za-z0-9.-]+)(?:/|:\d)`)
+)
 
 // urlLoginDetector reports the password in scheme://user:password@host, which
 // vendor detectors mostly miss (URI caps it at 50 characters, JWT skips HS256).
@@ -66,6 +74,9 @@ func (d urlLoginDetector) FromData(_ context.Context, _ bool, data []byte) ([]de
 Logins:
 	for _, m := range urlLoginRegex.FindAllSubmatchIndex(data, -1) {
 		pw := data[m[2]:m[3]]
+		if portShaped.Match(pw) && !hostThenPath.Match(data[m[1]:]) {
+			continue
+		}
 		for _, re := range d.exclude {
 			if re.Match(pw) {
 				continue Logins
