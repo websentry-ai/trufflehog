@@ -46,7 +46,6 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/appcues"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/appfollow"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/appointedd"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/appoptics"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/appsynergy"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/apptivo"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/artifactory"
@@ -99,7 +98,6 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/besttime"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/betterstack"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/billomat"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/bingsubscriptionkey"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/bitbar"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/bitbucketapppassword"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/bitcoinaverage"
@@ -292,6 +290,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/fibery"
 	figmapersonalaccesstokenv1 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/figmapersonalaccesstoken/v1"
 	figmapersonalaccesstokenv2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/figmapersonalaccesstoken/v2"
+	figmapersonalaccesstokenv3 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/figmapersonalaccesstoken/v3"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/fileio"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/finage"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/financialmodelingprep"
@@ -388,6 +387,7 @@ import (
 	hubspot_apikey_v2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/hubspot_apikey/v2"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/huggingface"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/humanity"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/humioapitoken"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/hunter"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/hybiscus"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/hypertrack"
@@ -429,6 +429,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/klaviyo"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/klipfolio"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/knapsackpro"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kong"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kontent"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kraken"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kucoin"
@@ -488,7 +489,8 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/metaapi"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/metabase"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/metrilo"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/microsoftteamswebhook"
+	microsoftteamswebhookv1 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/microsoftteamswebhook/v1"
+	microsoftteamswebhookv2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/microsoftteamswebhook/v2"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/mindmeister"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/miro"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/mite"
@@ -514,6 +516,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newrelicinsightsinsertkey"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newrelicinsightsquerykey"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newreliclicensekey"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newrelicmobileapptoken"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newrelicpersonalapikey"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newrelicuserkey"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/newsapi"
@@ -643,6 +646,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/replicate"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/replyio"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/requestfinance"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/resend"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/restpackhtmltopdfapi"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/restpackscreenshotapi"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/rev"
@@ -727,6 +731,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/snipcart"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/snowflake"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/snykkey"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/solarwindsobservability"
 	sonarcloudv1 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sonarcloud/v1"
 	sonarcloudv2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sonarcloud/v2"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sourcegraph"
@@ -862,7 +867,8 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/webscraper"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/webscraping"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/websitepulse"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/weightsandbiases"
+	weightsandbiasesv1 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/weightsandbiases/v1"
+	weightsandbiasesv2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/weightsandbiases/v2"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/whoxy"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/wistia"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/wit"
@@ -946,7 +952,6 @@ func buildDetectorList() []detectors.Detector {
 		&appcues.Scanner{},
 		&appfollow.Scanner{},
 		&appointedd.Scanner{},
-		&appoptics.Scanner{},
 		&appsync.Scanner{},
 		&appsynergy.Scanner{},
 		&apptivo.Scanner{},
@@ -999,7 +1004,6 @@ func buildDetectorList() []detectors.Detector {
 		&besttime.Scanner{},
 		&betterstack.Scanner{},
 		&billomat.Scanner{},
-		&bingsubscriptionkey.Scanner{},
 		&bitbar.Scanner{},
 		&bitbucketdatacenter.Scanner{},
 		&bitbucketapppassword.Scanner{},
@@ -1197,6 +1201,7 @@ func buildDetectorList() []detectors.Detector {
 		&fibery.Scanner{},
 		&figmapersonalaccesstokenv1.Scanner{},
 		&figmapersonalaccesstokenv2.Scanner{},
+		&figmapersonalaccesstokenv3.Scanner{},
 		&fileio.Scanner{},
 		&finage.Scanner{},
 		&financialmodelingprep.Scanner{},
@@ -1297,6 +1302,7 @@ func buildDetectorList() []detectors.Detector {
 		&hubspot_apikey_v2.Scanner{},
 		&huggingface.Scanner{},
 		&humanity.Scanner{},
+		&humioapitoken.Scanner{},
 		&hunter.Scanner{},
 		&hybiscus.Scanner{},
 		&hypertrack.Scanner{},
@@ -1340,6 +1346,7 @@ func buildDetectorList() []detectors.Detector {
 		&klaviyo.Scanner{},
 		&klipfolio.Scanner{},
 		&knapsackpro.Scanner{},
+		&kong.Scanner{},
 		&kontent.Scanner{},
 		&kraken.Scanner{},
 		&kucoin.Scanner{},
@@ -1403,7 +1410,8 @@ func buildDetectorList() []detectors.Detector {
 		&metaapi.Scanner{},
 		&metabase.Scanner{},
 		&metrilo.Scanner{},
-		&microsoftteamswebhook.Scanner{},
+		&microsoftteamswebhookv1.Scanner{},
+		&microsoftteamswebhookv2.Scanner{},
 		&mindmeister.Scanner{},
 		&miro.Scanner{},
 		&mite.Scanner{},
@@ -1431,6 +1439,7 @@ func buildDetectorList() []detectors.Detector {
 		&newrelicinsightsinsertkey.Scanner{},
 		&newrelicinsightsquerykey.Scanner{},
 		&newreliclicensekey.Scanner{},
+		&newrelicmobileapptoken.Scanner{},
 		&newrelicpersonalapikey.Scanner{},
 		&newrelicuserkey.Scanner{},
 		&newsapi.Scanner{},
@@ -1561,6 +1570,7 @@ func buildDetectorList() []detectors.Detector {
 		&replicate.Scanner{},
 		&replyio.Scanner{},
 		&requestfinance.Scanner{},
+		&resend.Scanner{},
 		// &restpack.Scanner{},
 		&restpackhtmltopdfapi.Scanner{},
 		&restpackscreenshotapi.Scanner{},
@@ -1647,6 +1657,7 @@ func buildDetectorList() []detectors.Detector {
 		&snipcart.Scanner{},
 		&snowflake.Scanner{},
 		&snykkey.Scanner{},
+		&solarwindsobservability.Scanner{},
 		&sonarcloudv1.Scanner{},
 		&sonarcloudv2.Scanner{},
 		&sourcegraph.Scanner{},
@@ -1785,7 +1796,8 @@ func buildDetectorList() []detectors.Detector {
 		&webscraper.Scanner{},
 		&webscraping.Scanner{},
 		&websitepulse.Scanner{},
-		&weightsandbiases.Scanner{},
+		&weightsandbiasesv1.Scanner{},
+		&weightsandbiasesv2.Scanner{},
 		// &wepay.Scanner{},
 		&whoxy.Scanner{},
 		&wistia.Scanner{},
@@ -1828,6 +1840,8 @@ func buildDetectorList() []detectors.Detector {
 			return !feature.CloudinaryDetectorEnabled.Load()
 		case *gitlaboauth2.Scanner:
 			return !feature.GitLabOAuthDetectorEnabled.Load()
+		case *figmapersonalaccesstokenv3.Scanner:
+			return !feature.FigmaV3DetectorEnabled.Load()
 		case *sonarcloudv2.Scanner:
 			return !feature.SonarCloudV2DetectorEnabled.Load()
 		case *enigma.Scanner:
@@ -1880,6 +1894,20 @@ func buildDetectorList() []detectors.Detector {
 			return !feature.NewRelicUserKeyDetectorEnabled.Load()
 		case *newrelicinsightsquerykey.Scanner:
 			return !feature.NewRelicInsightsQueryKeyDetectorEnabled.Load()
+		case *newrelicmobileapptoken.Scanner:
+			return !feature.NewRelicMobileAppTokenDetectorEnabled.Load()
+		case *microsoftteamswebhookv2.Scanner:
+			return !feature.MSTeamsWebhookV2DetectorEnabled.Load()
+		case *solarwindsobservability.Scanner:
+			return !feature.SolarwindsDetectorEnabled.Load()
+		case *humioapitoken.Scanner:
+			return !feature.HumioAPITokenDetectorEnabled.Load()
+		case *resend.Scanner:
+			return !feature.ResendDetectorEnabled.Load()
+		case *weightsandbiasesv2.Scanner:
+			return !feature.WeightsAndBiasesV2DetectorEnabled.Load()
+		case *kong.Scanner:
+			return !feature.KongKonnectDetectorEnabled.Load()
 		default:
 			return false
 		}

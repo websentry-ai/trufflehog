@@ -10,6 +10,7 @@ import (
 
 	"github.com/trufflesecurity/trufflehog/v3/pkg/common"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
+	figma "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/figmapersonalaccesstoken"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/detector_typepb"
 )
 
@@ -26,12 +27,15 @@ func (Scanner) Version() int { return 2 }
 var (
 	defaultClient = common.SaneHttpClient()
 	keyPat        = regexp.MustCompile(detectors.PrefixRegex([]string{"figma"}) + `\b(fig[d|((u|o)(r|h)?)]_[a-z0-9A-Z_-]{40})\b`)
+	// A personal access token's figd_ prefix is distinctive on its own. Its body
+	// can end in '-', so it ends at a non-token byte rather than at \b.
+	figdPat = regexp.MustCompile(`\b(figd_[a-z0-9A-Z_-]{40})(?:[^a-z0-9A-Z_-]|\z)`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.
 // Use identifiers in the secret preferably, or the provider name.
 func (s Scanner) Keywords() []string {
-	return []string{"figma"}
+	return []string{"figma", "figd_"}
 }
 
 // Description returns a description for the result being detected.
@@ -39,47 +43,40 @@ func (s Scanner) Description() string {
 	return "Figma is a collaborative interface design tool. Figma Personal Access Tokens can be used to access and manipulate design files and other resources on behalf of a user."
 }
 
+func (s Scanner) getClient() *http.Client {
+	if s.client != nil {
+		return s.client
+	}
+	return defaultClient
+}
+
 // FromData will find and optionally verify FigmaPersonalAccessToken secrets in a given set of bytes.
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) (results []detectors.Result, err error) {
 	dataStr := string(data)
 
-	matches := keyPat.FindAllStringSubmatch(dataStr, -1)
+	matches := append(keyPat.FindAllStringSubmatch(dataStr, -1), figdPat.FindAllStringSubmatch(dataStr, -1)...)
+	seen := make(map[string]struct{}, len(matches))
 
 	for _, match := range matches {
 		resMatch := strings.TrimSpace(match[1])
+		if _, dup := seen[resMatch]; dup {
+			continue
+		}
+		seen[resMatch] = struct{}{}
 
 		s1 := detectors.Result{
-			DetectorType: detector_typepb.DetectorType_FigmaPersonalAccessToken,
+			DetectorType: s.Type(),
 			Raw:          []byte(resMatch),
 			ExtraData: map[string]string{
-				"version": fmt.Sprintf("%d", s.Version()),
+				"version": fmt.Sprint(s.Version()),
 			},
 			SecretParts: map[string]string{"token": resMatch},
 		}
 
 		if verify {
-			client := s.client
-			if client == nil {
-				client = defaultClient
-			}
-
-			req, err := http.NewRequestWithContext(ctx, "GET", "https://api.figma.com/v1/me", nil)
-			if err != nil {
-				continue
-			}
-			req.Header.Add("X-Figma-Token", resMatch)
-			res, err := client.Do(req)
-			if err == nil {
-				defer func() { _ = res.Body.Close() }()
-				if res.StatusCode >= 200 && res.StatusCode < 300 {
-					s1.Verified = true
-				} else if res.StatusCode != 403 {
-					err = fmt.Errorf("unexpected HTTP response status %d", res.StatusCode)
-					s1.SetVerificationError(err, resMatch)
-				}
-			} else {
-				s1.SetVerificationError(err, resMatch)
-			}
+			isVerified, verificationErr := figma.VerifyMatch(ctx, s.getClient(), resMatch)
+			s1.Verified = isVerified
+			s1.SetVerificationError(verificationErr, resMatch)
 		}
 
 		results = append(results, s1)
