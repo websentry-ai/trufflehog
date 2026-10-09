@@ -87,3 +87,15 @@ func TestDockerExampleConfigIsNotACredential(t *testing.T) {
 		}
 	}
 }
+
+// A password is compared as bytes, so regex metacharacters or invalid UTF-8
+// from a decoded value can neither match wrongly nor fail the request.
+func TestPasswordFieldAtIsLiteral(t *testing.T) {
+	data := []byte(`{"password":"a(b"} {"password":"k7Rm2q"}`)
+	if got := passwordFieldAt(data, "a(b"); got != 13 {
+		t.Fatalf("regex metacharacters in a password: got %d, want 13", got)
+	}
+	if got := passwordFieldAt(data, "\xff\xfe"); got != -1 {
+		t.Fatalf("invalid UTF-8 password: got %d, want -1", got)
+	}
+}

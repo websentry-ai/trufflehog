@@ -333,7 +333,7 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 				at = int(res.ChunkOffset())
 			}
 			start, end, ok := runes.offsets(res.Raw, at)
-			if !ok {
+			if !ok && entity == "Docker" {
 				// Docker builds its value as base64 of user:password when a config
 				// lists them in plain text; the password field is what the prompt holds.
 				if pw := classify.BasicAuthPassword(string(res.Raw)); pw != "" {
@@ -524,12 +524,20 @@ func (x *runeIndex) offsets(raw []byte, at int) (int, int, bool) {
 	return x.rune, x.rune + utf8.RuneCount(raw), true
 }
 
-// passwordFieldAt returns the byte offset of pw as the value of a JSON
-// "password" field, escaped or not, or -1.
+// passwordFieldKey matches a JSON "password" key up to its value's opening
+// quote, escaped or not.
+var passwordFieldKey = regexp.MustCompile(`(?i)\\*"password\\*"\s*:\s*\\*"`)
+
+// passwordFieldAt returns the byte offset of pw as the value of a "password"
+// field, or -1.
 func passwordFieldAt(data []byte, pw string) int {
-	field := regexp.MustCompile(`(?i)\\*"password\\*"\s*:\s*\\*"(` + regexp.QuoteMeta(pw) + `)\\*"`)
-	if loc := field.FindSubmatchIndex(data); loc != nil {
-		return loc[2]
+	for _, loc := range passwordFieldKey.FindAllIndex(data, -1) {
+		rest := data[loc[1]:]
+		if bytes.HasPrefix(rest, []byte(pw)) {
+			if after := rest[len(pw):]; bytes.HasPrefix(after, []byte(`"`)) || bytes.HasPrefix(after, []byte(`\"`)) {
+				return loc[1]
+			}
+		}
 	}
 	return -1
 }
