@@ -1,7 +1,7 @@
 # Staging overlay for the trufflehog-analyzer. Secrets: staging/trufflehog.
 
 image:
-  tag: "c477d4c5483be7c055f62dcd56bf5002c4cd4d7d"
+  tag: "fcbbc2f71f8799d891a99d1404f81bf1d784372a"
 
 externalSecret:
   remoteKey: staging/trufflehog
