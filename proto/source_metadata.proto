@@ -5,6 +5,11 @@ package source_metadata;
 option go_package = "github.com/trufflesecurity/trufflehog/v3/pkg/pb/source_metadatapb";
 
 import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+message AWSSecretsManager {
+  string secret_arn = 1 [(validate.rules).string.pattern = "^arn:aws[^:]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$"];
+}
 
 message Azure {
   string container = 1;
@@ -274,6 +279,8 @@ message SharePoint {
   int64 views = 5;
   string docid = 6;
   string email = 7;
+  int64 version = 8;
+  int64 comment_number = 9;
 }
 
 message GoogleDrive {
@@ -430,5 +437,6 @@ message MetaData {
     Stdin stdin = 34;
     SlackContinuous slackContinuous = 35;
     JSONEnumerator jsonEnumerator = 36;
+    AWSSecretsManager awsSecretsManager = 37;
   }
 }

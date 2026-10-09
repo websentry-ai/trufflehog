@@ -26,6 +26,7 @@ var (
 		"deprecated": false
 	}]`
 	secret = "figr_EZe7plhYvN92IyiDCjkvTcbNVZsuRVpDcHOwNNP1"
+	figd   = "figd" + "_Ab3-Cd4_Ef5Gh6Jk7Mn8Pq9Rs2Tu3Vw4Xy5Za6Bc" // split so no token is a contiguous literal
 )
 
 func TestFigmaPersonalAccessToken_Pattern(t *testing.T) {
@@ -41,6 +42,31 @@ func TestFigmaPersonalAccessToken_Pattern(t *testing.T) {
 			name:  "valid pattern",
 			input: validPattern,
 			want:  []string{secret},
+		},
+		{
+			name:  "valid pattern - figd_ with no keyword",
+			input: "export TOKEN=" + figd,
+			want:  []string{figd},
+		},
+		{
+			name:  "valid pattern - figd_ next to figma reported once",
+			input: "figma token: " + figd,
+			want:  []string{figd},
+		},
+		{
+			name:  "valid pattern - figd_ ending in a hyphen",
+			input: "TOKEN=\"" + figd[:len(figd)-1] + "-\"",
+			want:  []string{figd[:len(figd)-1] + "-"},
+		},
+		{
+			name:  "invalid pattern - figd_ one long",
+			input: "export TOKEN=" + figd + "x",
+			want:  []string{},
+		},
+		{
+			name:  "invalid pattern - figd_ one short",
+			input: "export TOKEN=" + figd[:len(figd)-1],
+			want:  []string{},
 		},
 	}
 

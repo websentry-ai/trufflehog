@@ -23,6 +23,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
+	regexp "github.com/wasilibs/go-re2"
 )
 
 const (
@@ -348,6 +349,15 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 				at = int(res.ChunkOffset())
 			}
 			start, end, ok := runes.offsets(res.Raw, at)
+			if !ok && entity == "Docker" {
+				// Docker builds its value as base64 of user:password when a config
+				// lists them in plain text; the password field is what the prompt holds.
+				if pw := classify.BasicAuthPassword(string(res.Raw)); pw != "" {
+					if i := passwordFieldAt(data, pw); i >= 0 {
+						start, end, ok = runes.offsets([]byte(pw), i)
+					}
+				}
+			}
 			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
@@ -528,6 +538,24 @@ func (x *runeIndex) offsets(raw []byte, at int) (int, int, bool) {
 	x.rune += utf8.RuneCount(x.data[x.byte:i])
 	x.byte = i
 	return x.rune, x.rune + utf8.RuneCount(raw), true
+}
+
+// passwordFieldKey matches a JSON "password" key up to its value's opening
+// quote, escaped or not.
+var passwordFieldKey = regexp.MustCompile(`(?i)\\*"password\\*"\s*:\s*\\*"`)
+
+// passwordFieldAt returns the byte offset of pw as the value of a "password"
+// field, or -1.
+func passwordFieldAt(data []byte, pw string) int {
+	for _, loc := range passwordFieldKey.FindAllIndex(data, -1) {
+		rest := data[loc[1]:]
+		if bytes.HasPrefix(rest, []byte(pw)) {
+			if after := rest[len(pw):]; bytes.HasPrefix(after, []byte(`"`)) || bytes.HasPrefix(after, []byte(`\"`)) {
+				return loc[1]
+			}
+		}
+	}
+	return -1
 }
 
 func authorized(r *http.Request, apiKey string) bool {

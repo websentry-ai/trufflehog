@@ -39,6 +39,7 @@ var vendorStructuralRules = map[string]vendorRule{
 	customdetectors.URLLoginCredentialName: {match: classify.IsPlaceholderPassword, reason: reasonVendorStructuralNoise},
 	"Azure":                                {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
 	"JDBC":                                 {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
+	"Docker":                               {match: classify.IsPlaceholderBasicAuth, reason: reasonVendorStructuralNoise},
 }
 
 // embeddedVendors are detectors whose real token is always a standalone run, so

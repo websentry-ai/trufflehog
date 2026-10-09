@@ -55,16 +55,23 @@ var (
 	jsonOut             = cli.Flag("json", "Output in JSON format.").Short('j').Bool()
 	jsonLegacy          = cli.Flag("json-legacy", "Use the pre-v3.0 JSON format. Only works with git, gitlab, and github sources.").Bool()
 	gitHubActionsFormat = cli.Flag("github-actions", "Output in GitHub Actions format.").Bool()
+	sarifOut            = cli.Flag("sarif", "Output in SARIF format for upload to GitHub code scanning (e.g. via github/codeql-action/upload-sarif).").Bool()
 	concurrency         = cli.Flag("concurrency", "Number of concurrent workers.").PlaceHolder("N").Int()
 	noVerification      = cli.Flag("no-verification", "Don't verify the results.").Bool()
 	onlyVerified        = cli.Flag("only-verified", "Only output verified results.").Hidden().Bool()
 	results             = cli.Flag("results", "Specifies which type(s) of results to output: verified (confirmed valid by API), unknown (verification failed due to error), unverified (detected but not verified), filtered_unverified (unverified but would have been filtered out). Defaults to verified,unverified,unknown.").String()
-	noColor             = cli.Flag("no-color", "Disable colorized output").Bool()
-	noColour            = cli.Flag("no-colour", "Alias for --no-color").Hidden().Bool()
+
+	// The default cache size is 5000 entries, which is a balance between memory usage and the need for effective deduplication.
+	// Since the cache entries are md5 hashes so each entry would be 16 bytes, so in total this would be aorund 80KB of memory usage.
+	dedupeCacheSize = cli.Flag("deduplication-cache-size", "Max size of the results deduplication cache, setting to 0 disables").Default("5000").Int()
+
+	noColor  = cli.Flag("no-color", "Disable colorized output").Bool()
+	noColour = cli.Flag("no-colour", "Alias for --no-color").Hidden().Bool()
 
 	allowVerificationOverlap   = cli.Flag("allow-verification-overlap", "Allow verification of similar credentials across detectors").Bool()
 	filterUnverified           = cli.Flag("filter-unverified", "Only output first unverified result per chunk per detector if there are more than one results.").Bool()
 	filterEntropy              = cli.Flag("filter-entropy", "Filter unverified results with Shannon entropy. Start with 3.0.").Float64()
+	noIgnoreTag                = cli.Flag("no-ignore-tag", "Report results even if the line has a 'trufflehog:ignore' comment.").Bool()
 	scanEntireChunk            = cli.Flag("scan-entire-chunk", "Scan the entire chunk for secrets.").Hidden().Default("false").Bool()
 	maxDecodeDepth             = cli.Flag("max-decode-depth", "Maximum depth of iterative decoding. Each decoder's output is fed back through all decoders, up to this limit. 1 = single pass, 2+ = chained decoding (e.g., base64 inside utf16).").Default("5").Int()
 	compareDetectionStrategies = cli.Flag("compare-detection-strategies", "Compare different detection strategies for matching spans").Hidden().Default("false").Bool()
@@ -90,6 +97,7 @@ var (
 	forceSkipBinaries        = cli.Flag("force-skip-binaries", "Force skipping binaries.").Bool()
 	forceSkipArchives        = cli.Flag("force-skip-archives", "Force skipping archives.").Bool()
 	gitCloneTimeout          = cli.Flag("git-clone-timeout", "Maximum time to spend cloning a repository, as a duration.").Hidden().Duration()
+	gitLowMemoryScan         = cli.Flag("git-low-memory-scan", "Reduce memory use for git scanning.").Hidden().Bool()
 	skipAdditionalRefs       = cli.Flag("skip-additional-refs", "Skip additional references.").Bool()
 	userAgentSuffix          = cli.Flag("user-agent-suffix", "Suffix to add to User-Agent.").String()
 	dropUnverifiedJWTResults = cli.Flag("drop-unverified-jwt-results", "Drop unverified results without any verification errors from the JWT detector.").Bool()
@@ -104,7 +112,7 @@ var (
 	gitScanMaxDepth        = gitScan.Flag("max-depth", "Maximum depth of commits to scan.").Int()
 	gitScanBare            = gitScan.Flag("bare", "Scan bare repository (e.g. useful while using in pre-receive hooks)").Bool()
 	gitClonePath           = gitScan.Flag("clone-path", "Custom path where the repository should be cloned (default: temp dir).").String()
-	gitNoCleanup           = gitScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path).").Bool()
+	gitNoCleanup           = gitScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path). Each clone is kept in its own directory, so ensure sufficient disk space: usage grows with every repository scanned and every run.").Bool()
 	gitTrustLocalGitConfig = gitScan.Flag("trust-local-git-config", "Trust local git config.").Bool()
 	_                      = gitScan.Flag("allow", "No-op flag for backwards compat.").Bool()
 	_                      = gitScan.Flag("entropy", "No-op flag for backwards compat.").Bool()
@@ -128,7 +136,7 @@ var (
 	githubCommentsTimeframeDays = githubScan.Flag("comments-timeframe", "Number of days in the past to review when scanning issue, PR, and gist comments.").Uint32()
 	githubAuthInUrl             = githubScan.Flag("auth-in-url", "Embed authentication credentials in repository URLs instead of using secure HTTP headers").Bool()
 	githubClonePath             = githubScan.Flag("clone-path", "Custom path where the repository should be cloned (default: temp dir).").String()
-	githubNoCleanup             = githubScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path).").Bool()
+	githubNoCleanup             = githubScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path). Each clone is kept in its own directory, so ensure sufficient disk space: usage grows with every repository scanned and every run.").Bool()
 	githubIgnoreGists           = githubScan.Flag("ignore-gists", "Ignore all gists in scan.").Bool()
 	githubExcludeArchived       = githubScan.Flag("exclude-archived", "Exclude archived repositories from scan.").Bool()
 
@@ -153,8 +161,8 @@ var (
 	gitlabScanIncludeRepos = gitlabScan.Flag("include-repos", `Repositories to include in an org scan. This can also be a glob pattern. You can repeat this flag. Must use Gitlab repo full name. Example: "trufflesecurity/trufflehog", "trufflesecurity/t*"`).Strings()
 	gitlabScanExcludeRepos = gitlabScan.Flag("exclude-repos", `Repositories to exclude in an org scan. This can also be a glob pattern. You can repeat this flag. Must use Gitlab repo full name. Example: "trufflesecurity/driftwood", "trufflesecurity/d*"`).Strings()
 	gitlabAuthInUrl        = gitlabScan.Flag("auth-in-url", "Embed authentication credentials in repository URLs instead of using secure HTTP headers").Bool()
-	gitlabClonePath        = gitlabScan.Flag("clone-path", "Custom path where the repository should be cloned (default: temp dir)").String()
-	gitlabNoCleanup        = gitlabScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path).").Bool()
+	gitlabClonePath        = gitlabScan.Flag("clone-path", "Custom path where the repository should be cloned (default: temp dir).").String()
+	gitlabNoCleanup        = gitlabScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path). Each clone is kept in its own directory, so ensure sufficient disk space: usage grows with every repository scanned and every run.").Bool()
 
 	filesystemScan  = cli.Command("filesystem", "Find credentials in a filesystem.")
 	filesystemPaths = filesystemScan.Arg("path", "Path to file or directory to scan.").Strings()
@@ -175,6 +183,13 @@ var (
 	s3ScanBuckets       = s3Scan.Flag("bucket", "Name of S3 bucket to scan. You can repeat this flag. Incompatible with --ignore-bucket.").Strings()
 	s3ScanIgnoreBuckets = s3Scan.Flag("ignore-bucket", "Name of S3 bucket to ignore. You can repeat this flag. Incompatible with --bucket.").Strings()
 	s3ScanMaxObjectSize = s3Scan.Flag("max-object-size", "Maximum size of objects to scan. Objects larger than this will be skipped. (Byte units eg. 512B, 2KB, 4MB)").Default("250MB").Bytes()
+	s3ScanEndpoint      = s3Scan.Flag("endpoint", "Endpoint of an S3-compatible service to scan instead of AWS S3. (eg. https://s3.internal.example.com)").String()
+	s3ScanRegion        = s3Scan.Flag("region", "Region used to sign requests. Defaults to us-east-1.").String()
+
+	s3ScanIncludePrefixes   = s3Scan.Flag("include-prefix", "Only scan objects whose key starts with this prefix. You can repeat this flag.").Strings()
+	s3ScanExcludePrefixes   = s3Scan.Flag("exclude-prefix", "Skip objects whose key starts with this prefix. You can repeat this flag. Takes precedence over --include-prefix.").Strings()
+	s3ScanIncludeExtensions = s3Scan.Flag("include-extension", "Only scan objects with this file extension, written without a leading dot (eg. tf). You can repeat this flag. Incompatible with --exclude-extension.").Strings()
+	s3ScanExcludeExtensions = s3Scan.Flag("exclude-extension", "Skip objects with this file extension, written without a leading dot (eg. zip). You can repeat this flag. Incompatible with --include-extension.").Strings()
 
 	gcsScan           = cli.Command("gcs", "Find credentials in GCS buckets.")
 	gcsProjectID      = gcsScan.Flag("project-id", "GCS project ID used to authenticate. Can NOT be used with unauth scan. Can be provided with environment variable GOOGLE_CLOUD_PROJECT.").Envar("GOOGLE_CLOUD_PROJECT").String()
@@ -510,6 +525,10 @@ func run(state overseer.State, logSync func() error) {
 		feature.GitCloneTimeoutDuration.Store(int64(*gitCloneTimeout))
 	}
 
+	if *gitLowMemoryScan {
+		feature.UseGitLowMemoryScan.Store(true)
+	}
+
 	if *skipAdditionalRefs {
 		feature.SkipAdditionalRefs.Store(true)
 	}
@@ -542,6 +561,7 @@ func run(state overseer.State, logSync func() error) {
 	feature.PineconeDetectorEnabled.Store(true)
 	feature.CloudinaryDetectorEnabled.Store(true)
 	feature.GitLabOAuthDetectorEnabled.Store(true)
+	feature.FigmaV3DetectorEnabled.Store(true)
 	feature.SonarCloudV2DetectorEnabled.Store(true)
 	feature.EnigmaDetectorEnabled.Store(true)
 	feature.DatadogApiKeyDetectorEnabled.Store(true)
@@ -568,6 +588,13 @@ func run(state overseer.State, logSync func() error) {
 	feature.NewRelicBrowserKeyDetectorEnabled.Store(true)
 	feature.NewRelicUserKeyDetectorEnabled.Store(true)
 	feature.NewRelicInsightsQueryKeyDetectorEnabled.Store(true)
+	feature.NewRelicMobileAppTokenDetectorEnabled.Store(true)
+	feature.MSTeamsWebhookV2DetectorEnabled.Store(true)
+	feature.SolarwindsDetectorEnabled.Store(true)
+	feature.ResendDetectorEnabled.Store(true)
+	feature.WeightsAndBiasesV2DetectorEnabled.Store(true)
+	feature.HumioAPITokenDetectorEnabled.Store(true)
+	feature.KongKonnectDetectorEnabled.Store(true)
 
 	conf := &config.Config{}
 	if *configFilename != "" {
@@ -602,11 +629,13 @@ func run(state overseer.State, logSync func() error) {
 		printer = new(output.JSONPrinter)
 	case *gitHubActionsFormat:
 		printer = new(output.GitHubActionsPrinter)
+	case *sarifOut:
+		printer = new(output.SarifPrinter)
 	default:
 		printer = new(output.PlainPrinter)
 	}
 
-	if !*jsonLegacy && !*jsonOut {
+	if !*jsonLegacy && !*jsonOut && !*sarifOut {
 		fmt.Fprintf(os.Stderr, "🐷🔑🐷  TruffleHog. Unearth your secrets. 🐷🔑🐷\n\n")
 	}
 
@@ -638,12 +667,14 @@ func run(state overseer.State, logSync func() error) {
 		Dispatcher:               engine.NewPrinterDispatcher(printer),
 		FilterUnverified:         *filterUnverified,
 		FilterEntropy:            *filterEntropy,
+		NoIgnoreTag:              *noIgnoreTag,
 		VerificationOverlap:      *allowVerificationOverlap,
 		Results:                  parsedResults,
 		PrintAvgDetectorTime:     *printAvgDetectorTime,
 		ShouldScanEntireChunk:    *scanEntireChunk,
 		MaxDecodeDepth:           *maxDecodeDepth,
 		VerificationCacheMetrics: &verificationCacheMetrics,
+		DedupeCacheSize:          *dedupeCacheSize,
 	}
 
 	if !*noVerificationCache {
@@ -670,6 +701,15 @@ func run(state overseer.State, logSync func() error) {
 	metrics, err := runSingleScan(ctx, cmd, engConf)
 	if err != nil {
 		logFatal(err, "error running scan")
+	}
+
+	// SARIF can't be streamed like the other output formats: it's a single JSON document
+	// wrapping every result, so it's buffered by the printer and written out here, once
+	// scanning has fully finished.
+	if sarifPrinter, ok := printer.(*output.SarifPrinter); ok {
+		if err := sarifPrinter.Flush(os.Stdout); err != nil {
+			logFatal(err, "error writing SARIF output")
+		}
 	}
 
 	verificationCacheMetricsSnapshot := struct {
@@ -866,7 +906,11 @@ func runSingleScan(ctx context.Context, cmd string, cfg engine.Config) (metrics,
 
 			// Override git configuration for pre-commit hook context
 			gitCfg.TrustLocalGitConfig = true
-			gitCfg.BaseRef = "HEAD" // Only scan staged changes
+			// Only scan staged changes. Both ends are HEAD so the commit range is
+			// HEAD..HEAD, which is empty; a base with no head would instead walk
+			// every ref not reachable from HEAD (see gitparse.Parser.RepoPath).
+			gitCfg.BaseRef = "HEAD"
+			gitCfg.HeadRef = "HEAD"
 
 			// Override result filters for pre-commit hook context
 			// In hook mode, we only want to show verified secrets and unknown findings
@@ -1002,14 +1046,20 @@ func runSingleScan(ctx context.Context, cmd string, cfg engine.Config) (metrics,
 		}
 	case s3Scan.FullCommand():
 		cfg := sources.S3Config{
-			Key:           *s3ScanKey,
-			Secret:        *s3ScanSecret,
-			SessionToken:  *s3ScanSessionToken,
-			Buckets:       *s3ScanBuckets,
-			IgnoreBuckets: *s3ScanIgnoreBuckets,
-			Roles:         *s3ScanRoleArns,
-			CloudCred:     *s3ScanCloudEnv,
-			MaxObjectSize: int64(*s3ScanMaxObjectSize),
+			Key:               *s3ScanKey,
+			Secret:            *s3ScanSecret,
+			SessionToken:      *s3ScanSessionToken,
+			Buckets:           *s3ScanBuckets,
+			IgnoreBuckets:     *s3ScanIgnoreBuckets,
+			Roles:             *s3ScanRoleArns,
+			CloudCred:         *s3ScanCloudEnv,
+			MaxObjectSize:     int64(*s3ScanMaxObjectSize),
+			Endpoint:          *s3ScanEndpoint,
+			Region:            *s3ScanRegion,
+			IncludePrefixes:   *s3ScanIncludePrefixes,
+			ExcludePrefixes:   *s3ScanExcludePrefixes,
+			IncludeExtensions: *s3ScanIncludeExtensions,
+			ExcludeExtensions: *s3ScanExcludeExtensions,
 		}
 		if ref, err := eng.ScanS3(ctx, cfg); err != nil {
 			return scanMetrics, fmt.Errorf("failed to scan S3: %v", err)
