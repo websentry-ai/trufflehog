@@ -429,9 +429,17 @@ var digestHexLen = map[string]int{
 	"blake2b": 128, "blake2s": 64, "blake3": 64, "ripemd160": 40,
 }
 
+// revisionSlotPat is where a repository URL or pin holds a commit: a path
+// segment such as /blob/ or /-/tree/, or the revision after repo.git@.
+var revisionSlotPat = regexp.MustCompile(`(?i)(?:/(?:blob|tree|commit|commits|raw|blame|compare|archive)/|\.git@)$`)
+
 func IsHexDigestInContext(value, before string) bool {
 	if len(value) < 16 || !isAllHex(value) {
 		return false
+	}
+	// A git commit (sha1 or sha256) in a repository URL is a revision, not a key.
+	if (len(value) == 40 || len(value) == 64) && revisionSlotPat.MatchString(before) {
+		return true
 	}
 	m := hexDigestLabelPat.FindStringSubmatch(before)
 	if m == nil {
@@ -840,6 +848,24 @@ var placeholderUserinfo = map[string]bool{
 // IsPlaceholderPassword matches a URL-login password that is a well-known dummy
 // value, for detectors that report the password alone rather than the URI. Like
 // IsPlaceholderURI it keys only on the credential, never the host.
+// BasicAuthPassword returns the password of a base64 "user:password" value, or
+// "" when v is not one.
+func BasicAuthPassword(v string) string {
+	decoded, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		return ""
+	}
+	_, pw, _ := strings.Cut(string(decoded), ":")
+	return pw
+}
+
+// IsPlaceholderBasicAuth reports whether a base64 "user:password" value holds a
+// placeholder password, as example registry configs do.
+func IsPlaceholderBasicAuth(v string) bool {
+	pw := BasicAuthPassword(v)
+	return pw != "" && IsPlaceholderPassword(pw)
+}
+
 func IsPlaceholderPassword(v string) bool {
 	lower := strings.ToLower(v)
 	if placeholderPasswords[lower] {

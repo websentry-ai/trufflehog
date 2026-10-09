@@ -333,6 +333,20 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 			}
 			start, end, ok := runes.offsets(res.Raw, at)
 			if !ok {
+				// Docker builds its value as base64 of user:password when a config
+				// lists them in plain text; the password is what the prompt holds.
+				// It is matched in its JSON quotes first, so a short one lands on the config.
+				if pw := classify.BasicAuthPassword(string(res.Raw)); pw != "" {
+					for _, q := range []string{`"`, `\"`, ""} {
+						quoted := []byte(q + pw + q)
+						if start, end, ok = runes.offsets(quoted, -1); ok {
+							start, end = start+len(q), end-len(q)
+							break
+						}
+					}
+				}
+			}
+			if !ok {
 				log.Printf("scan offset_miss req=%s entity=%s raw_len=%d bytes=%d", reqID, entity, len(res.Raw), len(data))
 				continue
 			}
