@@ -27,8 +27,9 @@ func (Scanner) Version() int { return 2 }
 var (
 	defaultClient = common.SaneHttpClient()
 	keyPat        = regexp.MustCompile(detectors.PrefixRegex([]string{"figma"}) + `\b(fig[d|((u|o)(r|h)?)]_[a-z0-9A-Z_-]{40})\b`)
-	// A personal access token's figd_ prefix is distinctive on its own.
-	figdPat = regexp.MustCompile(`\b(figd_[a-z0-9A-Z_-]{40})\b`)
+	// A personal access token's figd_ prefix is distinctive on its own. Its body
+	// can end in '-', so it ends at a non-token byte rather than at \b.
+	figdPat = regexp.MustCompile(`\b(figd_[a-z0-9A-Z_-]{40})(?:[^a-z0-9A-Z_-]|\z)`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.

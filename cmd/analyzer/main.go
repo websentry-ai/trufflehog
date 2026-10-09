@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	regexp "github.com/wasilibs/go-re2"
 	"log"
 	"math"
 	"net/http"
@@ -334,15 +335,10 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 			start, end, ok := runes.offsets(res.Raw, at)
 			if !ok {
 				// Docker builds its value as base64 of user:password when a config
-				// lists them in plain text; the password is what the prompt holds.
-				// It is matched in its JSON quotes first, so a short one lands on the config.
+				// lists them in plain text; the password field is what the prompt holds.
 				if pw := classify.BasicAuthPassword(string(res.Raw)); pw != "" {
-					for _, q := range []string{`"`, `\"`, ""} {
-						quoted := []byte(q + pw + q)
-						if start, end, ok = runes.offsets(quoted, -1); ok {
-							start, end = start+len(q), end-len(q)
-							break
-						}
+					if i := passwordFieldAt(data, pw); i >= 0 {
+						start, end, ok = runes.offsets([]byte(pw), i)
 					}
 				}
 			}
@@ -526,6 +522,16 @@ func (x *runeIndex) offsets(raw []byte, at int) (int, int, bool) {
 	x.rune += utf8.RuneCount(x.data[x.byte:i])
 	x.byte = i
 	return x.rune, x.rune + utf8.RuneCount(raw), true
+}
+
+// passwordFieldAt returns the byte offset of pw as the value of a JSON
+// "password" field, escaped or not, or -1.
+func passwordFieldAt(data []byte, pw string) int {
+	field := regexp.MustCompile(`(?i)\\*"password\\*"\s*:\s*\\*"(` + regexp.QuoteMeta(pw) + `)\\*"`)
+	if loc := field.FindSubmatchIndex(data); loc != nil {
+		return loc[2]
+	}
+	return -1
 }
 
 func authorized(r *http.Request, apiKey string) bool {

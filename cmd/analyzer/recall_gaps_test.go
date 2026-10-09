@@ -21,9 +21,10 @@ func TestRecallGapsReportTheToken(t *testing.T) {
 		{"harness pat far from keyword", "Harness", "# harness" + far + "TOKEN=pat" + ".4oXWHvYFRNOGLVpFTZGGTA.68077fc826afe36865614d58.2fFEmr57WO3zPmev3jze", "pat" + ".4oXWHvYFRNOGLVpFTZGGTA.68077fc826afe36865614d58.2fFEmr57WO3zPmev3jze"},
 		{"harness sat", "Harness", "token: sat" + ".YDfcEm2LT_OUZrFZv1WVlg.6a4f91eb79dfb04b036caf48.FrDL8MGzpMygCMzZv1Kq", "sat" + ".YDfcEm2LT_OUZrFZv1WVlg.6a4f91eb79dfb04b036caf48.FrDL8MGzpMygCMzZv1Kq"},
 		{"docker user and password", "Docker", `{"auths":{"registry.acme.io":{"username":"bot","password":"` + pw + `"}}}`, pw},
+		{"docker escaped in a k8s secret", "Docker", `.dockerconfigjson: "{\"auths\":{\"registry.acme.io\":{\"username\":\"bot\",\"password\":\"` + pw + `\"}}}"`, pw},
 		{"docker user and password, pretty", "Docker", "{\n  \"auths\": {\n    \"registry.acme.io\": {\n      \"username\": \"bot\",\n      \"password\": \"" + pw + "\"\n    }\n  }\n}", pw},
 		{"docker hub auth", "Docker", "{\n  \"auths\": {\n    \"https://index.docker.io/v1/\": {\n      \"auth\": \"Ym90OlpxOEhrMkxtOVBxNFJzN1R2MVd4M1k=\"\n    }\n  }\n}", "Ym90OlpxOEhrMkxtOVBxNFJzN1R2MVd4M1k="},
-		{"docker short password lands on the config", "Docker", `the k7Rm2q host` + "\n" + `{"auths":{"registry.acme.io":{"username":"bot","password":"k7Rm2q"}}}`, "k7Rm2q"},
+		{"docker short password lands on the config", "Docker", `the "k7Rm2q" host` + "\n" + `{"auths":{"registry.acme.io":{"username":"bot","password":"k7Rm2q"}}}`, "k7Rm2q"},
 	}
 	s := prodScanner(t)
 	for _, c := range cases {

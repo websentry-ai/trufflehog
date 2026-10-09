@@ -54,6 +54,16 @@ func TestFigmaPersonalAccessToken_Pattern(t *testing.T) {
 			want:  []string{figd},
 		},
 		{
+			name:  "valid pattern - figd_ ending in a hyphen",
+			input: "TOKEN=\"" + figd[:len(figd)-1] + "-\"",
+			want:  []string{figd[:len(figd)-1] + "-"},
+		},
+		{
+			name:  "invalid pattern - figd_ one long",
+			input: "export TOKEN=" + figd + "x",
+			want:  []string{},
+		},
+		{
 			name:  "invalid pattern - figd_ one short",
 			input: "export TOKEN=" + figd[:len(figd)-1],
 			want:  []string{},
