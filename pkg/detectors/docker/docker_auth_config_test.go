@@ -89,6 +89,11 @@ func TestDocker_Pattern(t *testing.T) {
 			want:  []string{`{"registry":"index.docker.io","auth":"dHJ1ZmZsZWhvZzpiZDQyNzQ2Yy1hNzc3LTQ4ZDktYjBhMi04N2I2YzEzMjdkMDA="}`},
 		},
 		{
+			name:  "docker hub v1 key",
+			input: `{"auths":{"https://index.docker.io/v1/":{"auth": "dHJ1ZmZsZWhvZzpiZDQyNzQ2Yy1hNzc3LTQ4ZDktYjBhMi04N2I2YzEzMjdkMDA="}}}`,
+			want:  []string{`{"registry":"https://index.docker.io/v1/","auth":"dHJ1ZmZsZWhvZzpiZDQyNzQ2Yy1hNzc3LTQ4ZDktYjBhMi04N2I2YzEzMjdkMDA="}`},
+		},
+		{
 			name:  "registry with slashes",
 			input: `{"auths":{"https://index.docker.io/v2/":{"auth": "dHJ1ZmZsZWhvZzpiZDQyNzQ2Yy1hNzc3LTQ4ZDktYjBhMi04N2I2YzEzMjdkMDA="}}}`,
 			want:  []string{`{"registry":"https://index.docker.io/v2/","auth":"dHJ1ZmZsZWhvZzpiZDQyNzQ2Yy1hNzc3LTQ4ZDktYjBhMi04N2I2YzEzMjdkMDA="}`},

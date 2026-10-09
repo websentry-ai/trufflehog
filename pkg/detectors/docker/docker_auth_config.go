@@ -57,9 +57,9 @@ var (
 		`\"`, `"`,
 	)
 
-	// Common false-positives used in examples.
+	// Common false-positives used in examples. Docker Hub's key,
+	// https://index.docker.io/v1/, is not one: every real config uses it.
 	exampleRegistries = map[string]struct{}{
-		"https://index.docker.io/v1/":       {}, // https://github.com/moby/moby/blob/34679e568a22b4f35ff8460f3b5b7bf7089df818/cliconfig/config_test.go#L259
 		"registry.hostname.com":             {}, // https://github.com/openshift/machine-config-operator/blob/82011335dbdd3d4c869b959d6048a3fba7742e47/pkg/controller/build/helpers_test.go#L47
 		"registry.example.com:5000":         {}, // https://github.com/openshift/cluster-baremetal-operator/blob/f908020b1d46667056f21cf1d79e032c535a41fc/provisioning/baremetal_secrets_test.go#L53
 		"registry2.example.com:5000":        {},

@@ -23,9 +23,10 @@ var _ detectors.Detector = (*Scanner)(nil)
 
 var (
 	defaultClient = common.SaneHttpClient()
-	// US region keys start with AA, followed by a 40 characters hexadecimal string, end with "-NRMA"
-	// EU region keys start with eu01xx, followed by a 36 characters hexadecimal string, end with "-NRMA"
-	keyPat = regexp.MustCompile(`\b((AA[0-9a-f]{40}|eu01xx[0-9a-f]{36})-NRMA)\b`)
+	// A token is 42 characters plus "-NRMA". US tokens are AA and 40 hex; other
+	// regions put their code before a run of x's (eu01xx, jpxx, gov66xx), the way
+	// the mobile agents parse it. The length is checked in FromData.
+	keyPat = regexp.MustCompile(`\b((AA[0-9a-f]{40}|[a-z]{2,4}[0-9]{0,2}x{1,2}[0-9a-f]{30,40})-NRMA)\b`)
 )
 
 func (s Scanner) getClient() *http.Client {
@@ -53,23 +54,28 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) (result
 	matches := keyPat.FindAllStringSubmatch(dataStr, -1)
 	for _, match := range matches {
 		resMatch := strings.TrimSpace(match[1])
+		if len(resMatch) != 42+len("-NRMA") {
+			continue
+		}
+
+		region := "us"
+		if !strings.HasPrefix(resMatch, "AA") {
+			region = resMatch[:strings.IndexByte(resMatch, 'x')]
+			if region == "eu01" {
+				region = "eu"
+			}
+		}
 
 		s1 := detectors.Result{
 			DetectorType: s.Type(),
 			Raw:          []byte(resMatch),
 			Redacted:     resMatch[:8] + "...",
-			SecretParts:  map[string]string{"key": resMatch},
+			SecretParts:  map[string]string{"key": resMatch, "region": region},
+			ExtraData:    map[string]string{"region": region},
 		}
 
-		if strings.HasPrefix(resMatch, "eu01xx") {
-			s1.SecretParts["region"] = "eu"
-			s1.ExtraData = map[string]string{"region": "eu"}
-		} else {
-			s1.SecretParts["region"] = "us"
-			s1.ExtraData = map[string]string{"region": "us"}
-		}
-
-		if verify {
+		// Only the US and EU collectors are known, so other regions stay unverified.
+		if verify && (region == "us" || region == "eu") {
 			isVerified, verificationErr := s.verify(ctx, resMatch, s1.SecretParts["region"])
 			s1.Verified = isVerified
 			s1.SetVerificationError(verificationErr)

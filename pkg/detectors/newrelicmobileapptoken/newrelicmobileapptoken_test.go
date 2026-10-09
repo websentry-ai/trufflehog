@@ -12,9 +12,12 @@ import (
 )
 
 var (
-	validPattern   = "AAcc7eb96551e8cd65818865695f35bb109455d623-NRMA"
-	validPatternEU = "eu01xxbfd4a807e4099453ba160493119a126319cb-NRMA"
-	invalidPattern = "AAcc7eb96551e8cd65818865695f35bb109455d6-NRMA"
+	validPattern    = "AAcc7eb96551e8cd65818865695f35bb109455d623-NRMA"
+	validPatternEU  = "eu01xxbfd4a807e4099453ba160493119a126319cb-NRMA"
+	validPatternJP  = "jpxxbfd4a807e4099453ba160493119a126319cb27-NRMA"
+	validPatternGov = "gov66xxfd4a807e4099453ba160493119a126319cb-NRMA"
+	invalidPattern  = "AAcc7eb96551e8cd65818865695f35bb109455d6-NRMA"
+	invalidRegion   = "jpxxbfd4a807e4099453ba160493119a126319c-NRMA"
 )
 
 func TestNewRelicMobileAppToken_Pattern(t *testing.T) {
@@ -36,8 +39,23 @@ func TestNewRelicMobileAppToken_Pattern(t *testing.T) {
 			want:  []string{validPatternEU},
 		},
 		{
+			name:  "valid pattern JP",
+			input: fmt.Sprintf("NRApplicationToken = '%s'", validPatternJP),
+			want:  []string{validPatternJP},
+		},
+		{
+			name:  "valid pattern US government",
+			input: fmt.Sprintf("NRApplicationToken = '%s'", validPatternGov),
+			want:  []string{validPatternGov},
+		},
+		{
 			name:  "invalid pattern",
 			input: fmt.Sprintf("new relic mobile app token = '%s'", invalidPattern),
+			want:  []string{},
+		},
+		{
+			name:  "invalid pattern - region token one short",
+			input: fmt.Sprintf("NRApplicationToken = '%s'", invalidRegion),
 			want:  []string{},
 		},
 	}

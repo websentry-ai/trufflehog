@@ -27,12 +27,14 @@ func (Scanner) Version() int { return 2 }
 var (
 	defaultClient = common.SaneHttpClient()
 	keyPat        = regexp.MustCompile(detectors.PrefixRegex([]string{"figma"}) + `\b(fig[d|((u|o)(r|h)?)]_[a-z0-9A-Z_-]{40})\b`)
+	// A personal access token's figd_ prefix is distinctive on its own.
+	figdPat = regexp.MustCompile(`\b(figd_[a-z0-9A-Z_-]{40})\b`)
 )
 
 // Keywords are used for efficiently pre-filtering chunks.
 // Use identifiers in the secret preferably, or the provider name.
 func (s Scanner) Keywords() []string {
-	return []string{"figma"}
+	return []string{"figma", "figd_"}
 }
 
 // Description returns a description for the result being detected.
@@ -51,10 +53,15 @@ func (s Scanner) getClient() *http.Client {
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) (results []detectors.Result, err error) {
 	dataStr := string(data)
 
-	matches := keyPat.FindAllStringSubmatch(dataStr, -1)
+	matches := append(keyPat.FindAllStringSubmatch(dataStr, -1), figdPat.FindAllStringSubmatch(dataStr, -1)...)
+	seen := make(map[string]struct{}, len(matches))
 
 	for _, match := range matches {
 		resMatch := strings.TrimSpace(match[1])
+		if _, dup := seen[resMatch]; dup {
+			continue
+		}
+		seen[resMatch] = struct{}{}
 
 		s1 := detectors.Result{
 			DetectorType: s.Type(),

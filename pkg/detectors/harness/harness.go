@@ -32,7 +32,9 @@ var _ detectors.Detector = (*Scanner)(nil)
 var (
 	defaultClient = common.SaneHttpClient()
 
-	keyPat = regexp.MustCompile(detectors.PrefixRegex([]string{"harness"}) + `\b(pat\.[A-Za-z0-9_]{22}\.[0-9a-f]{24}\.[A-Za-z0-9]{20})\b`)
+	// Personal (pat.) and service account (sat.) tokens share one shape that is
+	// distinctive without a keyword. The account id is base64url.
+	keyPat = regexp.MustCompile(`\b((?:pat|sat)\.[A-Za-z0-9_-]{22}\.[0-9a-f]{24}\.[A-Za-z0-9]{20})\b`)
 )
 
 func (s Scanner) getClient() *http.Client {
@@ -46,7 +48,7 @@ func (s Scanner) getClient() *http.Client {
 // Keywords are used for efficiently pre-filtering chunks.
 // Use identifiers in the secret preferably, or the provider name.
 func (s Scanner) Keywords() []string {
-	return []string{"harness"}
+	return []string{"pat.", "sat."}
 }
 
 // FromData will find and optionally verify Harness secrets in a given set of bytes.

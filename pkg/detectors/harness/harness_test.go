@@ -15,8 +15,10 @@ var (
 	validKeyWithUnderscore = "pat.YDfcEm2LT_OUZrFZv1WVlg.6a4f91eb79dfb04b036caf48.FrDL8MGzpMygCMzZv1Kq"
 	validKeyWithoutKeyword = `API Key Token: pat.4oXWHvYFRNOGLVpFTZGGTA.68077fc826afe36865614d58.2fFEmr57WO3zPmev3jze
 	url |https://api.harness.io/`
-	invalidKey = "pat.4oXWHvYFRNOGLVpFTZGGTA.6807c5bed9599c324f6368ce.usCT2fzvADwSoXzXc"
-	keyword    = "harness"
+	validKeyWithHyphen     = "pat.px7xd_BFRCi-pfWPYXVjvw.68077fc826afe36865614d58.2fFEmr57WO3zPmev3jze"
+	validServiceAccountKey = "sat.YDfcEm2LT_OUZrFZv1WVlg.6a4f91eb79dfb04b036caf48.FrDL8MGzpMygCMzZv1Kq"
+	invalidKey             = "pat.4oXWHvYFRNOGLVpFTZGGTA.6807c5bed9599c324f6368ce.usCT2fzvADwSoXzXc"
+	keyword                = "harness"
 )
 
 func TestHarness_Pattern(t *testing.T) {
@@ -38,8 +40,28 @@ func TestHarness_Pattern(t *testing.T) {
 			want:  []string{validKeyWithUnderscore},
 		},
 		{
-			name:  "valid pattern - no keyword",
+			name:  "valid pattern - keyword only after the token",
 			input: fmt.Sprintf("token = '%s'", validKeyWithoutKeyword),
+			want:  []string{validKey},
+		},
+		{
+			name:  "valid pattern - no keyword at all",
+			input: fmt.Sprintf("export TOKEN='%s'", validKey),
+			want:  []string{validKey},
+		},
+		{
+			name:  "valid pattern - hyphen in base64url account id",
+			input: fmt.Sprintf("token: %s", validKeyWithHyphen),
+			want:  []string{validKeyWithHyphen},
+		},
+		{
+			name:  "valid pattern - service account token",
+			input: fmt.Sprintf("token: %s", validServiceAccountKey),
+			want:  []string{validServiceAccountKey},
+		},
+		{
+			name:  "invalid pattern - inside a longer word",
+			input: fmt.Sprintf("compat.%s", validKey[4:]),
 			want:  nil,
 		},
 		{
