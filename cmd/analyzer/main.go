@@ -318,7 +318,7 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 	byteAt, runeAt := 0, 0
 	named := namedByStart(kept)
 	next, reach := 0, -1
-	for _, loc := range base64Run.FindAllIndex(data, -1) {
+	for _, loc := range joinWrappedRuns(data, base64Run.FindAllIndex(data, -1)) {
 		if ctx.Err() != nil {
 			break
 		}
@@ -366,7 +366,43 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 	return out
 }
 
+// joinWrappedRuns merges runs that are one base64 value wrapped across lines:
+// base64 tools and MIME wrap at 64 or 76 characters from the start of a line,
+// so a full-width line continues with the base64 that starts the next line,
+// however short. A run that begins mid-line, after a label, is left alone.
+func joinWrappedRuns(data []byte, locs [][]int) [][]int {
+	var out [][]int
+	for i := 0; i < len(locs); i++ {
+		start, end := locs[i][0], locs[i][1]
+		atLineStart := start == 0 || data[start-1] == '\n'
+		for lineStart := start; atLineStart && (end-lineStart == 64 || end-lineStart == 76); {
+			next := end
+			if bytes.HasPrefix(data[next:], []byte("\r\n")) {
+				next += 2
+			} else if bytes.HasPrefix(data[next:], []byte("\n")) {
+				next++
+			} else {
+				break
+			}
+			k := next
+			for k < len(data) && isBase64Byte(data[k]) {
+				k++
+			}
+			if k == next {
+				break
+			}
+			lineStart, end = next, k
+		}
+		for i+1 < len(locs) && locs[i+1][0] < end {
+			i++
+		}
+		out = append(out, []int{start, end})
+	}
+	return out
+}
+
 func decodeBase64Text(run []byte) ([]byte, bool) {
+	run = bytes.ReplaceAll(bytes.ReplaceAll(run, []byte("\r"), nil), []byte("\n"), nil)
 	trimmed := bytes.TrimRight(run, "=")
 	for _, enc := range []*base64.Encoding{base64.RawStdEncoding, base64.RawURLEncoding} {
 		decoded, err := enc.DecodeString(string(trimmed))

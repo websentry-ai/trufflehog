@@ -58,6 +58,7 @@ func (d jwtHMACDetector) FromData(_ context.Context, _ bool, data []byte) ([]det
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
 			DetectorName: JWTName,
 			Raw:          bytes.Clone(tok),
+			SecretParts:  map[string]string{"key": string(tok)},
 		}
 		r.SetChunkOffset(int64(m[2]))
 		results = append(results, r)

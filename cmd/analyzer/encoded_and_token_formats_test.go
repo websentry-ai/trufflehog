@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 )
 
@@ -54,6 +55,20 @@ func TestCustomDetectorsHaveDistinctKeys(t *testing.T) {
 		require.NotContains(t, seen, key, "%s shares a detector key with %s", name, seen[key])
 		seen[key] = name
 	}
+}
+
+func TestNewDetectorsFillSecretParts(t *testing.T) {
+	ctx := context.Background()
+	login := "jane.doe@acme.com/token:" + testZendesk
+	zd, err := customdetectors.NewZendeskAPIToken().FromData(ctx, false, []byte(login))
+	require.NoError(t, err)
+	require.Len(t, zd, 1)
+	require.Equal(t, map[string]string{"email": "jane.doe@acme.com", "token": testZendesk}, zd[0].SecretParts)
+	tok := hmacJWT(t, `{"sub":"svc"}`)
+	jw, err := customdetectors.NewJWTHMAC().FromData(ctx, false, []byte("Bearer "+tok))
+	require.NoError(t, err)
+	require.Len(t, jw, 1)
+	require.Equal(t, map[string]string{"key": tok}, jw[0].SecretParts)
 }
 
 func TestZendeskTokenIsOneSecretIncludingItsEmail(t *testing.T) {
@@ -181,6 +196,26 @@ func TestHarmlessEncodedRunsDoNotHideALaterKey(t *testing.T) {
 	pair := base64.StdEncoding.EncodeToString([]byte("AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret))
 	b.WriteString("echo " + pair + " | base64 -d\n")
 	require.Contains(t, spans(s, b.String()), "AWS="+pair)
+}
+
+// GNU base64 and MIME wrap their output at 76 or 64 characters; the wrapped
+// lines are one value. Unrelated lines that follow a run are not glued on.
+func TestWrappedBase64IsDecodedAsOneValue(t *testing.T) {
+	s := prodScanner(t)
+	pair := base64.StdEncoding.EncodeToString([]byte("AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret))
+	for _, width := range []int{76, 64} {
+		var lines []string
+		for rest := pair; rest != ""; {
+			n := min(width, len(rest))
+			lines = append(lines, rest[:n])
+			rest = rest[n:]
+		}
+		wrapped := strings.Join(lines, "\n")
+		require.Contains(t, spans(s, "$ base64 creds.env\n"+wrapped+"\n$ "), "AWS="+wrapped, "width %d", width)
+	}
+	dsn := base64.StdEncoding.EncodeToString([]byte("postgres://app:Hx7Qm2Vr9Lp4@db.acme.io:5432/main"))
+	text := "data:\n  DATABASE_URL: " + dsn + "\nAPI_KEY_NAME_FOR_THE_BILLING_SERVICE: unset"
+	require.Contains(t, spans(s, text), "Postgres="+dsn)
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {

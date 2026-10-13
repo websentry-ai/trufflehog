@@ -42,9 +42,15 @@ func (zendeskAPITokenDetector) FromData(_ context.Context, _ bool, data []byte) 
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
 			DetectorName: ZendeskAPITokenName,
 			Raw:          bytes.Clone(data[m[0]:m[1]]),
+			SecretParts:  zendeskSecretParts(data[m[0]:m[1]]),
 		}
 		r.SetChunkOffset(int64(m[0]))
 		results = append(results, r)
 	}
 	return results, nil
+}
+
+func zendeskSecretParts(login []byte) map[string]string {
+	email, token, _ := bytes.Cut(login, []byte("/token:"))
+	return map[string]string{"email": string(email), "token": string(token)}
 }
