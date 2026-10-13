@@ -126,10 +126,13 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 		strings.Split(hmacJWT(t, `{"sub":"svc"}`), ".")[2]
 	require.Equal(t, []string{"JWT=" + escaped}, spans(s, "token: "+escaped))
 
-	for _, claims := range []string{`{"uid":1}`, `{}`} {
+	for _, claims := range []string{`{"uid":1}`, `{}`, `{ "sub":"svc"}`, `{ }`, "{\n  \"sub\": \"svc\"\n}", "{\t\"sub\":\"svc\"}"} {
 		tok := hmacJWT(t, claims)
 		require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), claims)
 	}
+	spacedHeader := enc([]byte(`{ "alg": "HS256" }`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
+		enc([]byte("0123456789abcdef0123456789abcdef"))
+	require.Equal(t, []string{"JWT=" + spacedHeader}, spans(s, "token: "+spacedHeader))
 	padded := hmacJWT(t, `{"sub":"svc"}`) + "="
 	require.Equal(t, []string{"JWT=" + padded}, spans(s, `"token": "`+padded+`"`))
 
