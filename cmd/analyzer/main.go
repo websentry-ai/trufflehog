@@ -242,7 +242,7 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 				out = append(out, k)
 			}
 		}
-		kept = append(out, decoded...)
+		kept = dedupeIdentical(append(out, decoded...))
 		sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
 	}
 	return s.record(ctx, kept)

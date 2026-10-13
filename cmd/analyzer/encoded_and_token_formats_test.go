@@ -40,6 +40,9 @@ func hmacJWT(t *testing.T, claims string) string {
 // only tell them apart by version. Two with the same version silently replace
 // each other.
 func TestCustomDetectorsHaveDistinctKeys(t *testing.T) {
+	for _, k := range []string{"ENABLE_GENERIC_SECRETS", "ENABLE_PRIVATE_KEY", "ENABLE_ENTROPY_PROXIMITY"} {
+		t.Setenv(k, "true")
+	}
 	cfg, err := scannerConfigFromEnv()
 	require.NoError(t, err)
 	dets, err := buildDetectors(cfg)
@@ -82,6 +85,15 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 	}
 	expired := hmacJWT(t, `{"sub":"svc","exp":1600000000}`)
 	require.NotContains(t, strings.Join(spans(s, "Authorization: Bearer "+expired), " "), "JWT")
+
+	tiny := hmacJWT(t, `{"uid":1}`)
+	require.Equal(t, []string{"JWT=" + tiny}, spans(s, "token: "+tiny))
+
+	// Large enough that no single scan window holds it whole.
+	big := hmacJWT(t, `{"sub":"svc","roles":"`+strings.Repeat("reader,", 260)+`"}`)
+	text := strings.Repeat("log line before the token\n", 70) + "Authorization: Bearer " + big
+	require.Greater(t, len(big), scanWindowPeek)
+	require.Contains(t, spans(s, text), "JWT="+big)
 }
 
 func TestEncodedCredentialsAreFoundAndNamed(t *testing.T) {

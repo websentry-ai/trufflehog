@@ -17,7 +17,9 @@ import (
 // detector found it.
 const JWTName = "JWT"
 
-var jwtRegex = regexp.MustCompile(`\b(?:eyJ|ewogIC|ewoid)[A-Za-z0-9_-]{12,}={0,2}\.(?:eyJ|ewo)[A-Za-z0-9_-]{12,}={0,2}\.[A-Za-z0-9_-]{12,}\b`)
+// A claims segment can be as short as {"uid":1}; the header and signature checks
+// below are what keep the match strict.
+var jwtRegex = regexp.MustCompile(`\b(?:eyJ|ewogIC|ewoid)[A-Za-z0-9_-]{12,}={0,2}\.(?:eyJ|ewo)[A-Za-z0-9_-]+={0,2}\.[A-Za-z0-9_-]{12,}\b`)
 
 // The upstream JWT detector skips HMAC-signed tokens because it cannot verify
 // them. This one reports them, since a bearer token is a credential whether or
@@ -37,6 +39,10 @@ func (jwtHMACDetector) Version() int { return 3 }
 func (jwtHMACDetector) GetName() string { return JWTName }
 
 func (jwtHMACDetector) Description() string { return "HMAC-signed JSON Web Token." }
+
+// MaxSecretSize puts the detector in the whole-request pass, so a token with a
+// large claim set is not cut in two by a window boundary.
+func (jwtHMACDetector) MaxSecretSize() int64 { return 8192 }
 
 func (d jwtHMACDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	var results []detectors.Result
