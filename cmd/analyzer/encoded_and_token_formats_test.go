@@ -86,6 +86,11 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 	expired := hmacJWT(t, `{"sub":"svc","exp":1600000000}`)
 	require.NotContains(t, strings.Join(spans(s, "Authorization: Bearer "+expired), " "), "JWT")
 
+	enc := base64.RawURLEncoding.EncodeToString
+	hyphenEnd := enc([]byte(`{"alg":"HS384","typ":"JWT"}`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
+		"49O0ZGaFZBRrev0Xy1HC9L5dFlnJEafXpCm1BmI-CaJBfFwGRbyypuPQzVcQS---"
+	require.Equal(t, []string{"JWT=" + hyphenEnd}, spans(s, `"token": "`+hyphenEnd+`"`))
+
 	tiny := hmacJWT(t, `{"uid":1}`)
 	require.Equal(t, []string{"JWT=" + tiny}, spans(s, "token: "+tiny))
 
@@ -119,6 +124,19 @@ func TestEncodedCredentialsAreFoundAndNamed(t *testing.T) {
 		}
 		require.Equal(t, []string{c.want}, got, c.text)
 	}
+}
+
+// Runs a named finding already covers, such as the segments of a JWT, do not
+// spend the decode budget, so a prompt full of tokens cannot hide an encoded key.
+func TestCoveredRunsDoNotSpendTheDecodeBudget(t *testing.T) {
+	s := prodScanner(t)
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		b.WriteString("Authorization: Bearer " + hmacJWT(t, fmt.Sprintf(`{"sub":"svc-%d"}`, i)) + "\n")
+	}
+	pair := base64.StdEncoding.EncodeToString([]byte("AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret))
+	b.WriteString("echo " + pair + " | base64 -d\n")
+	require.Contains(t, spans(s, b.String()), "AWS="+pair)
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {

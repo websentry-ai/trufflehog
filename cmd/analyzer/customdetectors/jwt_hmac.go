@@ -18,8 +18,9 @@ import (
 const JWTName = "JWT"
 
 // A claims segment can be as short as {"uid":1}; the header and signature checks
-// below are what keep the match strict.
-var jwtRegex = regexp.MustCompile(`\b(?:eyJ|ewogIC|ewoid)[A-Za-z0-9_-]{12,}={0,2}\.(?:eyJ|ewo)[A-Za-z0-9_-]+={0,2}\.[A-Za-z0-9_-]{12,}\b`)
+// below are what keep the match strict. A signature can end in '-', which \b
+// cannot follow, so the token ends at a non-token byte instead.
+var jwtRegex = regexp.MustCompile(`\b((?:eyJ|ewogIC|ewoid)[A-Za-z0-9_-]{12,}={0,2}\.(?:eyJ|ewo)[A-Za-z0-9_-]+={0,2}\.[A-Za-z0-9_-]{12,})(?:[^A-Za-z0-9_=-]|\z)`)
 
 // The upstream JWT detector skips HMAC-signed tokens because it cannot verify
 // them. This one reports them, since a bearer token is a credential whether or
@@ -46,8 +47,8 @@ func (jwtHMACDetector) MaxSecretSize() int64 { return 8192 }
 
 func (d jwtHMACDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	var results []detectors.Result
-	for _, m := range jwtRegex.FindAllIndex(data, -1) {
-		tok := data[m[0]:m[1]]
+	for _, m := range jwtRegex.FindAllSubmatchIndex(data, -1) {
+		tok := data[m[2]:m[3]]
 		if !d.liveHMAC(tok) {
 			continue
 		}
@@ -56,7 +57,7 @@ func (d jwtHMACDetector) FromData(_ context.Context, _ bool, data []byte) ([]det
 			DetectorName: JWTName,
 			Raw:          bytes.Clone(tok),
 		}
-		r.SetChunkOffset(int64(m[0]))
+		r.SetChunkOffset(int64(m[2]))
 		results = append(results, r)
 	}
 	return results, nil

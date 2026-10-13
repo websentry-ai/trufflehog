@@ -314,6 +314,11 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		if loc[1]-loc[0] > maxEncodedRun {
 			continue
 		}
+		start := utf8.RuneCount(data[:loc[0]])
+		end := start + utf8.RuneCount(data[loc[0]:loc[1]])
+		if coveredByNamed(kept, start, end) {
+			continue
+		}
 		decoded, ok := decodeBase64Text(data[loc[0]:loc[1]])
 		if !ok {
 			continue
@@ -321,15 +326,14 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		if runs++; runs > maxEncodedRuns {
 			break
 		}
-		start := utf8.RuneCount(data[:loc[0]])
-		end := start + utf8.RuneCount(data[loc[0]:loc[1]])
-		if coveredByNamed(kept, start, end) {
-			continue
-		}
 		found := s.scanText(ctx, decoded, threshold)
 		hasNamed := false
 		for _, f := range found {
 			hasNamed = hasNamed || !isGenericDetectorName(f.EntityType)
+		}
+		// A generic result adds nothing where the plain scan already flagged the run.
+		if !hasNamed && overlapsAny(kept, start, end) {
+			continue
 		}
 		seen := map[string]bool{}
 		for _, f := range found {
@@ -377,6 +381,15 @@ func isReadableText(b []byte) bool {
 func coveredByNamed(findings []analyzeResult, start, end int) bool {
 	for _, f := range findings {
 		if !isGenericDetectorName(f.EntityType) && f.Start <= start && f.End >= end {
+			return true
+		}
+	}
+	return false
+}
+
+func overlapsAny(findings []analyzeResult, start, end int) bool {
+	for _, f := range findings {
+		if f.Start < end && f.End > start {
 			return true
 		}
 	}
