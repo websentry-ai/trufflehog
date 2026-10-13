@@ -170,6 +170,19 @@ func TestDecodePassStaysLinearOnManyCandidateRuns(t *testing.T) {
 	require.Less(t, time.Since(t0), 2*time.Second)
 }
 
+// Readable runs that hold nothing cannot push a later key out of the decode
+// pass: the budget is the decoded size, not the number of runs.
+func TestHarmlessEncodedRunsDoNotHideALaterKey(t *testing.T) {
+	s := prodScanner(t)
+	var b strings.Builder
+	for i := 0; i < 100; i++ {
+		b.WriteString(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("log line %06d ok", i))) + "\n")
+	}
+	pair := base64.StdEncoding.EncodeToString([]byte("AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret))
+	b.WriteString("echo " + pair + " | base64 -d\n")
+	require.Contains(t, spans(s, b.String()), "AWS="+pair)
+}
+
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {
 	s := prodScanner(t)
 	b64 := base64.StdEncoding.EncodeToString

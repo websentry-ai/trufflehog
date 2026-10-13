@@ -299,8 +299,10 @@ func (s *scanner) scanText(ctx context.Context, data []byte, threshold float64) 
 var base64Run = regexp.MustCompile(`[A-Za-z0-9+/_-]{24,}={0,2}`)
 
 const (
-	maxEncodedRun  = 64 * 1024
-	maxEncodedRuns = 64
+	maxEncodedRun = 64 * 1024
+	// The pass stops once this much text has been decoded, which bounds its cost
+	// by size rather than by how many short runs a prompt happens to contain.
+	maxDecodedBytes = 256 * 1024
 )
 
 // scanEncoded decodes base64 runs that hold readable text and scans that text,
@@ -309,7 +311,7 @@ const (
 // binary, such as an image.
 func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float64, kept []analyzeResult) []analyzeResult {
 	var out []analyzeResult
-	runs := 0
+	decodedBytes := 0
 	// Matches come in order, so rune offsets are counted forward from the last
 	// one rather than from the start of the request each time, and named findings
 	// are swept in start order alongside them.
@@ -339,7 +341,7 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		if !ok {
 			continue
 		}
-		if runs++; runs > maxEncodedRuns {
+		if decodedBytes += len(decoded); decodedBytes > maxDecodedBytes {
 			break
 		}
 		found := s.scanText(ctx, decoded, threshold)
