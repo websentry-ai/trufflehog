@@ -725,7 +725,9 @@ func entityRank(name string) int {
 	switch name {
 	case customdetectors.EntropyName:
 		return 2
-	case customdetectors.GenericSecretName, customdetectors.URLLoginCredentialName:
+	// A bare key ID yields to the AWS detector on the same span, which names the pair.
+	case customdetectors.GenericSecretName, customdetectors.URLLoginCredentialName,
+		customdetectors.AWSAccessKeyIDName:
 		return 1
 	default:
 		return 0

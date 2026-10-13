@@ -69,6 +69,28 @@ func TestNewDetectorsFillSecretParts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, jw, 1)
 	require.Equal(t, map[string]string{"key": tok}, jw[0].SecretParts)
+	id, err := customdetectors.NewAWSAccessKeyID().FromData(ctx, false, []byte("id "+testAWSID))
+	require.NoError(t, err)
+	require.Len(t, id, 1)
+	require.Equal(t, map[string]string{"key_id": testAWSID}, id[0].SecretParts)
+}
+
+// A long-term AWS key ID is reported even without its secret; with the secret,
+// the AWS detector keeps the name. Placeholders and temporary ASIA IDs are not.
+func TestBareAWSAccessKeyIDIsReported(t *testing.T) {
+	s := prodScanner(t)
+	for _, text := range []string{testAWSID, "aws key id: " + testAWSID, "AWS_ACCESS_KEY_ID=" + testAWSID, `{"AccessKeyId": "` + testAWSID + `"}`} {
+		require.Contains(t, spans(s, text), "aws-access-key-id="+testAWSID, text)
+	}
+	pair := "AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret
+	require.Contains(t, spans(s, pair), "AWS="+testAWSID)
+	require.NotContains(t, strings.Join(spans(s, pair), " "), "aws-access-key-id")
+	for _, text := range []string{
+		"AKIA" + "IOSFODNN7EXAMPLE", "AKIA" + "XXXXXXXXXXXXXXXX", "ASIA" + "QYLPMN5HHHFPZAM2",
+		"xAKIA" + "QYLPMN5HHHFPZAM2", "AKIA" + "QYLPMN5HHHFPZAM2X",
+	} {
+		require.NotContains(t, strings.Join(spans(s, text), " "), "aws-access-key-id", text)
+	}
 }
 
 func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
