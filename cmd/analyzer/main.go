@@ -318,17 +318,11 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 	byteAt, runeAt := 0, 0
 	named := namedByStart(kept)
 	next, reach := 0, -1
-	for _, loc := range joinWrappedRuns(data, base64Run.FindAllIndex(data, -1)) {
-		if ctx.Err() != nil {
-			break
-		}
-		runeAt += utf8.RuneCount(data[byteAt:loc[0]])
-		byteAt = loc[0]
-		if loc[1]-loc[0] > maxEncodedRun {
-			continue
-		}
+	for _, part := range encodedParts(ctx, data, base64Run.FindAllIndex(data, -1)) {
+		runeAt += utf8.RuneCount(data[byteAt:part.from])
+		byteAt = part.from
 		start := runeAt
-		end := start + utf8.RuneCount(data[loc[0]:loc[1]])
+		end := start + utf8.RuneCount(data[part.from:part.to])
 		// A run is covered when some named finding starting at or before it
 		// reaches its end, which the furthest such end decides.
 		for ; next < len(named) && named[next].Start <= start; next++ {
@@ -337,15 +331,7 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		if reach >= end {
 			continue
 		}
-		decoded, ok := decodeBase64Text(data[loc[0]:loc[1]])
-		if !ok && len(loc) > 2 && loc[2] < loc[1] {
-			// A joined run that does not decode falls back to its first line.
-			end = start + utf8.RuneCount(data[loc[0]:loc[2]])
-			decoded, ok = decodeBase64Text(data[loc[0]:loc[2]])
-		}
-		if !ok {
-			continue
-		}
+		decoded := part.decoded
 		if decodedBytes += len(decoded); decodedBytes > maxDecodedBytes {
 			break
 		}
@@ -371,19 +357,67 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 	return out
 }
 
-// joinWrappedRuns merges runs that are one base64 value wrapped across lines:
+// encodedPart is a stretch of the request that decodes to readable text.
+type encodedPart struct {
+	from, to int
+	decoded  []byte
+}
+
+// encodedParts decodes each base64 run, in order. A value wrapped across lines
+// is decoded whole; when the whole does not decode, it is retried without its
+// last line (a valid value followed by unrelated text), and then line by line.
+func encodedParts(ctx context.Context, data []byte, locs [][]int) []encodedPart {
+	decode := func(from, to int) (encodedPart, bool) {
+		if to-from > maxEncodedRun {
+			return encodedPart{}, false
+		}
+		decoded, ok := decodeBase64Text(data[from:to])
+		return encodedPart{from, to, decoded}, ok
+	}
+	var out []encodedPart
+	for _, lines := range wrappedRuns(data, locs) {
+		if ctx.Err() != nil {
+			break
+		}
+		first, last := lines[0][0], lines[len(lines)-1][1]
+		if p, ok := decode(first, last); ok {
+			out = append(out, p)
+			continue
+		}
+		if len(lines) > 2 {
+			if p, ok := decode(first, lines[len(lines)-2][1]); ok {
+				out = append(out, p)
+				if q, ok := decode(lines[len(lines)-1][0], last); ok {
+					out = append(out, q)
+				}
+				continue
+			}
+		}
+		for _, l := range lines {
+			if p, ok := decode(l[0], l[1]); ok {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// wrappedRuns groups runs that are one base64 value wrapped across lines:
 // base64 tools and MIME wrap at 64 or 76 characters from the start of a line,
 // so a full-width line continues with the base64 that starts the next line,
-// however short. A run that begins mid-line, after a label, is left alone.
-func joinWrappedRuns(data []byte, locs [][]int) [][]int {
-	var out [][]int
+// however short. Padding ends a value, and a run that begins mid-line, after a
+// label, stands alone.
+func wrappedRuns(data []byte, locs [][]int) [][][2]int {
+	var out [][][2]int
 	for i := 0; i < len(locs); i++ {
-		i0 := i
-		start, end := locs[i][0], locs[i][1]
-		atLineStart := start == 0 || data[start-1] == '\n'
-		// Padding ends a value, so a padded line never continues.
-		for lineStart := start; atLineStart && (end-lineStart == 64 || end-lineStart == 76) && data[end-1] != '='; {
-			next := end
+		lines := [][2]int{{locs[i][0], locs[i][1]}}
+		atLineStart := locs[i][0] == 0 || data[locs[i][0]-1] == '\n'
+		for atLineStart {
+			cur := lines[len(lines)-1]
+			if w := cur[1] - cur[0]; (w != 64 && w != 76) || data[cur[1]-1] == '=' {
+				break
+			}
+			next := cur[1]
 			if bytes.HasPrefix(data[next:], []byte("\r\n")) {
 				next += 2
 			} else if bytes.HasPrefix(data[next:], []byte("\n")) {
@@ -398,13 +432,13 @@ func joinWrappedRuns(data []byte, locs [][]int) [][]int {
 			if k == next {
 				break
 			}
-			lineStart, end = next, k
+			lines = append(lines, [2]int{next, k})
 		}
+		end := lines[len(lines)-1][1]
 		for i+1 < len(locs) && locs[i+1][0] < end {
 			i++
 		}
-		// The first line is kept too, for when the joined text does not decode.
-		out = append(out, []int{start, end, locs[i0][1]})
+		out = append(out, lines)
 	}
 	return out
 }

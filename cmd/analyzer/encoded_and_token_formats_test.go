@@ -224,6 +224,19 @@ func TestWrappedBase64IsDecodedAsOneValue(t *testing.T) {
 	require.Contains(t, spans(s, padded+"\necho done"), "Postgres="+padded)
 	require.Len(t, dsn, 64)
 	require.Contains(t, spans(s, dsn+"\necho done"), "Postgres="+dsn)
+
+	// Two full 76-character lines of one value, then an unrelated line.
+	env := "AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret + "\nregion=us-e1"
+	enc := base64.StdEncoding.EncodeToString([]byte(env))
+	require.Len(t, enc, 152)
+	twoLines := enc[:76] + "\n" + enc[76:]
+	require.Contains(t, spans(s, twoLines+"\necho done"), "AWS="+twoLines)
+
+	// A full-width line that decodes to nothing readable, then a key on its own line.
+	binary := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("\x01\x9f\xe2", 19)))
+	require.Len(t, binary, 76)
+	gh := base64.StdEncoding.EncodeToString([]byte("GITHUB_TOKEN=" + testGitHub))
+	require.Contains(t, spans(s, binary+"\n"+gh), "Github="+gh)
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {
