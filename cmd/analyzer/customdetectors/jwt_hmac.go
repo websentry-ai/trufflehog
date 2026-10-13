@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	regexp "github.com/wasilibs/go-re2"
@@ -80,12 +82,15 @@ func (d jwtHMACDetector) liveHMAC(tok []byte) bool {
 		return false
 	}
 	var claims struct {
-		Exp *float64 `json:"exp"`
+		Exp json.RawMessage `json:"exp"`
 	}
 	if !decodeSegment(parts[1], &claims) {
 		return false
 	}
-	if claims.Exp != nil && time.Unix(int64(*claims.Exp), 0).Before(d.now()) {
+	// Issuers write exp as a number or a numeric string; any other shape cannot
+	// show the token expired, so it is still reported.
+	if exp, err := strconv.ParseFloat(strings.Trim(string(claims.Exp), `"`), 64); err == nil &&
+		time.Unix(int64(exp), 0).Before(d.now()) {
 		return false
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(string(bytes.TrimRight(parts[2], "=")))

@@ -90,8 +90,14 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 	for _, tok := range []string{live, noExp} {
 		require.Equal(t, []string{"JWT=" + tok}, spans(s, "Authorization: Bearer "+tok))
 	}
-	expired := hmacJWT(t, `{"sub":"svc","exp":1600000000}`)
-	require.NotContains(t, strings.Join(spans(s, "Authorization: Bearer "+expired), " "), "JWT")
+	for _, claims := range []string{`{"sub":"svc","exp":1600000000}`, `{"sub":"svc","exp":"1600000000"}`} {
+		expired := hmacJWT(t, claims)
+		require.NotContains(t, strings.Join(spans(s, "Authorization: Bearer "+expired), " "), "JWT", claims)
+	}
+	for _, claims := range []string{fmt.Sprintf(`{"sub":"svc","exp":"%d"}`, time.Now().Add(time.Hour).Unix()), `{"sub":"svc","exp":{"at":"later"}}`} {
+		tok := hmacJWT(t, claims)
+		require.Equal(t, []string{"JWT=" + tok}, spans(s, "Authorization: Bearer "+tok), claims)
+	}
 
 	enc := base64.RawURLEncoding.EncodeToString
 	hyphenEnd := enc([]byte(`{"alg":"HS384","typ":"JWT"}`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
