@@ -311,8 +311,11 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 	var out []analyzeResult
 	runs := 0
 	// Matches come in order, so rune offsets are counted forward from the last
-	// one rather than from the start of the request each time.
+	// one rather than from the start of the request each time, and named findings
+	// are swept in start order alongside them.
 	byteAt, runeAt := 0, 0
+	named := namedByStart(kept)
+	next, reach := 0, -1
 	for _, loc := range base64Run.FindAllIndex(data, -1) {
 		if ctx.Err() != nil {
 			break
@@ -324,7 +327,12 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		}
 		start := runeAt
 		end := start + utf8.RuneCount(data[loc[0]:loc[1]])
-		if coveredByNamed(kept, start, end) {
+		// A run is covered when some named finding starting at or before it
+		// reaches its end, which the furthest such end decides.
+		for ; next < len(named) && named[next].Start <= start; next++ {
+			reach = max(reach, named[next].End)
+		}
+		if reach >= end {
 			continue
 		}
 		decoded, ok := decodeBase64Text(data[loc[0]:loc[1]])
@@ -384,15 +392,17 @@ func isReadableText(b []byte) bool {
 	return printable*100 >= total*95
 }
 
-// coveredByNamed reports whether a named detector's finding already spans
-// [start, end). A generic finding does not count: decoding may name it.
-func coveredByNamed(findings []analyzeResult, start, end int) bool {
+// namedByStart returns the named detectors' findings ordered by start. A
+// generic finding is left out: decoding its run may name it.
+func namedByStart(findings []analyzeResult) []analyzeResult {
+	var named []analyzeResult
 	for _, f := range findings {
-		if !isGenericDetectorName(f.EntityType) && f.Start <= start && f.End >= end {
-			return true
+		if !isGenericDetectorName(f.EntityType) {
+			named = append(named, f)
 		}
 	}
-	return false
+	sort.Slice(named, func(i, j int) bool { return named[i].Start < named[j].Start })
+	return named
 }
 
 func overlapsAny(findings []analyzeResult, start, end int) bool {
