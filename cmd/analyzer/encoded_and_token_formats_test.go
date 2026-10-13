@@ -121,6 +121,11 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 		"49O0ZGaFZBRrev0Xy1HC9L5dFlnJEafXpCm1BmI-CaJBfFwGRbyypuPQzVcQS---"
 	require.Equal(t, []string{"JWT=" + hyphenEnd}, spans(s, `"token": "`+hyphenEnd+`"`))
 
+	// The header is JSON, so the algorithm name may be escaped.
+	escaped := enc([]byte(`{"alg":"HS\u0032\u0035\u0036"}`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
+		strings.Split(hmacJWT(t, `{"sub":"svc"}`), ".")[2]
+	require.Equal(t, []string{"JWT=" + escaped}, spans(s, "token: "+escaped))
+
 	for _, claims := range []string{`{"uid":1}`, `{}`} {
 		tok := hmacJWT(t, claims)
 		require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), claims)

@@ -77,8 +77,12 @@ func (d jwtHMACDetector) liveHMAC(tok []byte) bool {
 	if !decodeSegment(parts[0], &header) || !decodeSegment(parts[1], &claims) {
 		return false
 	}
-	switch string(header["alg"]) {
-	case `"HS256"`, `"HS384"`, `"HS512"`:
+	var alg string
+	if json.Unmarshal(header["alg"], &alg) != nil {
+		return false
+	}
+	switch alg {
+	case "HS256", "HS384", "HS512":
 	default:
 		return false
 	}
