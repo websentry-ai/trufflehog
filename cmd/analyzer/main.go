@@ -338,6 +338,11 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 			continue
 		}
 		decoded, ok := decodeBase64Text(data[loc[0]:loc[1]])
+		if !ok && len(loc) > 2 && loc[2] < loc[1] {
+			// A joined run that does not decode falls back to its first line.
+			end = start + utf8.RuneCount(data[loc[0]:loc[2]])
+			decoded, ok = decodeBase64Text(data[loc[0]:loc[2]])
+		}
 		if !ok {
 			continue
 		}
@@ -373,9 +378,11 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 func joinWrappedRuns(data []byte, locs [][]int) [][]int {
 	var out [][]int
 	for i := 0; i < len(locs); i++ {
+		i0 := i
 		start, end := locs[i][0], locs[i][1]
 		atLineStart := start == 0 || data[start-1] == '\n'
-		for lineStart := start; atLineStart && (end-lineStart == 64 || end-lineStart == 76); {
+		// Padding ends a value, so a padded line never continues.
+		for lineStart := start; atLineStart && (end-lineStart == 64 || end-lineStart == 76) && data[end-1] != '='; {
 			next := end
 			if bytes.HasPrefix(data[next:], []byte("\r\n")) {
 				next += 2
@@ -396,7 +403,8 @@ func joinWrappedRuns(data []byte, locs [][]int) [][]int {
 		for i+1 < len(locs) && locs[i+1][0] < end {
 			i++
 		}
-		out = append(out, []int{start, end})
+		// The first line is kept too, for when the joined text does not decode.
+		out = append(out, []int{start, end, locs[i0][1]})
 	}
 	return out
 }

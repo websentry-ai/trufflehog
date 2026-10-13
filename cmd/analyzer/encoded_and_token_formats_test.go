@@ -216,6 +216,14 @@ func TestWrappedBase64IsDecodedAsOneValue(t *testing.T) {
 	dsn := base64.StdEncoding.EncodeToString([]byte("postgres://app:Hx7Qm2Vr9Lp4@db.acme.io:5432/main"))
 	text := "data:\n  DATABASE_URL: " + dsn + "\nAPI_KEY_NAME_FOR_THE_BILLING_SERVICE: unset"
 	require.Contains(t, spans(s, text), "Postgres="+dsn)
+
+	// A full-width line that is a whole value on its own: padded, or followed by
+	// text that does not continue it.
+	padded := base64.StdEncoding.EncodeToString([]byte("postgres://app:Hx7Qm2Vr9Lp4@db.acme.io:5432/mai"))
+	require.Len(t, padded, 64)
+	require.Contains(t, spans(s, padded+"\necho done"), "Postgres="+padded)
+	require.Len(t, dsn, 64)
+	require.Contains(t, spans(s, dsn+"\necho done"), "Postgres="+dsn)
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {
