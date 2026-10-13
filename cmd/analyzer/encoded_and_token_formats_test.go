@@ -66,11 +66,18 @@ func TestZendeskTokenIsOneSecretIncludingItsEmail(t *testing.T) {
 	} {
 		require.Equal(t, []string{"zendesk-api-token=" + login}, spans(s, text), text)
 	}
+	// Only the token decides whether a login is a placeholder, not the address.
+	sample := "jane.sample@acme.com/token:" + testZendesk
+	require.Equal(t, []string{"zendesk-api-token=" + sample}, spans(s, sample))
+	encoded := base64.StdEncoding.EncodeToString([]byte(sample))
+	require.Equal(t, []string{"zendesk-api-token=" + encoded}, spans(s, "Authorization: Basic "+encoded))
+
 	for _, text := range []string{
 		"jane.doe@acme.com/token:" + testZendesk[:39],
 		"jane.doe@acme.com/token:" + testZendesk + "x",
 		"see https://acme.zendesk.com/token: for details",
-		"you@example.com/token:" + strings.Repeat("abcdefghij", 4),
+		"you@acme.com/token:" + strings.Repeat("x", 40),
+		"you@acme.com/token:" + strings.Repeat("exampletoken", 4)[:40],
 	} {
 		require.NotContains(t, strings.Join(spans(s, text), " "), "zendesk-api-token", text)
 	}
@@ -137,6 +144,20 @@ func TestCoveredRunsDoNotSpendTheDecodeBudget(t *testing.T) {
 	pair := base64.StdEncoding.EncodeToString([]byte("AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret))
 	b.WriteString("echo " + pair + " | base64 -d\n")
 	require.Contains(t, spans(s, b.String()), "AWS="+pair)
+}
+
+// Every long identifier or path is a candidate run. Counting each one's offset
+// from the start of the request made a 1 MB prompt of them take seconds.
+func TestDecodePassStaysLinearOnManyCandidateRuns(t *testing.T) {
+	s := prodScanner(t)
+	var b strings.Builder
+	for i := 0; b.Len() < 1_000_000; i++ {
+		fmt.Fprintf(&b, "handleIncomingWebhookPayloadForTenant%dProvisioning ", i)
+	}
+	text := []byte(b.String()[:1_000_000])
+	t0 := time.Now()
+	s.scan(context.Background(), text, 0.75)
+	require.Less(t, time.Since(t0), 2*time.Second)
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {

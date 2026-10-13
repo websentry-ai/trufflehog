@@ -310,11 +310,19 @@ const (
 func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float64, kept []analyzeResult) []analyzeResult {
 	var out []analyzeResult
 	runs := 0
+	// Matches come in order, so rune offsets are counted forward from the last
+	// one rather than from the start of the request each time.
+	byteAt, runeAt := 0, 0
 	for _, loc := range base64Run.FindAllIndex(data, -1) {
+		if ctx.Err() != nil {
+			break
+		}
+		runeAt += utf8.RuneCount(data[byteAt:loc[0]])
+		byteAt = loc[0]
 		if loc[1]-loc[0] > maxEncodedRun {
 			continue
 		}
-		start := utf8.RuneCount(data[:loc[0]])
+		start := runeAt
 		end := start + utf8.RuneCount(data[loc[0]:loc[1]])
 		if coveredByNamed(kept, start, end) {
 			continue
@@ -478,7 +486,7 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 				continue
 			}
 			// A login's password meets its own placeholder rule in suppression.
-			if entity != customdetectors.URLLoginCredentialName && isObviousPlaceholder(string(res.Raw)) {
+			if entity != customdetectors.URLLoginCredentialName && isObviousPlaceholder(placeholderSubject(entity, res.Raw)) {
 				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}
@@ -620,6 +628,18 @@ func isGenericDetectorName(name string) bool {
 }
 
 var placeholderMarkers = classify.PlaceholderMarkers()
+
+// placeholderSubject is the part of a finding the placeholder check reads. A
+// Zendesk login is reported whole, but only its token says whether it is real:
+// "jane.sample@acme.com" is an ordinary address.
+func placeholderSubject(entity string, raw []byte) string {
+	if entity == customdetectors.ZendeskAPITokenName {
+		if _, tok, ok := bytes.Cut(raw, []byte("/token:")); ok {
+			return string(tok)
+		}
+	}
+	return string(raw)
+}
 
 func isObviousPlaceholder(raw string) bool {
 	lower := strings.ToLower(raw)
