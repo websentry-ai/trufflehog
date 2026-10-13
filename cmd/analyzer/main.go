@@ -389,7 +389,7 @@ func encodedParts(ctx context.Context, data []byte, locs [][]int) []encodedPart 
 		for i := 0; i < len(lines); {
 			j := i
 			for j < len(lines) {
-				if _, ok := decode(lines[j][0], lines[j][1]); !ok {
+				if !decodesOnItsOwn(data[lines[j][0]:lines[j][1]]) {
 					break
 				}
 				j++
@@ -437,7 +437,7 @@ func wrappedRuns(data []byte, locs [][]int) [][][2]int {
 				break
 			}
 			k := next
-			for k < len(data) && isBase64Byte(data[k]) {
+			for k < len(data) && (isBase64Byte(data[k]) || data[k] == '-' || data[k] == '_') {
 				k++
 			}
 			if k == next {
@@ -464,6 +464,34 @@ func decodeBase64Text(run []byte) ([]byte, bool) {
 		}
 	}
 	return nil, false
+}
+
+// decodesOnItsOwn reports whether one wrapped line decodes to readable text. A
+// multi-byte character can straddle two lines, so a partial one at either edge
+// is ignored.
+func decodesOnItsOwn(line []byte) bool {
+	trimmed := string(bytes.TrimRight(line, "="))
+	for _, enc := range []*base64.Encoding{base64.RawStdEncoding, base64.RawURLEncoding} {
+		b, err := enc.DecodeString(trimmed)
+		if err != nil {
+			continue
+		}
+		for n := 0; n < utf8.UTFMax-1 && len(b) > 0 && !utf8.RuneStart(b[0]); n++ {
+			b = b[1:]
+		}
+		for k := 1; k < utf8.UTFMax && k <= len(b); k++ {
+			if utf8.RuneStart(b[len(b)-k]) {
+				if !utf8.FullRune(b[len(b)-k:]) {
+					b = b[:len(b)-k]
+				}
+				break
+			}
+		}
+		if isReadableText(b) {
+			return true
+		}
+	}
+	return false
 }
 
 // isReadableText reports whether b is UTF-8 made almost entirely of printable

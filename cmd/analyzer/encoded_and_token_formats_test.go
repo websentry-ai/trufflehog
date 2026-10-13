@@ -240,6 +240,24 @@ func TestWrappedBase64IsDecodedAsOneValue(t *testing.T) {
 
 	// The same binary line, then a key wrapped over two lines.
 	require.Contains(t, spans(s, binary+"\n"+twoLines), "AWS="+twoLines)
+
+	// A multi-byte character split across the wrap still reads as text.
+	accented := base64.StdEncoding.EncodeToString([]byte("#" + strings.Repeat("a", 55) + "é\n" + env))
+	require.Equal(t, byte(0xc3), base64Decode(t, accented[:76])[56])
+	wrappedAccented := accented[:76] + "\n" + accented[76:152] + "\n" + accented[152:]
+	require.Contains(t, spans(s, binary+"\n"+wrappedAccented), "AWS="+wrappedAccented)
+
+	// URL-safe base64 keeps its continuation lines.
+	urlSafe := base64.URLEncoding.EncodeToString([]byte("#" + strings.Repeat("a", 46) + "\npostgres://app:Q7mN~~~2vRt9@db.acme.io:5432/main"))
+	require.Contains(t, urlSafe[64:], "-")
+	wrappedURLSafe := urlSafe[:64] + "\n" + urlSafe[64:]
+	require.Contains(t, spans(s, wrappedURLSafe), "Postgres="+wrappedURLSafe)
+}
+
+func base64Decode(t *testing.T, s string) []byte {
+	b, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(s, "="))
+	require.NoError(t, err)
+	return b
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {
