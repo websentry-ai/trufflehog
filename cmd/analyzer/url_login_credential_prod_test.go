@@ -72,16 +72,16 @@ func TestURLLogin_EveryLoginSchemeIsCaughtUnderProdConfig(t *testing.T) {
 	}
 }
 
-// The reported shape: an HS256 JWT as the password. The JWT detector skips
-// HMAC tokens by design, so nothing else reports it.
+// The reported shape: an HS256 JWT as the password. The HMAC JWT detector
+// covers the same span, and a login yields to a named finding over its password.
 func TestURLLogin_AnHS256TokenInTheLoginIsCaught(t *testing.T) {
 	s := prodScanner(t)
 	enc := base64.RawURLEncoding.EncodeToString
 	jwt := enc([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." +
-		enc([]byte(`{"sub":"SVC_API_KEY","exp":1891521431,"jti":"`+fakePassword(43, 7)+`"}`)) + "." +
+		enc([]byte(`{"sub":"SVC_API_KEY","exp":4102444800,"jti":"`+fakePassword(43, 7)+`"}`)) + "." +
 		fakePassword(43, 8)
 	text := "pip install --index-url https://artifactory:" + jwt + "@pkg.acme.io/repo/api/pypi/pypi/simple/ requests"
-	require.Equal(t, []string{"url-login-credential"}, entitiesOver(t, s, text, jwt))
+	require.Equal(t, []string{"JWT"}, entitiesOver(t, s, text, jwt))
 }
 
 // Where a vendor detector already fires, it keeps its specific name. Each of

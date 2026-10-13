@@ -171,7 +171,7 @@ func buildDetectors(cfg scannerConfig) ([]detectors.Detector, error) {
 	if err != nil {
 		return nil, err
 	}
-	dets = append(dets, urlLogin)
+	dets = append(dets, urlLogin, customdetectors.NewEmailTokenLogin(), customdetectors.NewJWTHMAC())
 	if cfg.genericSecretsEnabled {
 		gs, err := customdetectors.NewGenericSecret()
 		if err != nil {
