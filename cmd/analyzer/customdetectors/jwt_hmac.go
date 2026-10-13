@@ -32,7 +32,10 @@ type jwtHMACDetector struct{ now func() time.Time }
 
 func NewJWTHMAC() detectors.Detector { return jwtHMACDetector{now: time.Now} }
 
-func (jwtHMACDetector) Keywords() []string { return []string{"eyJ", "ewogIC", "ewoid"} }
+// How a header's "{" opens: compact, after spaces, a newline, a tab, or CRLF.
+func (jwtHMACDetector) Keywords() []string {
+	return []string{"eyJ", "eyAi", "eyAg", "eyAK", "ewoi", "ewog", "ewoJ", "ewki", "ew0K"}
+}
 
 func (jwtHMACDetector) Type() detector_typepb.DetectorType {
 	return detector_typepb.DetectorType_CustomRegex

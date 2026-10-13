@@ -133,6 +133,16 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 	spacedHeader := enc([]byte(`{ "alg": "HS256" }`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
 		enc([]byte("0123456789abcdef0123456789abcdef"))
 	require.Equal(t, []string{"JWT=" + spacedHeader}, spans(s, "token: "+spacedHeader))
+	sig := enc([]byte("0123456789abcdef0123456789abcdef"))
+	for _, pair := range [][2]string{
+		{`{ "alg": "HS256" }`, `{ "sub": "svc" }`},
+		{"{\n  \"alg\": \"HS256\"\n}", "{\n  \"sub\": \"svc\"\n}"},
+		{"{\t\"alg\":\"HS256\"}", "{\t\"sub\":\"svc\"}"},
+		{"{\r\n  \"alg\": \"HS256\"\r\n}", "{\r\n  \"sub\": \"svc\"\r\n}"},
+	} {
+		tok := enc([]byte(pair[0])) + "." + enc([]byte(pair[1])) + "." + sig
+		require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), pair[0])
+	}
 	padded := hmacJWT(t, `{"sub":"svc"}`) + "="
 	require.Equal(t, []string{"JWT=" + padded}, spans(s, `"token": "`+padded+`"`))
 
