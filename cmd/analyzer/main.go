@@ -468,7 +468,7 @@ func decodeBase64Text(run []byte) ([]byte, bool) {
 
 // decodesOnItsOwn reports whether one wrapped line decodes to readable text. A
 // multi-byte character can straddle two lines, so a partial one at either edge
-// is ignored.
+// is ignored, and a line holding only part of one counts.
 func decodesOnItsOwn(line []byte) bool {
 	trimmed := string(bytes.TrimRight(line, "="))
 	for _, enc := range []*base64.Encoding{base64.RawStdEncoding, base64.RawURLEncoding} {
@@ -487,7 +487,7 @@ func decodesOnItsOwn(line []byte) bool {
 				break
 			}
 		}
-		if isReadableText(b) {
+		if len(b) == 0 || isReadableText(b) {
 			return true
 		}
 	}

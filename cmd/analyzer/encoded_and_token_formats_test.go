@@ -249,6 +249,13 @@ func TestWrappedBase64IsDecodedAsOneValue(t *testing.T) {
 	wrappedAccented := accented[:76] + "\n" + accented[76:152] + "\n" + accented[152:]
 	require.Contains(t, spans(s, binary+"\n"+wrappedAccented), "AWS="+wrappedAccented)
 
+	// A last line holding only the rest of that character.
+	pairNL := "AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret + "\n"
+	tail := base64.StdEncoding.EncodeToString([]byte(pairNL + strings.Repeat("x", 113-len(pairNL)) + "é"))
+	require.Len(t, base64Decode(t, tail[152:]), 1)
+	wrappedTail := tail[:76] + "\n" + tail[76:152] + "\n" + tail[152:]
+	require.Contains(t, spans(s, binary+"\n"+wrappedTail), "AWS="+wrappedTail)
+
 	// URL-safe base64 keeps its continuation lines.
 	urlSafe := base64.URLEncoding.EncodeToString([]byte("#" + strings.Repeat("a", 46) + "\npostgres://app:Q7mN~~~2vRt9@db.acme.io:5432/main"))
 	require.Contains(t, urlSafe[64:], "-")
