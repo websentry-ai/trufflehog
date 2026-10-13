@@ -109,7 +109,9 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 		expired := hmacJWT(t, claims)
 		require.NotContains(t, strings.Join(spans(s, "Authorization: Bearer "+expired), " "), "JWT", claims)
 	}
-	for _, claims := range []string{fmt.Sprintf(`{"sub":"svc","exp":"%d"}`, time.Now().Add(time.Hour).Unix()), `{"sub":"svc","exp":{"at":"later"}}`} {
+	// Claim names are case-sensitive: a custom "EXP" is not the expiry.
+	for _, claims := range []string{fmt.Sprintf(`{"sub":"svc","exp":"%d"}`, time.Now().Add(time.Hour).Unix()), `{"sub":"svc","exp":{"at":"later"}}`,
+		`{"sub":"svc","exp":4102444800,"EXP":1600000000}`} {
 		tok := hmacJWT(t, claims)
 		require.Equal(t, []string{"JWT=" + tok}, spans(s, "Authorization: Bearer "+tok), claims)
 	}

@@ -71,26 +71,20 @@ func (d jwtHMACDetector) liveHMAC(tok []byte) bool {
 	if len(parts) != 3 {
 		return false
 	}
-	var header struct {
-		Alg string `json:"alg"`
-	}
-	if !decodeSegment(parts[0], &header) {
+	// Maps, not structs: JSON claim names are case-sensitive, and struct decoding
+	// would let a custom "EXP" or "ALG" stand in for "exp" or "alg".
+	var header, claims map[string]json.RawMessage
+	if !decodeSegment(parts[0], &header) || !decodeSegment(parts[1], &claims) {
 		return false
 	}
-	switch header.Alg {
-	case "HS256", "HS384", "HS512":
+	switch string(header["alg"]) {
+	case `"HS256"`, `"HS384"`, `"HS512"`:
 	default:
-		return false
-	}
-	var claims struct {
-		Exp json.RawMessage `json:"exp"`
-	}
-	if !decodeSegment(parts[1], &claims) {
 		return false
 	}
 	// Issuers write exp as a number or a numeric string; any other shape cannot
 	// show the token expired, so it is still reported.
-	if exp, err := strconv.ParseFloat(strings.Trim(string(claims.Exp), `"`), 64); err == nil &&
+	if exp, err := strconv.ParseFloat(strings.Trim(string(claims["exp"]), `"`), 64); err == nil &&
 		time.Unix(int64(exp), 0).Before(d.now()) {
 		return false
 	}
