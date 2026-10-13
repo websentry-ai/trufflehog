@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/joho/godotenv"
@@ -224,6 +226,31 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	start := time.Now()
 	defer func() { scanDuration.Observe(time.Since(start).Seconds()) }()
 
+	kept := s.scanText(ctx, data, threshold)
+	if decoded := s.scanEncoded(ctx, data, threshold, kept); len(decoded) > 0 {
+		// A named credential found inside an encoded run replaces the generic
+		// finding that only saw the run as random-looking text.
+		var named []analyzeResult
+		for _, d := range decoded {
+			if !isGenericDetectorName(d.EntityType) {
+				named = append(named, d)
+			}
+		}
+		out := kept[:0:0]
+		for _, k := range kept {
+			if !isGenericDetectorName(k.EntityType) || !insideAny(named, k.Start, k.End) {
+				out = append(out, k)
+			}
+		}
+		kept = append(out, decoded...)
+		sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
+	}
+	return s.record(ctx, kept)
+}
+
+// scanText runs every detector over data and resolves the results, without
+// looking inside encoded runs.
+func (s *scanner) scanText(ctx context.Context, data []byte, threshold float64) []analyzeResult {
 	// Computed once over the whole request so windowing cannot weaken it.
 	var shapes map[string]int
 	if s.mode != suppressionOff {
@@ -265,7 +292,105 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 	if len(logins) > 0 {
 		kept = placeLogins(kept, s.applySuppression(ctx, logins, data, shapes))
 	}
-	return s.record(ctx, kept)
+	return kept
+}
+
+// base64Run is a run long enough to hide a credential once decoded.
+var base64Run = regexp.MustCompile(`[A-Za-z0-9+/_-]{24,}={0,2}`)
+
+const (
+	maxEncodedRun  = 64 * 1024
+	maxEncodedRuns = 64
+)
+
+// scanEncoded decodes base64 runs that hold readable text and scans that text,
+// reporting each credential found over the encoded run it came from. Runs a
+// named finding already covers are skipped, and so is anything that decodes to
+// binary, such as an image.
+func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float64, kept []analyzeResult) []analyzeResult {
+	var out []analyzeResult
+	runs := 0
+	for _, loc := range base64Run.FindAllIndex(data, -1) {
+		if loc[1]-loc[0] > maxEncodedRun {
+			continue
+		}
+		decoded, ok := decodeBase64Text(data[loc[0]:loc[1]])
+		if !ok {
+			continue
+		}
+		if runs++; runs > maxEncodedRuns {
+			break
+		}
+		start := utf8.RuneCount(data[:loc[0]])
+		end := start + utf8.RuneCount(data[loc[0]:loc[1]])
+		if coveredByNamed(kept, start, end) {
+			continue
+		}
+		found := s.scanText(ctx, decoded, threshold)
+		hasNamed := false
+		for _, f := range found {
+			hasNamed = hasNamed || !isGenericDetectorName(f.EntityType)
+		}
+		seen := map[string]bool{}
+		for _, f := range found {
+			if seen[f.EntityType] || (hasNamed && isGenericDetectorName(f.EntityType)) {
+				continue
+			}
+			seen[f.EntityType] = true
+			f.Start, f.End = start, end
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func decodeBase64Text(run []byte) ([]byte, bool) {
+	trimmed := bytes.TrimRight(run, "=")
+	for _, enc := range []*base64.Encoding{base64.RawStdEncoding, base64.RawURLEncoding} {
+		decoded, err := enc.DecodeString(string(trimmed))
+		if err == nil && isReadableText(decoded) {
+			return decoded, true
+		}
+	}
+	return nil, false
+}
+
+// isReadableText reports whether b is UTF-8 made almost entirely of printable
+// characters, the shape of a config or command rather than binary data.
+func isReadableText(b []byte) bool {
+	if len(b) == 0 || !utf8.Valid(b) {
+		return false
+	}
+	printable := 0
+	total := 0
+	for _, r := range string(b) {
+		total++
+		if unicode.IsPrint(r) || r == '\n' || r == '\r' || r == '\t' {
+			printable++
+		}
+	}
+	return printable*100 >= total*95
+}
+
+// coveredByNamed reports whether a named detector's finding already spans
+// [start, end). A generic finding does not count: decoding may name it.
+func coveredByNamed(findings []analyzeResult, start, end int) bool {
+	for _, f := range findings {
+		if !isGenericDetectorName(f.EntityType) && f.Start <= start && f.End >= end {
+			return true
+		}
+	}
+	return false
+}
+
+// insideAny reports whether [start, end) lies within one of the findings.
+func insideAny(findings []analyzeResult, start, end int) bool {
+	for _, f := range findings {
+		if f.Start <= start && f.End >= end {
+			return true
+		}
+	}
+	return false
 }
 
 // runeBoundary moves i forward to the next rune start, so slicing never cuts a
