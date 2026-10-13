@@ -237,6 +237,9 @@ func TestWrappedBase64IsDecodedAsOneValue(t *testing.T) {
 	require.Len(t, binary, 76)
 	gh := base64.StdEncoding.EncodeToString([]byte("GITHUB_TOKEN=" + testGitHub))
 	require.Contains(t, spans(s, binary+"\n"+gh), "Github="+gh)
+
+	// The same binary line, then a key wrapped over two lines.
+	require.Contains(t, spans(s, binary+"\n"+twoLines), "AWS="+twoLines)
 }
 
 func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {

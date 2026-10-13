@@ -364,8 +364,8 @@ type encodedPart struct {
 }
 
 // encodedParts decodes each base64 run, in order. A value wrapped across lines
-// is decoded whole; when the whole does not decode, it is retried without its
-// last line (a valid value followed by unrelated text), and then line by line.
+// is decoded whole; when the whole does not decode, the lines that do not
+// decode on their own split it into stretches that are each decoded whole.
 func encodedParts(ctx context.Context, data []byte, locs [][]int) []encodedPart {
 	decode := func(from, to int) (encodedPart, bool) {
 		if to-from > maxEncodedRun {
@@ -379,24 +379,35 @@ func encodedParts(ctx context.Context, data []byte, locs [][]int) []encodedPart 
 		if ctx.Err() != nil {
 			break
 		}
-		first, last := lines[0][0], lines[len(lines)-1][1]
-		if p, ok := decode(first, last); ok {
+		if p, ok := decode(lines[0][0], lines[len(lines)-1][1]); ok {
 			out = append(out, p)
 			continue
 		}
-		if len(lines) > 2 {
-			if p, ok := decode(first, lines[len(lines)-2][1]); ok {
-				out = append(out, p)
-				if q, ok := decode(lines[len(lines)-1][0], last); ok {
-					out = append(out, q)
+		// Full-width lines are whole base64 quanta, so a line that does not decode
+		// to text on its own (binary, or unrelated text) is not part of a readable
+		// value. It splits the run, and each stretch around it is one value.
+		for i := 0; i < len(lines); {
+			j := i
+			for j < len(lines) {
+				if _, ok := decode(lines[j][0], lines[j][1]); !ok {
+					break
 				}
+				j++
+			}
+			if j == i {
+				i++
 				continue
 			}
-		}
-		for _, l := range lines {
-			if p, ok := decode(l[0], l[1]); ok {
+			if p, ok := decode(lines[i][0], lines[j-1][1]); ok {
 				out = append(out, p)
+			} else {
+				for _, l := range lines[i:j] {
+					if p, ok := decode(l[0], l[1]); ok {
+						out = append(out, p)
+					}
+				}
 			}
+			i = j
 		}
 	}
 	return out
