@@ -98,8 +98,12 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 		"49O0ZGaFZBRrev0Xy1HC9L5dFlnJEafXpCm1BmI-CaJBfFwGRbyypuPQzVcQS---"
 	require.Equal(t, []string{"JWT=" + hyphenEnd}, spans(s, `"token": "`+hyphenEnd+`"`))
 
-	tiny := hmacJWT(t, `{"uid":1}`)
-	require.Equal(t, []string{"JWT=" + tiny}, spans(s, "token: "+tiny))
+	for _, claims := range []string{`{"uid":1}`, `{}`} {
+		tok := hmacJWT(t, claims)
+		require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), claims)
+	}
+	padded := hmacJWT(t, `{"sub":"svc"}`) + "="
+	require.Equal(t, []string{"JWT=" + padded}, spans(s, `"token": "`+padded+`"`))
 
 	// Large enough that no single scan window holds it whole.
 	big := hmacJWT(t, `{"sub":"svc","roles":"`+strings.Repeat("reader,", 260)+`"}`)

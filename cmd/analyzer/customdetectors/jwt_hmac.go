@@ -17,10 +17,10 @@ import (
 // detector found it.
 const JWTName = "JWT"
 
-// A claims segment can be as short as {"uid":1}; the header and signature checks
+// A claims segment can be as short as {} (e30); the header and signature checks
 // below are what keep the match strict. A signature can end in '-', which \b
 // cannot follow, so the token ends at a non-token byte instead.
-var jwtRegex = regexp.MustCompile(`\b((?:eyJ|ewogIC|ewoid)[A-Za-z0-9_-]{12,}={0,2}\.(?:eyJ|ewo)[A-Za-z0-9_-]+={0,2}\.[A-Za-z0-9_-]{12,})(?:[^A-Za-z0-9_=-]|\z)`)
+var jwtRegex = regexp.MustCompile(`\b((?:eyJ|ewogIC|ewoid)[A-Za-z0-9_-]{12,}={0,2}\.(?:eyJ|ewo|e30)[A-Za-z0-9_-]*={0,2}\.[A-Za-z0-9_-]{12,}={0,2})(?:[^A-Za-z0-9_=-]|\z)`)
 
 // The upstream JWT detector skips HMAC-signed tokens because it cannot verify
 // them. This one reports them, since a bearer token is a credential whether or
