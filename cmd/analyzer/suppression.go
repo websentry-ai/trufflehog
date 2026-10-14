@@ -517,12 +517,13 @@ func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data
 	counts := map[string]int{}
 	from := countFrom(ctx)
 	for _, f := range in {
-		suppress, reason, mode := s.decideAny(f, shapes, data)
+		counted := f.Start >= from
+		suppress, reason, mode := s.decideAny(f, shapes, data, counted)
 		if !suppress {
 			kept = append(kept, f)
 			continue
 		}
-		if f.Start >= from {
+		if counted {
 			findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, mode.String()).Inc()
 			counts[reason]++
 		}
@@ -537,14 +538,16 @@ func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data
 	return kept
 }
 
-func (s *scanner) decideAny(f analyzeResult, shapes map[string]int, data []byte) (bool, string, suppressionMode) {
+// counted is false for a finding a rescan already evaluated, so it is not
+// counted as evaluated again.
+func (s *scanner) decideAny(f analyzeResult, shapes map[string]int, data []byte, counted bool) (bool, string, suppressionMode) {
 	if s.mode != suppressionOff {
 		if suppress, reason := decideSuppression(f, shapes, data); suppress {
 			return true, reason, s.mode
 		}
 	}
 	if s.vendorMode != suppressionOff && !isGenericDetectorName(f.EntityType) {
-		if isCuratedVendor(f.EntityType) {
+		if counted && isCuratedVendor(f.EntityType) {
 			vendorFindingsEvaluatedTotal.WithLabelValues(f.EntityType, s.vendorMode.String()).Inc()
 		}
 		if suppress, reason := decideVendorSuppression(f, data); suppress {

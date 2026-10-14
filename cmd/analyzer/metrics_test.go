@@ -146,3 +146,13 @@ func TestSuppressionBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
 	s.scan(context.Background(), []byte("token "+placeholder+" "+encoded), 0)
 	require.Equal(t, 1.0, testutil.ToFloat64(placeholdersSuppressedTotal.WithLabelValues("Github"))-before)
 }
+
+// The same holds for vendor findings evaluated in that text.
+func TestVendorEvaluationBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
+	s := prodScanner(t)
+	encoded := base64.StdEncoding.EncodeToString([]byte("This project uses Go modules. Run make build to compile it."))
+	label := vendorFindingsEvaluatedTotal.WithLabelValues("URI", s.vendorMode.String())
+	before := testutil.ToFloat64(label)
+	s.scan(context.Background(), []byte("https://svc:Kq7xP2mR9vTw4yZ8@h.co/x "+encoded), 0)
+	require.Equal(t, 1.0, testutil.ToFloat64(label)-before)
+}
