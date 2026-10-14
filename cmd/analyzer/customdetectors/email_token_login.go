@@ -37,6 +37,21 @@ var (
 	}
 )
 
+// lookBehind is the text a login reads its context from, without a word the
+// window cuts in half ("monkey" read as "key").
+func lookBehind(data []byte, at int) []byte {
+	from := max(0, at-LoginContextBytes)
+	before := data[from:at]
+	if from > 0 && isLetter(data[from-1]) {
+		for len(before) > 0 && isLetter(before[0]) {
+			before = before[1:]
+		}
+	}
+	return before
+}
+
+func isLetter(c byte) bool { return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' }
+
 func hasLoginContext(before []byte) bool {
 	if curlUserFlag.Match(before) {
 		return true
@@ -70,7 +85,7 @@ func (emailTokenLoginDetector) Description() string {
 func (emailTokenLoginDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	var results []detectors.Result
 	for _, m := range emailTokenLoginRegex.FindAllIndex(data, -1) {
-		if !hasLoginContext(data[max(0, m[0]-LoginContextBytes):m[0]]) {
+		if !hasLoginContext(lookBehind(data, m[0])) {
 			continue
 		}
 		r := detectors.Result{

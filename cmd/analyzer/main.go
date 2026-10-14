@@ -341,13 +341,14 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		}
 		// The text just before the run is scanned with it, so a detector that reads
 		// its surroundings ("Authorization: Basic <run>") still sees them. The byte
-		// before a run is never base64, so the two don't run together. Only
-		// findings inside the decoded part are kept.
+		// before a run is never base64, so the two don't run together. A finding is
+		// kept when it lies in the decoded part, or its value recurs there: a value
+		// with no offset is placed at its first copy, which may be in the lead.
 		lead := data[runeBoundary(data, max(0, part.from-encodedLead)):part.from]
 		skip := utf8.RuneCount(lead)
 		var found []analyzeResult
 		for _, f := range s.scanText(withCountFrom(ctx, skip), append(bytes.Clone(lead), decoded...), threshold) {
-			if f.Start >= skip {
+			if f.Start >= skip || bytes.Contains(decoded, []byte(f.raw)) {
 				found = append(found, f)
 			}
 		}

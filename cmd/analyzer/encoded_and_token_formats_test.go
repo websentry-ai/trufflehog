@@ -91,6 +91,10 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	require.Equal(t, []string{"email-token-login=" + withKey}, spans(s, "echo "+withKey+" | base64 -d"))
 	bare := base64.StdEncoding.EncodeToString([]byte(login))
 	require.NotContains(t, strings.Join(spans(s, "echo "+bare+" | base64 -d"), " "), "email-token-login")
+	// A context word cut in half by the edge of the look-back doesn't count.
+	cut := "monkey" + strings.Repeat(" ", 77)
+	require.Len(t, cut, customdetectors.LoginContextBytes+3)
+	require.NotContains(t, strings.Join(spans(s, cut+login), " "), "email-token-login")
 	// Context as far before an encoded run as before a plain login still counts.
 	far := "token" + strings.Repeat(" ", 75)
 	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, far+bare))
@@ -255,4 +259,14 @@ func TestEncodedRunsWithoutCredentialsStayQuiet(t *testing.T) {
 	} {
 		require.Empty(t, spans(s, text), text)
 	}
+}
+
+// A credential in the text before an encoded run, and again inside it, is
+// reported at both places: each copy has to be covered.
+func TestCredentialRepeatedInsideTheNextEncodedRunIsReportedTwice(t *testing.T) {
+	s := prodScanner(t)
+	encoded := base64.StdEncoding.EncodeToString([]byte("GITHUB_TOKEN=" + testGitHub))
+	got := spans(s, "GITHUB_TOKEN="+testGitHub+" TOKEN_B64="+encoded)
+	require.Contains(t, got, "Github="+testGitHub)
+	require.Contains(t, got, "Github="+encoded)
 }
