@@ -75,15 +75,21 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	s := prodScanner(t)
 	login := "jane.doe@acme.com/token:" + testLoginToken
 	for _, text := range []string{
-		login,
 		"curl https://support.acme.io/api/v2/tickets.json -u " + login,
+		"curl --user " + login + " https://support.acme.io/api/v2/users.json",
 		`{"username": "` + login + `"}`,
+		"export SUPPORT_AUTH=" + login,
+		"API token login: " + login,
 	} {
 		require.Equal(t, []string{"email-token-login=" + login}, spans(s, text), text)
 	}
+	// Without anything credential-like just before it, a login is not reported.
+	for _, text := range []string{login, "I read about " + login + " in the help centre."} {
+		require.NotContains(t, strings.Join(spans(s, text), " "), "email-token-login", text)
+	}
 	// Only the token decides whether a login is a placeholder, not the address.
 	sample := "jane.sample@acme.com/token:" + testLoginToken
-	require.Equal(t, []string{"email-token-login=" + sample}, spans(s, sample))
+	require.Equal(t, []string{"email-token-login=" + sample}, spans(s, "-u "+sample))
 	encoded := base64.StdEncoding.EncodeToString([]byte(sample))
 	require.Equal(t, []string{"email-token-login=" + encoded}, spans(s, "Authorization: Basic "+encoded))
 
