@@ -100,6 +100,12 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	far := "token" + strings.Repeat(" ", 75)
 	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, far+bare))
 	require.NotContains(t, strings.Join(spans(s, cut+bare), " "), "email-token-login")
+	// Context before an encoded value counts only for a login the value starts
+	// with, not one further in, including one that starts a later scan window.
+	for _, inner := range []string{strings.Repeat(" ", 70) + login, strings.Repeat(" ", 2048) + login + strings.Repeat(" ", 1200)} {
+		enc := base64.StdEncoding.EncodeToString([]byte(inner))
+		require.NotContains(t, strings.Join(spans(s, "token "+enc), " "), "email-token-login")
+	}
 
 	for _, text := range []string{
 		"-u jane.doe@acme.com/token:" + testLoginToken[:39],

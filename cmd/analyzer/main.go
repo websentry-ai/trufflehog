@@ -265,7 +265,12 @@ func (s *scanner) scanText(ctx context.Context, data []byte, threshold float64) 
 			end := runeBoundary(data, off+scanWindowSize+scanWindowPeek)
 			// Offsets are reported in runes, so the window's own start has to be
 			// counted the same way before it can be added back.
-			all = append(all, s.detect(ctx, s.core, data[off:end], threshold, utf8.RuneCount(data[:off]))...)
+			// Only the first window starts the text, so context before it.
+			wctx := ctx
+			if off > 0 {
+				wctx = customdetectors.WithLoginContextBefore(ctx, false)
+			}
+			all = append(all, s.detect(wctx, s.core, data[off:end], threshold, utf8.RuneCount(data[:off]))...)
 			if end == len(data) {
 				break
 			}
@@ -337,11 +342,8 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		}
 		// The decoded text is scanned on its own. Auth context just before the run
 		// ("Authorization: Basic <run>") is read where it is, in the request.
-		dctx := ctx
-		if customdetectors.HasLoginContextBefore(data, part.from) {
-			dctx = customdetectors.WithLoginContextBefore(ctx)
-		}
-		found := s.scanText(dctx, decoded, threshold)
+		before := customdetectors.HasLoginContextBefore(data, part.from)
+		found := s.scanText(customdetectors.WithLoginContextBefore(ctx, before), decoded, threshold)
 		hasNamed := false
 		for _, f := range found {
 			hasNamed = hasNamed || !isGenericDetectorName(f.EntityType)
