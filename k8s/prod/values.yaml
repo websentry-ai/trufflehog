@@ -1,7 +1,7 @@
 # Production overlay for the trufflehog-analyzer. Secrets: prod/trufflehog.
 
 image:
-  tag: "6a7f617309b651be8115976949a682fb1be58136"
+  tag: "934ae4552c455928917d660edef71d08ab1c9321"
 
 externalSecret:
   enabled: true
