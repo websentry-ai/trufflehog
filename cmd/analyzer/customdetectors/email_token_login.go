@@ -3,6 +3,7 @@ package customdetectors
 import (
 	"bytes"
 	"context"
+	"strings"
 
 	regexp "github.com/wasilibs/go-re2"
 
@@ -17,10 +18,36 @@ const EmailTokenLoginName = "email-token-login"
 // credential rather than as an email of its own.
 var emailTokenLoginRegex = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/token:[A-Za-z0-9]{40}\b`)
 
+// LoginContextBytes is how far before a login its auth context may start.
+const LoginContextBytes = 80
+
 // A login is reported only when an auth header, a curl -u/--user, or a
-// credential-like key comes within 80 bytes before it, so one quoted in prose
-// is left alone.
-var emailTokenLoginContext = regexp.MustCompile(`(?i)authorization|bearer|basic|auth|token|key|password|passwd|credential|secret|login|user|curl|(?:^|\s)-u\b`)
+// credential-like key comes shortly before it, so one quoted in prose is left
+// alone. Whole words count, with keys split at "_", "-" and camelCase, so
+// SUPPORT_AUTH and authToken do and "author" does not.
+var (
+	camelBreak       = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	contextWord      = regexp.MustCompile(`[A-Za-z]+`)
+	curlUserFlag     = regexp.MustCompile(`(?:^|\s)-u\b`)
+	loginContextWord = map[string]bool{
+		"authorization": true, "bearer": true, "basic": true, "auth": true, "token": true,
+		"key": true, "apikey": true, "password": true, "passwd": true, "pwd": true,
+		"credential": true, "credentials": true, "secret": true, "login": true,
+		"user": true, "username": true, "curl": true, "signing": true, "cert": true,
+	}
+)
+
+func hasLoginContext(before []byte) bool {
+	if curlUserFlag.Match(before) {
+		return true
+	}
+	for _, w := range contextWord.FindAll(camelBreak.ReplaceAll(before, []byte("$1 $2")), -1) {
+		if loginContextWord[strings.ToLower(string(w))] {
+			return true
+		}
+	}
+	return false
+}
 
 type emailTokenLoginDetector struct{}
 
@@ -43,7 +70,7 @@ func (emailTokenLoginDetector) Description() string {
 func (emailTokenLoginDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	var results []detectors.Result
 	for _, m := range emailTokenLoginRegex.FindAllIndex(data, -1) {
-		if !emailTokenLoginContext.Match(data[max(0, m[0]-80):m[0]]) {
+		if !hasLoginContext(data[max(0, m[0]-LoginContextBytes):m[0]]) {
 			continue
 		}
 		r := detectors.Result{
