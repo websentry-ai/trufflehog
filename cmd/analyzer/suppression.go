@@ -515,14 +515,17 @@ func (s *scanner) applySuppression(ctx context.Context, in []analyzeResult, data
 	}
 	kept := make([]analyzeResult, 0, len(in))
 	counts := map[string]int{}
+	from := countFrom(ctx)
 	for _, f := range in {
 		suppress, reason, mode := s.decideAny(f, shapes, data)
 		if !suppress {
 			kept = append(kept, f)
 			continue
 		}
-		findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, mode.String()).Inc()
-		counts[reason]++
+		if f.Start >= from {
+			findingsSuppressedTotal.WithLabelValues(reason, f.EntityType, mode.String()).Inc()
+			counts[reason]++
+		}
 		if mode == suppressionShadow {
 			kept = append(kept, f)
 		}
