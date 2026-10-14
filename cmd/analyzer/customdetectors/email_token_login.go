@@ -52,6 +52,19 @@ func lookBehind(data []byte, at int) []byte {
 
 func isLetter(c byte) bool { return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' }
 
+type contextBeforeKey struct{}
+
+// WithLoginContextBefore marks text decoded from a request whose words just
+// before it carry auth context, as in "Authorization: Basic <base64 login>".
+func WithLoginContextBefore(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextBeforeKey{}, true)
+}
+
+// HasLoginContextBefore reports whether auth context comes shortly before at.
+func HasLoginContextBefore(data []byte, at int) bool {
+	return hasLoginContext(lookBehind(data, at))
+}
+
 func hasLoginContext(before []byte) bool {
 	if curlUserFlag.Match(before) {
 		return true
@@ -82,10 +95,13 @@ func (emailTokenLoginDetector) Description() string {
 	return "API token in its email/token login form."
 }
 
-func (emailTokenLoginDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (emailTokenLoginDetector) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	outside, _ := ctx.Value(contextBeforeKey{}).(bool)
 	var results []detectors.Result
 	for _, m := range emailTokenLoginRegex.FindAllIndex(data, -1) {
-		if !hasLoginContext(lookBehind(data, m[0])) {
+		// Context before the text reaches as far into it as context inside would.
+		reached := outside && m[0] < LoginContextBytes
+		if !reached && !hasLoginContext(lookBehind(data, m[0])) {
 			continue
 		}
 		r := detectors.Result{

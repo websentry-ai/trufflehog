@@ -136,8 +136,7 @@ func TestInflightGaugeNetsToZero(t *testing.T) {
 	}
 }
 
-// The text just before an encoded run is scanned again with the decoded text,
-// but a suppression there is counted once, by the plain scan.
+// Decoding an encoded run does not count a suppression just before it again.
 func TestSuppressionBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
 	s := prodScanner(t)
 	placeholder := "ghp_" + strings.Repeat("x", 36)
@@ -147,7 +146,7 @@ func TestSuppressionBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
 	require.Equal(t, 1.0, testutil.ToFloat64(placeholdersSuppressedTotal.WithLabelValues("Github"))-before)
 }
 
-// The same holds for vendor findings evaluated in that text.
+// Nor a vendor finding evaluated just before it.
 func TestVendorEvaluationBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
 	s := prodScanner(t)
 	encoded := base64.StdEncoding.EncodeToString([]byte("This project uses Go modules. Run make build to compile it."))

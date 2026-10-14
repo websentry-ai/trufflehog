@@ -95,9 +95,11 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	cut := "monkey" + strings.Repeat(" ", 77)
 	require.Len(t, cut, customdetectors.LoginContextBytes+3)
 	require.NotContains(t, strings.Join(spans(s, cut+login), " "), "email-token-login")
-	// Context as far before an encoded run as before a plain login still counts.
+	// Context as far before an encoded run as before a plain login still counts,
+	// and a word cut in half there still doesn't.
 	far := "token" + strings.Repeat(" ", 75)
 	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, far+bare))
+	require.NotContains(t, strings.Join(spans(s, cut+bare), " "), "email-token-login")
 
 	for _, text := range []string{
 		"-u jane.doe@acme.com/token:" + testLoginToken[:39],
@@ -269,4 +271,16 @@ func TestCredentialRepeatedInsideTheNextEncodedRunIsReportedTwice(t *testing.T) 
 	got := spans(s, "GITHUB_TOKEN="+testGitHub+" TOKEN_B64="+encoded)
 	require.Contains(t, got, "Github="+testGitHub)
 	require.Contains(t, got, "Github="+encoded)
+}
+
+// A short password before an encoded run does not mark the run because the
+// same letters occur in its decoded text.
+func TestShortPasswordDoesNotMarkTheNextEncodedRun(t *testing.T) {
+	s := prodScanner(t)
+	prose := base64.StdEncoding.EncodeToString([]byte("This project uses Go modules. Run make build to compile it."))
+	for _, login := range []string{"ssh://svc:use@h.co/x", "postgres://svc:use@db.internal/app"} {
+		for _, got := range spans(s, login+" "+prose) {
+			require.NotContains(t, got, prose, login)
+		}
+	}
 }

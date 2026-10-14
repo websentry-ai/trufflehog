@@ -24,7 +24,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
-	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/engine/ahocorasick"
 	regexp "github.com/wasilibs/go-re2"
 )
@@ -304,9 +303,6 @@ const (
 	// The pass stops once this much text has been decoded, which bounds its cost
 	// by size rather than by how many short runs a prompt happens to contain.
 	maxDecodedBytes = 256 * 1024
-	// How much of the request before an encoded run is scanned with it: what a
-	// login detector looks back over for its context.
-	encodedLead = customdetectors.LoginContextBytes
 )
 
 // scanEncoded decodes base64 runs that hold readable text and scans that text,
@@ -339,19 +335,13 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		if decodedBytes += len(decoded); decodedBytes > maxDecodedBytes {
 			break
 		}
-		// The text just before the run is scanned with it, so a detector that reads
-		// its surroundings ("Authorization: Basic <run>") still sees them. The byte
-		// before a run is never base64, so the two don't run together. A finding is
-		// kept when it lies in the decoded part, or its value recurs there: a value
-		// with no offset is placed at its first copy, which may be in the lead.
-		lead := data[runeBoundary(data, max(0, part.from-encodedLead)):part.from]
-		skip := utf8.RuneCount(lead)
-		var found []analyzeResult
-		for _, f := range s.scanText(withCountFrom(ctx, skip), append(bytes.Clone(lead), decoded...), threshold) {
-			if f.Start >= skip || bytes.Contains(decoded, []byte(f.raw)) {
-				found = append(found, f)
-			}
+		// The decoded text is scanned on its own. Auth context just before the run
+		// ("Authorization: Basic <run>") is read where it is, in the request.
+		dctx := ctx
+		if customdetectors.HasLoginContextBefore(data, part.from) {
+			dctx = customdetectors.WithLoginContextBefore(ctx)
 		}
+		found := s.scanText(dctx, decoded, threshold)
 		hasNamed := false
 		for _, f := range found {
 			hasNamed = hasNamed || !isGenericDetectorName(f.EntityType)
@@ -605,32 +595,6 @@ func dedupeIdentical(in []analyzeResult) []analyzeResult {
 	return out
 }
 
-type countFromKey struct{}
-
-// withCountFrom marks a rescan whose text before rune offset from was already
-// scanned, so suppressions there are not counted or logged a second time.
-func withCountFrom(ctx context.Context, from int) context.Context {
-	return context.WithValue(ctx, countFromKey{}, from)
-}
-
-func countFrom(ctx context.Context) int {
-	from, _ := ctx.Value(countFromKey{}).(int)
-	return from
-}
-
-// placeholderAt is where a placeholder result starts, in runes; one that cannot
-// be placed counts as new.
-func placeholderAt(runes *runeIndex, res detectors.Result, runeBase int) int {
-	at := -1
-	if res.HasChunkOffset() {
-		at = int(res.ChunkOffset())
-	}
-	if start, _, ok := runes.offsets(res.Raw, at); ok {
-		return runeBase + start
-	}
-	return math.MaxInt
-}
-
 // detect runs one core over one slice. The core is an argument because the
 // scanner is shared across concurrent requests and must never be mutated.
 func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byte, threshold float64, runeBase int) []analyzeResult {
@@ -658,9 +622,7 @@ func (s *scanner) detect(ctx context.Context, core *ahocorasick.Core, data []byt
 			}
 			// A login's password meets its own placeholder rule in suppression.
 			if entity != customdetectors.URLLoginCredentialName && isObviousPlaceholder(placeholderSubject(entity, res.Raw)) {
-				if from := countFrom(ctx); from == 0 || placeholderAt(runes, res, runeBase) >= from {
-					placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
-				}
+				placeholdersSuppressedTotal.WithLabelValues(entity).Inc()
 				continue
 			}
 			at := -1
