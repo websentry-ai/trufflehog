@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/require"
 )
 
 func histogramSampleCount(t *testing.T, h prometheus.Histogram) uint64 {
@@ -132,4 +134,24 @@ func TestInflightGaugeNetsToZero(t *testing.T) {
 	if v := testutil.ToFloat64(inflightRequests); v != 0 {
 		t.Fatalf("inflight_requests should net to 0 after a completed request, got %v", v)
 	}
+}
+
+// Decoding an encoded run does not count a suppression just before it again.
+func TestSuppressionBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
+	s := prodScanner(t)
+	placeholder := "ghp_" + strings.Repeat("x", 36)
+	encoded := base64.StdEncoding.EncodeToString([]byte("This project uses Go modules. Run make build to compile it."))
+	before := testutil.ToFloat64(placeholdersSuppressedTotal.WithLabelValues("Github"))
+	s.scan(context.Background(), []byte("token "+placeholder+" "+encoded), 0)
+	require.Equal(t, 1.0, testutil.ToFloat64(placeholdersSuppressedTotal.WithLabelValues("Github"))-before)
+}
+
+// Nor a vendor finding evaluated just before it.
+func TestVendorEvaluationBeforeAnEncodedRunIsCountedOnce(t *testing.T) {
+	s := prodScanner(t)
+	encoded := base64.StdEncoding.EncodeToString([]byte("This project uses Go modules. Run make build to compile it."))
+	label := vendorFindingsEvaluatedTotal.WithLabelValues("URI", s.vendorMode.String())
+	before := testutil.ToFloat64(label)
+	s.scan(context.Background(), []byte("https://svc:Kq7xP2mR9vTw4yZ8@h.co/x "+encoded), 0)
+	require.Equal(t, 1.0, testutil.ToFloat64(label)-before)
 }
