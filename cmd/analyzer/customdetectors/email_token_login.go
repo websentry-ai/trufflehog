@@ -38,11 +38,12 @@ var (
 )
 
 // lookBehind is the text a login reads its context from, without a word the
-// window cuts in half ("monkey" read as "key").
-func lookBehind(data []byte, at int) []byte {
+// window cuts in half ("monkey" read as "key"). When midText, data was cut from
+// longer text, so a word at its start may be cut too.
+func lookBehind(data []byte, at int, midText bool) []byte {
 	from := max(0, at-LoginContextBytes)
 	before := data[from:at]
-	if from > 0 && isLetter(data[from-1]) {
+	if from > 0 && isLetter(data[from-1]) || from == 0 && midText {
 		for len(before) > 0 && isLetter(before[0]) {
 			before = before[1:]
 		}
@@ -52,17 +53,35 @@ func lookBehind(data []byte, at int) []byte {
 
 func isLetter(c byte) bool { return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' }
 
-type contextBeforeKey struct{}
+type leadKey struct{}
+
+// lead is what comes before the text a detector is given.
+type lead int
+
+const (
+	leadNone lead = iota
+	leadAuth      // auth context just before decoded text
+	leadText      // more of the same text, before a later scan window
+)
 
 // WithLoginContextBefore records whether the words just before decoded text
 // carry auth context, as in "Authorization: Basic <base64 login>".
 func WithLoginContextBefore(ctx context.Context, before bool) context.Context {
-	return context.WithValue(ctx, contextBeforeKey{}, before)
+	if before {
+		return context.WithValue(ctx, leadKey{}, leadAuth)
+	}
+	return context.WithValue(ctx, leadKey{}, leadNone)
+}
+
+// WithTextBefore marks a window cut from longer text: it may start mid-word,
+// and context before the decoded text does not reach it.
+func WithTextBefore(ctx context.Context) context.Context {
+	return context.WithValue(ctx, leadKey{}, leadText)
 }
 
 // HasLoginContextBefore reports whether auth context comes shortly before at.
 func HasLoginContextBefore(data []byte, at int) bool {
-	return hasLoginContext(lookBehind(data, at))
+	return hasLoginContext(lookBehind(data, at, false))
 }
 
 func hasLoginContext(before []byte) bool {
@@ -96,12 +115,12 @@ func (emailTokenLoginDetector) Description() string {
 }
 
 func (emailTokenLoginDetector) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	outside, _ := ctx.Value(contextBeforeKey{}).(bool)
+	before, _ := ctx.Value(leadKey{}).(lead)
 	var results []detectors.Result
 	for _, m := range emailTokenLoginRegex.FindAllIndex(data, -1) {
 		// Context before the text counts for a login the text starts with.
-		fromOutside := outside && m[0] == 0
-		if !fromOutside && !hasLoginContext(lookBehind(data, m[0])) {
+		fromOutside := before == leadAuth && m[0] == 0
+		if !fromOutside && !hasLoginContext(lookBehind(data, m[0], before == leadText)) {
 			continue
 		}
 		r := detectors.Result{

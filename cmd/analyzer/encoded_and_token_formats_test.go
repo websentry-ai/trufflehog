@@ -100,6 +100,11 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	far := "token" + strings.Repeat(" ", 75)
 	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, far+bare))
 	require.NotContains(t, strings.Join(spans(s, cut+bare), " "), "email-token-login")
+	// A word cut at a scan-window edge doesn't count either, while a whole one
+	// there is read by the window before, which overlaps it.
+	long := strings.Repeat(" ", 1100)
+	require.NotContains(t, strings.Join(spans(s, strings.Repeat(" ", 2045)+"monkey "+login+long), " "), "email-token-login")
+	require.Equal(t, []string{"email-token-login=" + login}, spans(s, strings.Repeat(" ", 2046)+"token "+login+long))
 	// Context before an encoded value counts only for a login the value starts
 	// with, not one further in, including one that starts a later scan window.
 	for _, inner := range []string{strings.Repeat(" ", 70) + login, strings.Repeat(" ", 2048) + login + strings.Repeat(" ", 1200)} {

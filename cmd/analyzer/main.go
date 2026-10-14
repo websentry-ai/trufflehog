@@ -265,10 +265,9 @@ func (s *scanner) scanText(ctx context.Context, data []byte, threshold float64) 
 			end := runeBoundary(data, off+scanWindowSize+scanWindowPeek)
 			// Offsets are reported in runes, so the window's own start has to be
 			// counted the same way before it can be added back.
-			// Context before the text reaches only the first window.
 			wctx := ctx
 			if off > 0 {
-				wctx = customdetectors.WithLoginContextBefore(ctx, false)
+				wctx = customdetectors.WithTextBefore(ctx)
 			}
 			all = append(all, s.detect(wctx, s.core, data[off:end], threshold, utf8.RuneCount(data[:off]))...)
 			if end == len(data) {
