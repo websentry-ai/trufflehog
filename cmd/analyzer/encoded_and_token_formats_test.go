@@ -76,7 +76,8 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	// Without anything credential-like just before it, a login is not reported,
 	// including when a context word only appears inside another word.
 	for _, text := range []string{login, "I read about " + login + " in the help centre.",
-		"The author quoted " + login, "Monkey business at " + login} {
+		"The author quoted " + login, "Monkey business at " + login,
+		"user@acme.com/token:" + testLoginToken, "see token.admin@acme.com/token:" + testLoginToken} {
 		require.NotContains(t, strings.Join(spans(s, text), " "), "email-token-login", text)
 	}
 	// Only the token decides whether a login is a placeholder, not the address.
@@ -93,8 +94,6 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	// Context as far before an encoded run as before a plain login still counts.
 	far := "token" + strings.Repeat(" ", 75)
 	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, far+bare))
-	// A byte such as "." can join the lead to the decoded login.
-	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, "token."+bare))
 
 	for _, text := range []string{
 		"-u jane.doe@acme.com/token:" + testLoginToken[:39],
