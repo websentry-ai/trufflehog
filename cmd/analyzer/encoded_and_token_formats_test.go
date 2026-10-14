@@ -93,13 +93,15 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	// Context as far before an encoded run as before a plain login still counts.
 	far := "token" + strings.Repeat(" ", 75)
 	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, far+bare))
+	// A byte such as "." can join the lead to the decoded login.
+	require.Equal(t, []string{"email-token-login=" + bare}, spans(s, "token."+bare))
 
 	for _, text := range []string{
-		"jane.doe@acme.com/token:" + testLoginToken[:39],
-		"jane.doe@acme.com/token:" + testLoginToken + "x",
+		"-u jane.doe@acme.com/token:" + testLoginToken[:39],
+		"-u jane.doe@acme.com/token:" + testLoginToken + "x",
 		"see https://support.acme.io/token: for details",
-		"you@acme.com/token:" + strings.Repeat("x", 40),
-		"you@acme.com/token:" + strings.Repeat("exampletoken", 4)[:40],
+		"-u you@acme.com/token:" + strings.Repeat("x", 40),
+		"-u you@acme.com/token:" + strings.Repeat("exampletoken", 4)[:40],
 	} {
 		require.NotContains(t, strings.Join(spans(s, text), " "), "email-token-login", text)
 	}

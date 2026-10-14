@@ -70,7 +70,10 @@ func (emailTokenLoginDetector) Description() string {
 func (emailTokenLoginDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	var results []detectors.Result
 	for _, m := range emailTokenLoginRegex.FindAllIndex(data, -1) {
-		if !hasLoginContext(data[max(0, m[0]-LoginContextBytes):m[0]]) {
+		// The local part can swallow a key joined by "." or "%" ("token.jane@..."),
+		// so the words up to the "@" are read too.
+		at := m[0] + bytes.IndexByte(data[m[0]:m[1]], '@')
+		if !hasLoginContext(data[max(0, m[0]-LoginContextBytes):at]) {
 			continue
 		}
 		r := detectors.Result{
