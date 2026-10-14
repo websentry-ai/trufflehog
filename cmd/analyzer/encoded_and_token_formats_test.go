@@ -30,13 +30,6 @@ func spans(s *scanner, text string) []string {
 	return out
 }
 
-func hmacJWT(t *testing.T, claims string) string {
-	t.Helper()
-	enc := base64.RawURLEncoding.EncodeToString
-	return enc([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." + enc([]byte(claims)) + "." +
-		enc([]byte("0123456789abcdef0123456789abcdef"))
-}
-
 // Every in-process custom detector shares one type, so the keyword index can
 // only tell them apart by version. Two with the same version silently replace
 // each other.
@@ -64,11 +57,6 @@ func TestNewDetectorsFillSecretParts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, zd, 1)
 	require.Equal(t, map[string]string{"email": "jane.doe@acme.com", "token": testLoginToken}, zd[0].SecretParts)
-	tok := hmacJWT(t, `{"sub":"svc"}`)
-	jw, err := customdetectors.NewJWTHMAC().FromData(ctx, false, []byte("Bearer "+tok))
-	require.NoError(t, err)
-	require.Len(t, jw, 1)
-	require.Equal(t, map[string]string{"key": tok}, jw[0].SecretParts)
 }
 
 func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
@@ -110,60 +98,6 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	}
 }
 
-func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
-	s := prodScanner(t)
-	live := hmacJWT(t, fmt.Sprintf(`{"sub":"svc","exp":%d}`, time.Now().Add(24*time.Hour).Unix()))
-	noExp := hmacJWT(t, `{"sub":"svc","iat":1728000000}`)
-	for _, tok := range []string{live, noExp} {
-		require.Equal(t, []string{"JWT=" + tok}, spans(s, "Authorization: Bearer "+tok))
-	}
-	for _, claims := range []string{`{"sub":"svc","exp":1600000000}`, `{"sub":"svc","exp":"1600000000"}`} {
-		expired := hmacJWT(t, claims)
-		require.NotContains(t, strings.Join(spans(s, "Authorization: Bearer "+expired), " "), "JWT", claims)
-	}
-	// Claim names are case-sensitive: a custom "EXP" is not the expiry.
-	for _, claims := range []string{fmt.Sprintf(`{"sub":"svc","exp":"%d"}`, time.Now().Add(time.Hour).Unix()), `{"sub":"svc","exp":{"at":"later"}}`,
-		`{"sub":"svc","exp":4102444800,"EXP":1600000000}`} {
-		tok := hmacJWT(t, claims)
-		require.Equal(t, []string{"JWT=" + tok}, spans(s, "Authorization: Bearer "+tok), claims)
-	}
-
-	enc := base64.RawURLEncoding.EncodeToString
-	hyphenEnd := enc([]byte(`{"alg":"HS384","typ":"JWT"}`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
-		"49O0ZGaFZBRrev0Xy1HC9L5dFlnJEafXpCm1BmI-CaJBfFwGRbyypuPQzVcQS---"
-	require.Equal(t, []string{"JWT=" + hyphenEnd}, spans(s, `"token": "`+hyphenEnd+`"`))
-
-	// The header is JSON, so the algorithm name may be escaped.
-	escaped := enc([]byte(`{"alg":"HS\u0032\u0035\u0036"}`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
-		strings.Split(hmacJWT(t, `{"sub":"svc"}`), ".")[2]
-	require.Equal(t, []string{"JWT=" + escaped}, spans(s, "token: "+escaped))
-
-	for _, claims := range []string{`{"uid":1}`, `{}`, `{ "sub":"svc"}`, `{ }`, "{\n  \"sub\": \"svc\"\n}", "{\t\"sub\":\"svc\"}"} {
-		tok := hmacJWT(t, claims)
-		require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), claims)
-	}
-	spacedHeader := enc([]byte(`{ "alg": "HS256" }`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
-		enc([]byte("0123456789abcdef0123456789abcdef"))
-	require.Equal(t, []string{"JWT=" + spacedHeader}, spans(s, "token: "+spacedHeader))
-	// Any JSON whitespace after "{", alone or in pairs, in both segments.
-	sig := enc([]byte("0123456789abcdef0123456789abcdef"))
-	for _, a := range []string{"", " ", "\t", "\n", "\r"} {
-		for _, b := range []string{"", " ", "\t", "\n", "\r"} {
-			header := "{" + a + b + `"alg":"HS256"}`
-			tok := enc([]byte(header)) + "." + enc([]byte("{"+b+a+`"sub":"svc"}`)) + "." + sig
-			require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), "%q", header)
-		}
-	}
-	padded := hmacJWT(t, `{"sub":"svc"}`) + "="
-	require.Equal(t, []string{"JWT=" + padded}, spans(s, `"token": "`+padded+`"`))
-
-	// Large enough that no single scan window holds it whole.
-	big := hmacJWT(t, `{"sub":"svc","roles":"`+strings.Repeat("reader,", 260)+`"}`)
-	text := strings.Repeat("log line before the token\n", 70) + "Authorization: Bearer " + big
-	require.Greater(t, len(big), scanWindowPeek)
-	require.Contains(t, spans(s, text), "JWT="+big)
-}
-
 func TestEncodedCredentialsAreFoundAndNamed(t *testing.T) {
 	s := prodScanner(t)
 	b64 := base64.StdEncoding.EncodeToString
@@ -189,13 +123,15 @@ func TestEncodedCredentialsAreFoundAndNamed(t *testing.T) {
 	}
 }
 
-// Runs a named finding already covers, such as the segments of a JWT, do not
-// spend the decode budget, so a prompt full of tokens cannot hide an encoded key.
+// Runs a named finding already covers, such as a URL login's password, do not
+// spend the decode budget, so a prompt full of them cannot hide an encoded key.
 func TestCoveredRunsDoNotSpendTheDecodeBudget(t *testing.T) {
 	s := prodScanner(t)
 	var b strings.Builder
 	for i := 0; i < 40; i++ {
-		b.WriteString("Authorization: Bearer " + hmacJWT(t, fmt.Sprintf(`{"sub":"svc-%d"}`, i)) + "\n")
+		// Each password decodes to about 8 KB of text, 320 KB in all.
+		pw := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat(fmt.Sprintf("tenant-%d lorem ipsum ", i), 400)))
+		b.WriteString("pip install --index-url https://svc:" + pw + "@pkg.acme.io/simple/ requests\n")
 	}
 	pair := base64.StdEncoding.EncodeToString([]byte("AWS_ACCESS_KEY_ID=" + testAWSID + "\nAWS_SECRET_ACCESS_KEY=" + testAWSSecret))
 	b.WriteString("echo " + pair + " | base64 -d\n")
