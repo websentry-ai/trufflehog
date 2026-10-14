@@ -17,6 +17,11 @@ const EmailTokenLoginName = "email-token-login"
 // credential rather than as an email of its own.
 var emailTokenLoginRegex = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/token:[A-Za-z0-9]{40}\b`)
 
+// A login is reported only when an auth header, a curl -u/--user, or a
+// credential-like key comes within 80 bytes before it, so one quoted in prose
+// is left alone.
+var emailTokenLoginContext = regexp.MustCompile(`(?i)authorization|bearer|basic|auth|token|key|password|passwd|credential|secret|login|user|curl|(?:^|\s)-u\b`)
+
 type emailTokenLoginDetector struct{}
 
 func NewEmailTokenLogin() detectors.Detector { return emailTokenLoginDetector{} }
@@ -38,6 +43,9 @@ func (emailTokenLoginDetector) Description() string {
 func (emailTokenLoginDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	var results []detectors.Result
 	for _, m := range emailTokenLoginRegex.FindAllIndex(data, -1) {
+		if !emailTokenLoginContext.Match(data[max(0, m[0]-80):m[0]]) {
+			continue
+		}
 		r := detectors.Result{
 			DetectorType: detector_typepb.DetectorType_CustomRegex,
 			DetectorName: EmailTokenLoginName,

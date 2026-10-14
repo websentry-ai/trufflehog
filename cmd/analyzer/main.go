@@ -245,32 +245,7 @@ func (s *scanner) scan(ctx context.Context, data []byte, threshold float64) []an
 		kept = dedupeIdentical(append(out, decoded...))
 		sort.SliceStable(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
 	}
-	return s.record(ctx, withLoginContext(data, kept))
-}
-
-// loginContext is what has to come shortly before an email/token login for it
-// to be reported: an auth header, a curl -u/--user, or a credential-like key.
-var loginContext = regexp.MustCompile(`(?i)authorization|bearer|basic|auth|token|key|password|passwd|credential|secret|login|user|curl|(?:^|\s)-u\b`)
-
-// withLoginContext drops an email/token login with nothing credential-like in
-// the 80 characters before it, so one quoted in prose is not reported. Finding
-// positions count runes, and an encoded login starts where its run starts, so
-// "Authorization: Basic <base64>" still counts.
-func withLoginContext(data []byte, findings []analyzeResult) []analyzeResult {
-	var text []rune
-	out := findings[:0:0]
-	for _, f := range findings {
-		if f.EntityType == customdetectors.EmailTokenLoginName {
-			if text == nil {
-				text = []rune(string(data))
-			}
-			if f.Start > len(text) || !loginContext.MatchString(string(text[max(0, f.Start-80):f.Start])) {
-				continue
-			}
-		}
-		out = append(out, f)
-	}
-	return out
+	return s.record(ctx, kept)
 }
 
 // scanText runs every detector over data and resolves the results, without
@@ -328,6 +303,8 @@ const (
 	// The pass stops once this much text has been decoded, which bounds its cost
 	// by size rather than by how many short runs a prompt happens to contain.
 	maxDecodedBytes = 256 * 1024
+	// How much of the request before an encoded run is scanned with it.
+	encodedLead = 80
 )
 
 // scanEncoded decodes base64 runs that hold readable text and scans that text,
@@ -360,7 +337,17 @@ func (s *scanner) scanEncoded(ctx context.Context, data []byte, threshold float6
 		if decodedBytes += len(decoded); decodedBytes > maxDecodedBytes {
 			break
 		}
-		found := s.scanText(ctx, decoded, threshold)
+		// The text just before the run is scanned with it, so a detector that reads
+		// its surroundings ("Authorization: Basic <run>") still sees them. Only
+		// findings inside the decoded part are kept.
+		lead := data[runeBoundary(data, max(0, part.from-encodedLead)):part.from]
+		skip := utf8.RuneCount(lead) + 1
+		var found []analyzeResult
+		for _, f := range s.scanText(ctx, append(append(bytes.Clone(lead), '\n'), decoded...), threshold) {
+			if f.Start >= skip {
+				found = append(found, f)
+			}
+		}
 		hasNamed := false
 		for _, f := range found {
 			hasNamed = hasNamed || !isGenericDetectorName(f.EntityType)

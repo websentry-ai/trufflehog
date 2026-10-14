@@ -32,10 +32,9 @@ type jwtHMACDetector struct{ now func() time.Time }
 
 func NewJWTHMAC() detectors.Detector { return jwtHMACDetector{now: time.Now} }
 
-// How a header's "{" opens: compact, after spaces, a newline, a tab, or CRLF.
-func (jwtHMACDetector) Keywords() []string {
-	return []string{"eyJ", "eyAi", "eyAg", "eyAK", "ewoi", "ewog", "ewoJ", "ewki", "ew0K"}
-}
+// What follows a header's "{" decides its first three base64 characters: a
+// quote gives eyJ or eyI, a space eyA, a tab ewk, a newline ewo, a CR ew0.
+func (jwtHMACDetector) Keywords() []string { return []string{"eyJ", "eyI", "eyA", "ewk", "ewo", "ew0"} }
 
 func (jwtHMACDetector) Type() detector_typepb.DetectorType {
 	return detector_typepb.DetectorType_CustomRegex

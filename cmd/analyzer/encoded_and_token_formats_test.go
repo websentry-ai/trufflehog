@@ -60,7 +60,7 @@ func TestCustomDetectorsHaveDistinctKeys(t *testing.T) {
 func TestNewDetectorsFillSecretParts(t *testing.T) {
 	ctx := context.Background()
 	login := "jane.doe@acme.com/token:" + testLoginToken
-	zd, err := customdetectors.NewEmailTokenLogin().FromData(ctx, false, []byte(login))
+	zd, err := customdetectors.NewEmailTokenLogin().FromData(ctx, false, []byte("-u "+login))
 	require.NoError(t, err)
 	require.Len(t, zd, 1)
 	require.Equal(t, map[string]string{"email": "jane.doe@acme.com", "token": testLoginToken}, zd[0].SecretParts)
@@ -92,6 +92,12 @@ func TestEmailTokenLoginIsOneSecretIncludingItsEmail(t *testing.T) {
 	require.Equal(t, []string{"email-token-login=" + sample}, spans(s, "-u "+sample))
 	encoded := base64.StdEncoding.EncodeToString([]byte(sample))
 	require.Equal(t, []string{"email-token-login=" + encoded}, spans(s, "Authorization: Basic "+encoded))
+	// Context written inside the encoded text counts too; an encoded login with
+	// none on either side does not.
+	withKey := base64.StdEncoding.EncodeToString([]byte("SUPPORT_AUTH=" + login))
+	require.Equal(t, []string{"email-token-login=" + withKey}, spans(s, "echo "+withKey+" | base64 -d"))
+	bare := base64.StdEncoding.EncodeToString([]byte(login))
+	require.NotContains(t, strings.Join(spans(s, "echo "+bare+" | base64 -d"), " "), "email-token-login")
 
 	for _, text := range []string{
 		"jane.doe@acme.com/token:" + testLoginToken[:39],
@@ -139,15 +145,14 @@ func TestHMACJWTIsReportedUnlessExpired(t *testing.T) {
 	spacedHeader := enc([]byte(`{ "alg": "HS256" }`)) + "." + enc([]byte(`{"sub":"svc"}`)) + "." +
 		enc([]byte("0123456789abcdef0123456789abcdef"))
 	require.Equal(t, []string{"JWT=" + spacedHeader}, spans(s, "token: "+spacedHeader))
+	// Any JSON whitespace after "{", alone or in pairs, in both segments.
 	sig := enc([]byte("0123456789abcdef0123456789abcdef"))
-	for _, pair := range [][2]string{
-		{`{ "alg": "HS256" }`, `{ "sub": "svc" }`},
-		{"{\n  \"alg\": \"HS256\"\n}", "{\n  \"sub\": \"svc\"\n}"},
-		{"{\t\"alg\":\"HS256\"}", "{\t\"sub\":\"svc\"}"},
-		{"{\r\n  \"alg\": \"HS256\"\r\n}", "{\r\n  \"sub\": \"svc\"\r\n}"},
-	} {
-		tok := enc([]byte(pair[0])) + "." + enc([]byte(pair[1])) + "." + sig
-		require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), pair[0])
+	for _, a := range []string{"", " ", "\t", "\n", "\r"} {
+		for _, b := range []string{"", " ", "\t", "\n", "\r"} {
+			header := "{" + a + b + `"alg":"HS256"}`
+			tok := enc([]byte(header)) + "." + enc([]byte("{"+b+a+`"sub":"svc"}`)) + "." + sig
+			require.Equal(t, []string{"JWT=" + tok}, spans(s, "token: "+tok), "%q", header)
+		}
 	}
 	padded := hmacJWT(t, `{"sub":"svc"}`) + "="
 	require.Equal(t, []string{"JWT=" + padded}, spans(s, `"token": "`+padded+`"`))
