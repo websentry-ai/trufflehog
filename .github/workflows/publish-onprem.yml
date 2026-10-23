@@ -1,0 +1,147 @@
+# publish-onprem: build the trufflehog image and package its Helm chart for the on-prem
+# bundle, distributed through Distr.
+#
+# Trigger: push a tag `onprem-vX.Y.Z` (or `onprem-vX.Y.Z-pre`), or run manually with
+# input `version` = X.Y.Z. The version is the tag minus `onprem-v`. The existing `v*` tag
+# workflows (release/lint/test/secrets) do not match `onprem-v*`.
+#
+# Destinations:
+#   image: pkg.distr.unboundsecurity.ai/unbound-ai/trufflehog:<version>
+#   chart: oci://pkg.distr.unboundsecurity.ai/unbound-ai/trufflehog at <version>
+#
+# Auth: secret DISTR_REGISTRY_TOKEN (a Distr PAT, added by a repo admin) for docker and helm
+# registry login. The chart has no dependencies, so no AWS access is needed.
+#
+# Distr tags are immutable: re-running an already-published version fails at push. Publish a
+# new version instead. This workflow writes nothing back to git and touches no cluster.
+name: publish-onprem
+
+on:
+  push:
+    tags:
+      - 'onprem-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, semver without a leading v (e.g. 1.2.0 or 1.2.0-rc.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-onprem-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  DISTR_REGISTRY: pkg.distr.unboundsecurity.ai
+  DISTR_ORG: unbound-ai
+
+jobs:
+  resolve:
+    name: resolve version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Resolve and validate version
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DISTR_REGISTRY_TOKEN: ${{ secrets.DISTR_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISTR_REGISTRY_TOKEN:-}" ]; then
+            echo "::error::Secret DISTR_REGISTRY_TOKEN is not set in this repository. Create a Distr PAT at https://distr.unboundsecurity.ai and add it as a repo secret, then re-run."
+            exit 1
+          fi
+          case "$EVENT" in
+            push)              VERSION="${REF_NAME#onprem-v}" ;;
+            workflow_dispatch) VERSION="$INPUT_VERSION" ;;
+            *) echo "::error::unsupported event '$EVENT'"; exit 1 ;;
+          esac
+          # semver core + optional pre-release; build metadata (+...) rejected because '+' is not valid in an OCI image tag
+          if ! printf '%s' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+            echo "::error::'$VERSION' is not a semver version (expected X.Y.Z or X.Y.Z-pre; tag form onprem-vX.Y.Z)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved on-prem version: $VERSION"
+
+  images:
+    name: image ${{ matrix.image }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        # Context is the repo root: cmd/analyzer/Dockerfile copies go.mod/go.sum and builds
+        # ./cmd/analyzer, so it needs the whole module tree.
+        include:
+          - image: trufflehog
+            context: .
+            file: cmd/analyzer/Dockerfile
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to Distr registry
+        env:
+          DISTR_REGISTRY_TOKEN: ${{ secrets.DISTR_REGISTRY_TOKEN }}
+        run: echo "$DISTR_REGISTRY_TOKEN" | docker login "$DISTR_REGISTRY" -u - --password-stdin
+      - name: Build and push
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.DISTR_REGISTRY }}/${{ env.DISTR_ORG }}/${{ matrix.image }}:${{ needs.resolve.outputs.version }}
+          # Same args as deploy-eks.yml, except VERSION is the resolved on-prem semver
+          # instead of github.ref_name.
+          build-args: |
+            VERSION=${{ needs.resolve.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=onprem-${{ matrix.image }}
+          cache-to: type=gha,scope=onprem-${{ matrix.image }},mode=max
+          provenance: false
+
+  charts:
+    name: chart ${{ matrix.chart }}
+    # never publish a chart whose image push failed
+    needs: [resolve, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - chart: trufflehog
+            path: k8s/chart
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Helm version
+        run: helm version
+      - name: Package chart
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          CHART: ${{ matrix.chart }}
+          CHART_PATH: ${{ matrix.path }}
+        run: |
+          set -euo pipefail
+          helm package "$CHART_PATH" --version "$VERSION" --app-version "$VERSION" -d dist/
+          test -f "dist/${CHART}-${VERSION}.tgz" || { echo "::error::expected dist/${CHART}-${VERSION}.tgz (chart name mismatch?)"; ls -la dist/; exit 1; }
+      - name: Log in to Distr helm registry
+        env:
+          DISTR_REGISTRY_TOKEN: ${{ secrets.DISTR_REGISTRY_TOKEN }}
+        run: echo "$DISTR_REGISTRY_TOKEN" | helm registry login "$DISTR_REGISTRY" -u - --password-stdin
+      - name: Push chart
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          CHART: ${{ matrix.chart }}
+        run: helm push "dist/${CHART}-${VERSION}.tgz" "oci://${DISTR_REGISTRY}/${DISTR_ORG}"
