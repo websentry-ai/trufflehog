@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ include "trufflehog.fullname" . }}
   labels:
-    app: {{ .Release.Name }}
+    app: {{ include "trufflehog.fullname" . }}
 spec:
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit | default 3 }}
   {{- if not (or .Values.autoscaling.enabled (and .Values.keda.enabled .Values.keda.triggers)) }}
@@ -11,30 +11,34 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
+      app: {{ include "trufflehog.fullname" . }}
   strategy:
     {{- toYaml .Values.strategy | nindent 4 }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}
+        app: {{ include "trufflehog.fullname" . }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      {{- with concat ((.Values.global).imagePullSecrets | default list) (.Values.imagePullSecrets | default list) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
-        - name: {{ .Release.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        - name: {{ include "trufflehog.fullname" . }}
+          image: "{{ include "trufflehog.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          {{- if .Values.externalSecret.enabled }}
+          {{- if include "trufflehog.hasEnvSecret" . }}
           envFrom:
             - secretRef:
-                name: {{ .Release.Name }}-secrets
+                name: {{ include "trufflehog.secretName" . }}
           {{- end }}
           {{- with .Values.env }}
           env:
