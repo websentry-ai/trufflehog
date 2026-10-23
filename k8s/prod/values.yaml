@@ -1,6 +1,7 @@
 # Production overlay for the trufflehog-analyzer. Secrets: prod/trufflehog.
 
 image:
+  repository: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
   tag: "934ae4552c455928917d660edef71d08ab1c9321"
 
 externalSecret:
@@ -84,3 +85,7 @@ env:
 pdb:
   enabled: true
   maxUnavailable: 1
+
+# Prometheus Operator ServiceMonitor (chart default is off for on-prem portability).
+serviceMonitor:
+  enabled: true

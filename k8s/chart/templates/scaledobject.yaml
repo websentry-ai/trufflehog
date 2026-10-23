@@ -2,12 +2,12 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ include "trufflehog.fullname" . }}
   labels:
-    app: {{ .Release.Name }}
+    app: {{ include "trufflehog.fullname" . }}
 spec:
   scaleTargetRef:
-    name: {{ .Release.Name }}   # MUST equal the Deployment metadata.name (templates/deployment.yaml)
+    name: {{ include "trufflehog.fullname" . }}   # MUST equal the Deployment metadata.name (templates/deployment.yaml)
   minReplicaCount: {{ .Values.keda.minReplicaCount }}
   maxReplicaCount: {{ .Values.keda.maxReplicaCount }}
   pollingInterval: {{ .Values.keda.pollingInterval | default 30 }}
