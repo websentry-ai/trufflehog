@@ -7,7 +7,10 @@
 #
 # Destinations:
 #   image: pkg.distr.unboundsecurity.ai/unbound-ai/trufflehog:<version>
-#   chart: oci://pkg.distr.unboundsecurity.ai/unbound-ai/trufflehog at <version>
+#   chart: oci://pkg.distr.unboundsecurity.ai/unbound-ai/charts/trufflehog at <version>
+#   Charts live under unbound-ai/charts/ so they never share a name:tag with an image.
+#
+# Release gate: the resolve job fails unless the commit is on main or staging.
 #
 # Auth: secret DISTR_REGISTRY_TOKEN (a Distr PAT, added by a repo admin) for docker and helm
 # registry login. The chart has no dependencies, so no AWS access is needed.
@@ -46,6 +49,20 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Require a commit on main or staging
+        run: |
+          set -euo pipefail
+          for branch in main staging; do
+            if git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch" 2>/dev/null; then
+              echo "$GITHUB_SHA is on $branch"
+              exit 0
+            fi
+          done
+          echo "::error::$GITHUB_SHA is not on main or staging; on-prem releases publish only reviewed commits"
+          exit 1
       - name: Resolve and validate version
         id: v
         env:
@@ -134,6 +151,8 @@ jobs:
           CHART_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
+          # Published chart defaults to its own Distr image instead of the EKS placeholder.
+          yq -i '.image.registry = strenv(DISTR_REGISTRY) + "/" + strenv(DISTR_ORG) | .image.repository = strenv(CHART) | .image.tag = strenv(VERSION) | .image.tag style="double"' "$CHART_PATH/values.yaml"
           helm package "$CHART_PATH" --version "$VERSION" --app-version "$VERSION" -d dist/
           test -f "dist/${CHART}-${VERSION}.tgz" || { echo "::error::expected dist/${CHART}-${VERSION}.tgz (chart name mismatch?)"; ls -la dist/; exit 1; }
       - name: Log in to Distr helm registry
@@ -144,4 +163,4 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           CHART: ${{ matrix.chart }}
-        run: helm push "dist/${CHART}-${VERSION}.tgz" "oci://${DISTR_REGISTRY}/${DISTR_ORG}"
+        run: helm push "dist/${CHART}-${VERSION}.tgz" "oci://${DISTR_REGISTRY}/${DISTR_ORG}/charts"
