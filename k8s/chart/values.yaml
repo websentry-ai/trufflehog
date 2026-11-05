@@ -10,8 +10,26 @@
 
 replicaCount: 2
 
+# On-prem / umbrella portability. All no-op by default (EKS overlays leave them unset).
+#   fullnameOverride  static base name for every resource (default: release name)
+#   imagePullSecrets  pod imagePullSecrets, merged with global.imagePullSecrets
+#   secretData        renders a plain Secret <fullname>-secrets (stringData) mounted via envFrom
+#   existingSecret    name of a pre-created Secret mounted via envFrom
+# Secret precedence: externalSecret.enabled > existingSecret > secretData.
+fullnameOverride: ""
+imagePullSecrets: []
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+secretData: {}
+existingSecret: ""
+
 image:
-  repository: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
+  # Set per environment overlay (EKS overlays pin the ECR repository).
+  repository: ""
+  # Optional registry host/prefix prepended as <registry>/<repository>.
+  # global.imageRegistry (umbrella-wide) takes precedence when set.
+  registry: ""
   tag: dev              # env overlays override to staging | prod
   pullPolicy: Always
 
@@ -140,7 +158,7 @@ env: []
 # /metrics (trufflehog_* series — request/scan/detection counts and latencies,
 # no secret material). Scrapes the `http` port at /metrics.
 serviceMonitor:
-  enabled: true
+  enabled: false   # default off; EKS overlays enable it explicitly
   path: /metrics
   interval: 30s
   scrapeTimeout: 10s
