@@ -44,3 +44,7 @@ env:
     value: "enforce"
   - name: VENDOR_STRUCTURAL_SUPPRESSION
     value: "enforce"
+
+# Prometheus Operator ServiceMonitor (chart default is off for on-prem portability).
+serviceMonitor:
+  enabled: true

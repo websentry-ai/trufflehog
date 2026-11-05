@@ -8,16 +8,16 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ include "trufflehog.fullname" . }}
   labels:
-    app: {{ .Release.Name }}
+    app: {{ include "trufflehog.fullname" . }}
     {{- with .Values.serviceMonitor.releaseLabel }}
     release: {{ . }}
     {{- end }}
 spec:
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
+      app: {{ include "trufflehog.fullname" . }}
   endpoints:
     - port: http
       path: {{ .Values.serviceMonitor.path | default "/metrics" }}
