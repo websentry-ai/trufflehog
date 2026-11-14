@@ -193,6 +193,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/commercejs"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/commodities"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/companyhub"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/composio"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/confluent"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/contentfulpersonalaccesstoken"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/conversiontools"
@@ -296,6 +297,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/financialmodelingprep"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/findl"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/finnhub"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/fireworks"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/fixerio"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/flatio"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/fleetbase"
@@ -397,6 +399,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/imagekit"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/imagga"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/impala"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/infisical"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/infura"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/insightly"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/instabot"
@@ -434,6 +437,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kraken"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kucoin"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/kylas"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/lambdacloud"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/langfuse"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/langsmith"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/languagelayer"
@@ -698,6 +702,7 @@ import (
 	sentrytokenv2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sentrytoken/v2"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/serphouse"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/serpstack"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/serval"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sheety"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sherpadesk"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/shipday"
@@ -734,6 +739,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/solarwindsobservability"
 	sonarcloudv1 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sonarcloud/v1"
 	sonarcloudv2 "github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sonarcloud/v2"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sonarqube"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sourcegraph"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/sourcegraphcody"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/spectralops"
@@ -1101,6 +1107,7 @@ func buildDetectorList() []detectors.Detector {
 		&commercejs.Scanner{},
 		&commodities.Scanner{},
 		&companyhub.Scanner{},
+		&composio.Scanner{},
 		&confluencedatacenter.Scanner{},
 		&confluent.Scanner{},
 		&contentfulpersonalaccesstoken.Scanner{},
@@ -1207,6 +1214,7 @@ func buildDetectorList() []detectors.Detector {
 		&financialmodelingprep.Scanner{},
 		&findl.Scanner{},
 		&finnhub.Scanner{},
+		&fireworks.Scanner{},
 		&fixerio.Scanner{},
 		&flatio.Scanner{},
 		&fleetbase.Scanner{},
@@ -1313,6 +1321,7 @@ func buildDetectorList() []detectors.Detector {
 		&imagekit.Scanner{},
 		&imagga.Scanner{},
 		&impala.Scanner{},
+		&infisical.Scanner{},
 		&infura.Scanner{},
 		&insightly.Scanner{},
 		&instabot.Scanner{},
@@ -1351,6 +1360,7 @@ func buildDetectorList() []detectors.Detector {
 		&kraken.Scanner{},
 		&kucoin.Scanner{},
 		&kylas.Scanner{},
+		&lambdacloud.Scanner{},
 		&langfuse.Scanner{},
 		&langsmith.Scanner{},
 		&languagelayer.Scanner{},
@@ -1624,6 +1634,7 @@ func buildDetectorList() []detectors.Detector {
 		&sentryorgtoken.Scanner{},
 		&serphouse.Scanner{},
 		&serpstack.Scanner{},
+		&serval.Scanner{},
 		&sheety.Scanner{},
 		&sherpadesk.Scanner{},
 		&shipday.Scanner{},
@@ -1660,6 +1671,7 @@ func buildDetectorList() []detectors.Detector {
 		&solarwindsobservability.Scanner{},
 		&sonarcloudv1.Scanner{},
 		&sonarcloudv2.Scanner{},
+		&sonarqube.Scanner{},
 		&sourcegraph.Scanner{},
 		&sourcegraphcody.Scanner{},
 		// &sparkpost.Scanner{},
@@ -1904,10 +1916,18 @@ func buildDetectorList() []detectors.Detector {
 			return !feature.HumioAPITokenDetectorEnabled.Load()
 		case *resend.Scanner:
 			return !feature.ResendDetectorEnabled.Load()
+		case *composio.Scanner:
+			return !feature.ComposioDetectorEnabled.Load()
 		case *weightsandbiasesv2.Scanner:
 			return !feature.WeightsAndBiasesV2DetectorEnabled.Load()
 		case *kong.Scanner:
 			return !feature.KongKonnectDetectorEnabled.Load()
+		case *sonarqube.Scanner:
+			return !feature.SonarQubeDetectorEnabled.Load()
+		case *infisical.Scanner:
+			return !feature.InfisicalDetectorEnabled.Load()
+		case *serval.Scanner:
+			return !feature.ServalDetectorEnabled.Load()
 		default:
 			return false
 		}

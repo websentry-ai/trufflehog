@@ -56,6 +56,7 @@ enum SourceType {
   SOURCE_TYPE_SLACK_CONTINUOUS = 41;
   SOURCE_TYPE_JSON_ENUMERATOR = 42;
   SOURCE_TYPE_AWS_SECRETS_MANAGER = 43;
+  SOURCE_TYPE_GENERIC = 44;
 }
 
 message LocalSource {
@@ -71,6 +72,8 @@ message LocalSource {
   bool verify = 4;
   google.protobuf.Any connection = 5;
   string scan_period = 6;
+  // debug turns on debug logging for this source only. Other sources keep the global log level.
+  bool debug = 7;
 }
 
 // https://www.jfrog.com/confluence/display/JFROG/Artifactory+REST+API#ArtifactoryRESTAPI-RetrieveFolderorRepositoryArchive

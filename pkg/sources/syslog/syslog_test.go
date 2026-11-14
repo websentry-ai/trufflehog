@@ -1,16 +1,21 @@
 package syslog
 
 import (
+	"net"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/trufflesecurity/trufflehog/v3/pkg/context"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/log/logtest"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/source_metadatapb"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/pb/sourcespb"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/sources"
 )
 
 func TestSource_parseSyslogMetadata(t *testing.T) {
@@ -125,4 +130,67 @@ func TestSource_parseSyslogMetadata(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSource_DebugLogging(t *testing.T) {
+	const testSecret = "syslogdebuglogtestsecret"
+	message := "<165>1 2003-10-11T22:14:15.003Z host app - ID47 - password=" + testSecret
+
+	runSource := func(t *testing.T, debug bool) []observer.LoggedEntry {
+		t.Helper()
+		ctx, logs := logtest.SourceContext(debug)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		// Find a free port for the listener.
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		addr := l.Addr().String()
+		require.NoError(t, l.Close())
+
+		s := &Source{}
+		conn, err := anypb.New(&sourcespb.Syslog{Protocol: "tcp", ListenAddress: addr, Format: "rfc5424"})
+		require.NoError(t, err)
+		require.NoError(t, s.Init(ctx, "test source", 1, 1, false, conn, 1))
+		if debug {
+			logtest.CheckInitLine(t, logs.All())
+		}
+
+		chunksChan := make(chan *sources.Chunk, 2)
+		done := make(chan error, 1)
+		go func() { done <- s.Chunks(ctx, chunksChan) }()
+
+		var client net.Conn
+		require.Eventually(t, func() bool {
+			client, err = net.Dial("tcp", addr)
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond)
+
+		// One good message, then one that does not parse, which is still scanned.
+		for _, msg := range []string{message, "not a syslog message"} {
+			_, err = client.Write([]byte(msg))
+			require.NoError(t, err)
+			chunk := <-chunksChan
+			assert.Equal(t, msg, string(chunk.Data), "chunk holds only the bytes read")
+		}
+		require.NoError(t, client.Close())
+
+		// Cancel stops the scan even though Accept is waiting for a client.
+		cancel()
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Chunks did not return after cancel")
+		}
+		return logs.All()
+	}
+
+	t.Run("debug on", func(t *testing.T) {
+		logtest.CheckSourceLines(t, runSource(t, true), testSecret)
+	})
+
+	t.Run("debug off", func(t *testing.T) {
+		logtest.CheckNoDebugLines(t, runSource(t, false))
+	})
 }

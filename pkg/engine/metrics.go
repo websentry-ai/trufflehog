@@ -19,7 +19,7 @@ var (
 		[]string{"detector_name", "source_type", "source_name"},
 	)
 
-	// Note this is the time taken to call FromData on each detector, not necessarily the time taken
+	// Note this is the time taken by one FromData call, made once per keyword match, not necessarily the time taken
 	// to verify a credential via an API call. If the regex match within FromData does not match, the
 	// detector will return early. For now this is a good proxy for the time taken to verify a credential.
 	// TODO (ahrav)
@@ -31,6 +31,43 @@ var (
 			Name:      "detector_execution_duration",
 			Help:      "Duration of detector execution in milliseconds.",
 			Buckets:   prometheus.ExponentialBuckets(1, 5, 6),
+		},
+		[]string{"detector_name"},
+	)
+
+	// Timeout-overrun metrics. The overrun timer in detectChunk arms at the detection timeout plus a one-second
+	// grace, so these count calls that ran past that grace deadline, not merely past the bare timeout. The
+	// histogram buckets start at 10 seconds because the execution-duration histogram above tops out near 3
+	// seconds and would drop every overrun into +Inf. That floor assumes the default 10 s detection timeout:
+	// SetDetectorTimeout is exported, and a smaller value lets overruns finish below 10 s, where they all land in
+	// the first bucket with no resolution between them.
+	detectorTimeoutIgnoredTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: common.MetricsNamespace,
+			Subsystem: common.MetricsSubsystem,
+			Name:      "detector_timeout_ignored_total",
+			Help:      "Total number of FromData calls whose overrun timer fired.",
+		},
+		[]string{"detector_name"},
+	)
+
+	detectorWorkersOverTimeout = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: common.MetricsNamespace,
+			Subsystem: common.MetricsSubsystem,
+			Name:      "detector_workers_over_timeout",
+			Help:      "Workers currently inside a FromData call that kept running past the detection timeout plus its one-second grace.",
+		},
+		[]string{"detector_name"},
+	)
+
+	detectorOverrunDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: common.MetricsNamespace,
+			Subsystem: common.MetricsSubsystem,
+			Name:      "detector_overrun_duration_seconds",
+			Help:      "Duration in seconds of FromData calls that overran the detection timeout grace (total call duration, not just the overhang).",
+			Buckets:   prometheus.ExponentialBuckets(10, 2, 10),
 		},
 		[]string{"detector_name"},
 	)

@@ -126,7 +126,7 @@ var (
 	githubIncludeForks          = githubScan.Flag("include-forks", "Include forks in scan.").Bool()
 	githubIncludeMembers        = githubScan.Flag("include-members", "Include organization member repositories in scan.").Bool()
 	githubIncludeRepos          = githubScan.Flag("include-repos", `Repositories to include in an org scan. This can also be a glob pattern. You can repeat this flag. Must use Github repo full name. Example: "trufflesecurity/trufflehog", "trufflesecurity/t*"`).Strings()
-	githubIncludeWikis          = githubScan.Flag("include-wikis", "Include repository wikisin scan.").Bool()
+	githubIncludeWikis          = githubScan.Flag("include-wikis", "Include repository wikis in scan.").Bool()
 	githubExcludeRepos          = githubScan.Flag("exclude-repos", `Repositories to exclude in an org scan. This can also be a glob pattern. You can repeat this flag. Must use Github repo full name. Example: "trufflesecurity/driftwood", "trufflesecurity/d*"`).Strings()
 	githubScanIncludePaths      = githubScan.Flag("include-paths", "Path to file with newline separated regexes for files to include in scan.").Short('i').String()
 	githubScanExcludePaths      = githubScan.Flag("exclude-paths", "Path to file with newline separated regexes for files to exclude in scan.").Short('x').String()
@@ -134,6 +134,7 @@ var (
 	githubScanPRComments        = githubScan.Flag("pr-comments", "Include pull request descriptions and comments in scan.").Bool()
 	githubScanGistComments      = githubScan.Flag("gist-comments", "Include gist comments in scan.").Bool()
 	githubCommentsTimeframeDays = githubScan.Flag("comments-timeframe", "Number of days in the past to review when scanning issue, PR, and gist comments.").Uint32()
+	githubUseGraphQL            = githubScan.Flag("use-graphql", "Use the GitHub GraphQL API to scan issue and PR comments. Faster on large repositories. Needs a token and --issue-comments or --pr-comments.").Bool()
 	githubAuthInUrl             = githubScan.Flag("auth-in-url", "Embed authentication credentials in repository URLs instead of using secure HTTP headers").Bool()
 	githubClonePath             = githubScan.Flag("clone-path", "Custom path where the repository should be cloned (default: temp dir).").String()
 	githubNoCleanup             = githubScan.Flag("no-cleanup", "Do not delete cloned repositories after scanning (can only be used with --clone-path). Each clone is kept in its own directory, so ensure sufficient disk space: usage grows with every repository scanned and every run.").Bool()
@@ -464,6 +465,15 @@ func run(state overseer.State, logSync func() error) {
 	logger := ctx.Logger()
 	logFatal := logFatalFunc(logger, logSync)
 
+	// --debug and --trace still work the same, but in a future release --debug
+	// takes over --trace's level 5 and --trace goes away. Warn users now.
+	if *trace {
+		logger.Info("--trace is deprecated and will be replaced by --debug in a future release. Use --log-level=5 instead.")
+	}
+	if *debug {
+		logger.Info("--debug will switch from log level 2 to 5 (what --trace does today) in a future release. Use --log-level=2 to keep the current output.")
+	}
+
 	killSignal := make(chan os.Signal, 1)
 	signal.Notify(killSignal, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
@@ -551,7 +561,7 @@ func run(state overseer.State, logSync func() error) {
 	feature.UseSimplifiedGitlabEnumeration.Store(true)
 	feature.GitlabProjectsPerPage.Store(100)
 
-	// OSS Default using github graphql api for issues, pr's and comments
+	// OSS Default GitHub GraphQL API off, turn on with --use-graphql
 	feature.UseGithubGraphQLAPI.Store(false)
 
 	// OSS Default Use HTML Decoder on
@@ -592,9 +602,13 @@ func run(state overseer.State, logSync func() error) {
 	feature.MSTeamsWebhookV2DetectorEnabled.Store(true)
 	feature.SolarwindsDetectorEnabled.Store(true)
 	feature.ResendDetectorEnabled.Store(true)
+	feature.ComposioDetectorEnabled.Store(true)
 	feature.WeightsAndBiasesV2DetectorEnabled.Store(true)
 	feature.HumioAPITokenDetectorEnabled.Store(true)
 	feature.KongKonnectDetectorEnabled.Store(true)
+	feature.SonarQubeDetectorEnabled.Store(true)
+	feature.InfisicalDetectorEnabled.Store(true)
+	feature.ServalDetectorEnabled.Store(true)
 
 	conf := &config.Config{}
 	if *configFilename != "" {
@@ -948,6 +962,15 @@ func runSingleScan(ctx context.Context, cmd string, cfg engine.Config) (metrics,
 
 		if err := validateClonePath(*githubClonePath, *githubNoCleanup); err != nil {
 			return scanMetrics, err
+		}
+
+		if *githubUseGraphQL {
+			// GitHub's GraphQL API rejects unauthenticated requests
+			if *githubScanToken == "" {
+				ctx.Logger().Info("--use-graphql needs a token, scanning comments with the REST API")
+			} else {
+				feature.UseGithubGraphQLAPI.Store(true)
+			}
 		}
 
 		cfg := sources.GithubConfig{
