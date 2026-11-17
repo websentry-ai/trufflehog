@@ -40,6 +40,9 @@ var vendorStructuralRules = map[string]vendorRule{
 	"Azure":                                {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
 	"JDBC":                                 {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 	"Docker":                               {match: classify.IsPlaceholderBasicAuth, reason: reasonVendorStructuralNoise},
+	// A real token is "<n>/<id>:<secret>"; with no colon the match is a URL path,
+	// such as an Asana project link.
+	"AsanaOauth": {match: func(v string) bool { return !strings.Contains(v, ":") }, reason: reasonVendorStructuralNoise},
 }
 
 // embeddedVendors are detectors whose real token is always a standalone run, so
