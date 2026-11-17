@@ -37,6 +37,7 @@ func TestAsanaOauthLinkPathIsNotAToken(t *testing.T) {
 	}{
 		{"project link", "asana task https://app.asana.com/1/1209876543210/project/1209876543210987/list/x", ""},
 		{"link after a colon label", "see asana: https://app.asana.com/0/1209876543210/project/1209876543210987/list/9", ""},
+		{"numeric-only link", "asana https://app.asana.com/0/1209876543210987/1209876543210988/1209876543210989", ""},
 		{"labelled opaque token", "ASANA_TOKEN=" + fakeAsanaOpaqueToken(), oauth},
 		{"opaque token in prose", "my asana refresh token is " + fakeAsanaOpaqueToken(), oauth},
 		{"token with a slash", "asana oauth " + fakeAsanaSlashedToken(), oauth},
@@ -65,6 +66,7 @@ func TestIsObjectLinkPath(t *testing.T) {
 	for _, v := range []string{
 		"com/1/1209876543210/project/1209876543210987/list/x",
 		"com/0/1209876543210/1209876543210987/f",
+		"/1209876543210987/1209876543210988/1209876543210989",
 	} {
 		require.True(t, isObjectLinkPath(v), v)
 	}
@@ -73,6 +75,7 @@ func TestIsObjectLinkPath(t *testing.T) {
 		fakeAsanaOpaqueToken(),
 		fakeAsanaSlashedToken(),
 		"2/1203456789012345/1209876543210987:0f1e2d3c4b5a69",
+		"0/1209876543210/abc/k3v9q2m7x1p8r4t6w0z5b2n8",
 	} {
 		require.False(t, isObjectLinkPath(v), v)
 	}
