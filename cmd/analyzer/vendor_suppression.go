@@ -40,9 +40,26 @@ var vendorStructuralRules = map[string]vendorRule{
 	"Azure":                                {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
 	"JDBC":                                 {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 	"Docker":                               {match: classify.IsPlaceholderBasicAuth, reason: reasonVendorStructuralNoise},
-	// A real token is "<n>/<id>:<secret>"; with no colon the match is a URL path,
-	// such as an Asana project link.
-	"AsanaOauth": {match: func(v string) bool { return !strings.Contains(v, ":") }, reason: reasonVendorStructuralNoise},
+	"AsanaOauth":                           {match: isObjectLinkPath, reason: reasonVendorStructuralNoise},
+}
+
+// isObjectLinkPath reports whether v is a link path such as
+// "com/0/<id>/project/<id>/list/": a long numeric object id beside a word
+// segment, which an opaque token never has.
+func isObjectLinkPath(v string) bool {
+	if strings.Count(v, "/") < 3 {
+		return false
+	}
+	var id, word bool
+	for _, seg := range strings.Split(v, "/") {
+		switch {
+		case len(seg) >= 10 && strings.Trim(seg, "0123456789") == "":
+			id = true
+		case len(seg) >= 3 && strings.Trim(seg, "abcdefghijklmnopqrstuvwxyz") == "":
+			word = true
+		}
+	}
+	return id && word
 }
 
 // embeddedVendors are detectors whose real token is always a standalone run, so

@@ -114,7 +114,7 @@ func TestJDBC_OtherVendorRulesUnaffected(t *testing.T) {
 		{"Azure", `webapp.config.connectionString`, `9xKq2vRt8mNpQrLwZbNh`},
 		{"url-login-credential", `password`, `9xKq2vRt8mNp`},
 		{"Docker", `dXNlcm5hbWU6cGFzc3dvcmQ=`, `Ym90Ojl4S3EydlJ0OG1OcA==`},
-		{"AsanaOauth", `com/1/1209876543210/project/1209876543210987/list/x`, fakeAsanaToken()},
+		{"AsanaOauth", `com/1/1209876543210/project/1209876543210987/list/x`, fakeAsanaOpaqueToken()},
 	} {
 		rule, ok := vendorStructuralRules[tc.entity]
 		require.True(t, ok, "%s must remain in the vendor table", tc.entity)
