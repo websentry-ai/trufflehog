@@ -223,17 +223,48 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 	return words, score
 }
 
-// suffixStems also match as the tail of a joined name ("sshkey", "SECRETACCESSKEY", "oauth", "dbpwd").
+// suffixStems also match as the tail of a joined name ("accesstoken", "dbpwd").
 var suffixStems = map[string]bool{"password": true, "passwd": true, "pwd": true, "secret": true, "token": true, "credential": true, "apikey": true, "key": true, "auth": true, "cert": true}
 
-// proseTails are ordinary words that end in a suffix stem and are not credential names.
-var proseTails = map[string]bool{
-	"monkey": true, "donkey": true, "turkey": true, "hockey": true, "jockey": true, "whiskey": true,
-	"lackey": true, "mickey": true, "pokey": true, "hotkey": true, "shortkey": true,
-	"concert": true, "disconcert": true,
+// prefixGatedStems collide with ordinary words ("turnkey", "concert"), so a joined name ending in
+// one counts only when everything before it is built from credentialPrefixes ("sshkey", "secretaccesskey").
+var prefixGatedStems = map[string]bool{"key": true, "auth": true, "cert": true}
+
+var credentialPrefixes = map[string]bool{
+	"ssh": true, "priv": true, "private": true, "secret": true, "access": true, "api": true, "aws": true,
+	"gpg": true, "pgp": true, "rsa": true, "sign": true, "signing": true, "enc": true, "encryption": true,
+	"session": true, "client": true, "server": true, "license": true, "master": true, "app": true,
+	"service": true, "account": true, "user": true, "db": true, "database": true, "jwt": true, "hmac": true,
+	"crypto": true, "cipher": true, "shared": true, "admin": true, "root": true, "deploy": true,
+	"webhook": true, "bearer": true, "ssl": true, "tls": true, "pem": true, "ca": true,
 }
 
-var compoundStems = map[string]bool{"accesskey": true, "secretkey": true, "privatekey": true, "signingkey": true, "encryptionkey": true, "authorization": true}
+func builtFromCredentialPrefixes(s string) bool {
+	if s == "" {
+		return false
+	}
+	ok := make([]bool, len(s)+1)
+	ok[0] = true
+	for i := 1; i <= len(s); i++ {
+		for j := 0; j < i && !ok[i]; j++ {
+			ok[i] = ok[j] && credentialPrefixes[s[j:i]]
+		}
+	}
+	return ok[len(s)]
+}
+
+// tailBefore returns what precedes stem (or stem plus "s") at the end of w.
+func tailBefore(w, stem string) (string, bool) {
+	if strings.HasSuffix(w, stem) {
+		return w[:len(w)-len(stem)], true
+	}
+	if strings.HasSuffix(w, stem+"s") {
+		return w[:len(w)-len(stem)-1], true
+	}
+	return "", false
+}
+
+var compoundStems = map[string]bool{"authorization": true, "oauth": true, "xauth": true, "basicauth": true}
 
 // splitIdentifier lowercases s and splits it on non-alphanumerics, camelCase and letter/digit edges.
 func splitIdentifier(s string) []string {
@@ -291,7 +322,14 @@ func matchingStem(keyword string) string {
 			continue
 		}
 		for _, w := range words {
-			if w == stem || w == stem+"s" || (suffixStems[stem] && !proseTails[strings.TrimSuffix(w, "s")] && (strings.HasSuffix(w, stem) || strings.HasSuffix(w, stem+"s"))) {
+			if w == stem || w == stem+"s" {
+				return stem
+			}
+			if !suffixStems[stem] {
+				continue
+			}
+			rem, ok := tailBefore(w, stem)
+			if ok && (!prefixGatedStems[stem] || builtFromCredentialPrefixes(rem)) {
 				return stem
 			}
 		}

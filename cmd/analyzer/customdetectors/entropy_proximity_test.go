@@ -679,7 +679,8 @@ func TestEntropyProximity_JoinedLabelsCountRegardlessOfCase(t *testing.T) {
 		{"privkey:", true}, {"secretaccesskey=", true}, {"SECRETACCESSKEY=", true},
 		{"oauth=", true}, {"OAuth=", true}, {"OAUTH=", true},
 		{"dbpwd=", true}, {"pwd=", true},
-		{"monkey=", false}, {"turkey=", false}, {"concert=", false}, {"hotkey=", false},
+		{"monkey=", false}, {"turkey=", false}, {"turnkey=", false}, {"concert=", false}, {"hotkey=", false}, {"foobarkey=", false},
+		{"awssecretaccesskey=", true}, {"signingkey=", true}, {"sslcert=", true}, {"xauth=", true}, {"basicauth=", true},
 		{"keystroke=", false}, {"authority=", false}, {"keyboard=", false},
 	} {
 		t.Run(tc.label, func(t *testing.T) {
