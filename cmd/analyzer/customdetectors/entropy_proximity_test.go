@@ -603,3 +603,32 @@ func TestProximityScoreEmittedNonGating(t *testing.T) {
 		}
 	}
 }
+
+func TestEntropyProximity_CredentialWordMustBeWholeWord(t *testing.T) {
+	const val = "Coordinator-c19f61e6"
+	for _, tc := range []struct {
+		name, input string
+		want        bool
+	}{
+		{"keystroke is not key", "zmx send " + val + " then press the submit keystroke", false},
+		{"keystroke before value", "the submit keystroke is sent to " + val, false},
+		{"authority is not auth", "no user authority for session " + val, false},
+		{"keyboard is not key", "keyboard shortcut for session " + val, false},
+		{"no keyword near value", "please restart session " + val + " now", false},
+		{"key as a word", "session key " + val, true},
+		{"keys plural", "session keys " + val, true},
+		{"api_key label", "api_key=" + val, true},
+		{"camelCase apiKey", "apiKey: " + val, true},
+		{"upper snake secret", "AWS_SECRET_ACCESS_KEY=" + val, true},
+		{"secret token words", "secret token " + val, true},
+		{"joined accesstoken", "accesstoken " + val, true},
+		{"joined secretkey", "secretkey " + val, true},
+		{"joined signingkey", "signingkey " + val, true},
+		{"authorization header", "authorization " + val, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := len(filterByName(runEntropyDetector(t, tc.input), EntropyName)) > 0
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

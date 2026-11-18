@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors/tokenizer"
@@ -203,7 +204,7 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 		if _, denied := counterParams[neighbor]; denied {
 			continue
 		}
-		stem := matchingStem(neighbor)
+		stem := matchingStem(tokens[j].Keyword)
 		if stem == "" {
 			continue
 		}
@@ -218,10 +219,75 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 	return words, score
 }
 
-func matchingStem(neighbor string) string {
+// suffixStems are unambiguous enough to also match as the tail of a joined word ("accesstoken").
+var suffixStems = map[string]bool{"password": true, "passwd": true, "secret": true, "token": true, "credential": true, "apikey": true}
+
+var compoundStems = map[string]bool{"accesskey": true, "secretkey": true, "privatekey": true, "signingkey": true, "encryptionkey": true, "authorization": true}
+
+// splitIdentifier lowercases s and splits it on non-alphanumerics, camelCase and letter/digit edges.
+func splitIdentifier(s string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(s)
+	for i, r := range rs {
+		isUp, isLow, isDig := unicode.IsUpper(r), unicode.IsLower(r), unicode.IsDigit(r)
+		if !isUp && !isLow && !isDig {
+			flush()
+			continue
+		}
+		if len(cur) > 0 {
+			prev := cur[len(cur)-1]
+			switch {
+			case isUp && unicode.IsLower(prev), unicode.IsDigit(prev) != isDig:
+				flush()
+			case isUp && unicode.IsUpper(prev) && i+1 < len(rs) && unicode.IsLower(rs[i+1]):
+				flush()
+			}
+		}
+		cur = append(cur, r)
+	}
+	flush()
+	return words
+}
+
+// matchingStem returns the credential word a keyword contains as a whole word,
+// not as a fragment of an ordinary word ("keystroke", "authority").
+func matchingStem(keyword string) string {
+	lower := strings.ToLower(keyword)
+	maybe := false
 	for _, stem := range keywordStems {
-		if strings.Contains(neighbor, stem) {
-			return stem
+		if strings.Contains(lower, stem) {
+			maybe = true
+			break
+		}
+	}
+	if !maybe {
+		return ""
+	}
+	words := splitIdentifier(keyword)
+	joined := "_" + strings.Join(words, "_") + "_"
+	for _, stem := range keywordStems {
+		if strings.Contains(stem, "_") {
+			if strings.Contains(joined, "_"+stem+"_") || strings.Contains(joined, "_"+stem+"s_") {
+				return stem
+			}
+			continue
+		}
+		for _, w := range words {
+			if w == stem || w == stem+"s" || (suffixStems[stem] && strings.HasSuffix(w, stem)) {
+				return stem
+			}
+		}
+	}
+	for _, w := range words {
+		if c := strings.TrimSuffix(w, "s"); compoundStems[c] {
+			return c
 		}
 	}
 	return ""
