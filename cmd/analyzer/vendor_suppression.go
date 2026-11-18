@@ -40,6 +40,26 @@ var vendorStructuralRules = map[string]vendorRule{
 	"Azure":                                {match: classify.IsCodeLike, reason: reasonVendorStructuralCode},
 	"JDBC":                                 {match: classify.IsNonSecretConnString, reason: reasonVendorStructuralConnString},
 	"Docker":                               {match: classify.IsPlaceholderBasicAuth, reason: reasonVendorStructuralNoise},
+	"AsanaOauth":                           {match: isObjectLinkPath, reason: reasonVendorStructuralNoise},
+}
+
+// isObjectLinkPath reports whether v is a link path such as
+// "com/0/<id>/project/<id>/list/": every segment a number or a word, with a long
+// numeric object id. A token always has a segment mixing letters and digits.
+func isObjectLinkPath(v string) bool {
+	if strings.Count(v, "/") < 3 {
+		return false
+	}
+	id := false
+	for _, seg := range strings.Split(v, "/") {
+		switch {
+		case strings.Trim(seg, "0123456789") == "":
+			id = id || len(seg) >= 10
+		case strings.Trim(seg, "abcdefghijklmnopqrstuvwxyz") != "":
+			return false
+		}
+	}
+	return id
 }
 
 // embeddedVendors are detectors whose real token is always a standalone run, so
