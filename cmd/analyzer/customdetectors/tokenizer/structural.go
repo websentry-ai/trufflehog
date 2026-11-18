@@ -37,7 +37,7 @@ func (e *emitter) emit(start, end int, keyword string, fromIdent bool) {
 	if candidate == "" {
 		return
 	}
-	tok := Token{Candidate: candidate, Keyword: keyword, KeywordFromIdent: fromIdent}
+	tok := Token{Candidate: candidate, Keyword: strings.ToLower(keyword), Raw: keyword, KeywordFromIdent: fromIdent}
 	if e.hasOne && e.last == tok {
 		return
 	}
@@ -112,10 +112,10 @@ func emitWhitespaceEquivalent(e *emitter, start, end int) {
 	core := e.data[start:end]
 	if loc := identPrefixPat.FindStringIndex(core); loc != nil {
 		keyEnd := start + loc[1]
-		e.emit(keyEnd, end, lowerSlice(e.data, start, keyEnd), true)
+		e.emit(keyEnd, end, e.data[start:keyEnd], true)
 		return
 	}
-	e.emit(start, end, lowerSlice(e.data, start, end), false)
+	e.emit(start, end, e.data[start:end], false)
 }
 
 func emitStructured(e *emitter, start, end int) {
@@ -133,7 +133,7 @@ func emitStructured(e *emitter, start, end int) {
 	field := e.data[inner:end]
 	if loc := identPrefixPat.FindStringIndex(field); loc != nil {
 		keyEnd := inner + loc[1]
-		keyword := lowerSlice(e.data, inner, keyEnd)
+		keyword := e.data[inner:keyEnd]
 		valStart, valEnd := unquoteRange(e.data, keyEnd, end)
 		e.emit(valStart, valEnd, keyword, true)
 	}
@@ -157,7 +157,7 @@ func emitJSONPair(e *emitter, start, end int) bool {
 		return false
 	}
 	valStart, valEnd := unquoteRange(e.data, sep, end)
-	keyword := lowerSlice(e.data, keyStart, keyEnd)
+	keyword := e.data[keyStart:keyEnd]
 	e.emit(valStart, valEnd, keyword, true)
 	return true
 }
@@ -201,7 +201,7 @@ func emitURL(e *emitter, end, afterScheme int) {
 			passStart := afterScheme + colon + 1
 			userStart := afterScheme
 			userEnd := afterScheme + colon
-			e.emit(passStart, credEnd, lowerSlice(e.data, userStart, userEnd), true)
+			e.emit(passStart, credEnd, e.data[userStart:userEnd], true)
 		}
 	}
 
@@ -221,7 +221,7 @@ func emitQuery(e *emitter, start, end int) {
 			keyStart := pos
 			keyEnd := pos + eq
 			valStart := pos + eq + 1
-			e.emit(valStart, pairEnd, lowerSlice(e.data, keyStart, keyEnd), true)
+			e.emit(valStart, pairEnd, e.data[keyStart:keyEnd], true)
 		}
 		pos = pairEnd + 1
 	}
@@ -241,7 +241,7 @@ func emitWords(e *emitter, start, end int) {
 		wStart := pos
 		wEnd := pos + len(word)
 		if hasLetterOrDigit(word) {
-			e.emit(wStart, wEnd, lowerSlice(e.data, wStart, wEnd), false)
+			e.emit(wStart, wEnd, e.data[wStart:wEnd], false)
 		}
 		pos = wEnd
 	}
@@ -333,10 +333,6 @@ func hasLetterOrDigit(s string) bool {
 		}
 	}
 	return false
-}
-
-func lowerSlice(data string, start, end int) string {
-	return strings.ToLower(data[start:end])
 }
 
 func isAlpha(c byte) bool {

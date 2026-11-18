@@ -33,6 +33,7 @@ func (whitespaceTokenizer) Tokenize(_ context.Context, data string) []Token {
 		tokens = append(tokens, Token{
 			Candidate:        candidate,
 			Keyword:          strings.ToLower(keyword),
+			Raw:              keyword,
 			KeywordFromIdent: keywordFromIdent,
 		})
 	}

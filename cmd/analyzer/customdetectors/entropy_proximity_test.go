@@ -603,3 +603,89 @@ func TestProximityScoreEmittedNonGating(t *testing.T) {
 		}
 	}
 }
+
+func TestEntropyProximity_CredentialWordMustBeWholeWord(t *testing.T) {
+	const val = "Coordinator-c19f61e6"
+	for _, tc := range []struct {
+		name, input string
+		want        bool
+	}{
+		{"keystroke is not key", "zmx send " + val + " then press the submit keystroke", false},
+		{"keystroke before value", "the submit keystroke is sent to " + val, false},
+		{"authority is not auth", "no user authority for session " + val, false},
+		{"keyboard is not key", "keyboard shortcut for session " + val, false},
+		{"no keyword near value", "please restart session " + val + " now", false},
+		{"key as a word", "session key " + val, true},
+		{"keys plural", "session keys " + val, true},
+		{"api_key label", "api_key=" + val, true},
+		{"camelCase apiKey", "apiKey: " + val, true},
+		{"upper snake secret", "AWS_SECRET_ACCESS_KEY=" + val, true},
+		{"secret token words", "secret token " + val, true},
+		{"joined accesstoken", "accesstoken " + val, true},
+		{"joined secretkey", "secretkey " + val, true},
+		{"joined signingkey", "signingkey " + val, true},
+		{"joined plural accesstokens", "accesstokens " + val, true},
+		{"joined plural dbpasswords", "dbpasswords " + val, true},
+		{"tokenizer is not token", "tokenizer " + val, false},
+		{"authorization header", "authorization " + val, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := len(filterByName(runEntropyDetector(t, tc.input), EntropyName)) > 0
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestEntropyProximity_CamelCaseLabelsUnderBothTokenizers(t *testing.T) {
+	const val = "aB3xKp9Qm2Lr7TzWqDv"
+	for _, name := range []string{tokenizer.Whitespace, tokenizer.Structural} {
+		tok, err := tokenizer.Select(name)
+		require.NoError(t, err)
+		for _, tc := range []struct {
+			input string
+			want  bool
+		}{
+			{"databaseKey=" + val, true},
+			{"secretAccessKey: " + val, true},
+			{"sshKey=" + val, true},
+			{"authKey=" + val, true},
+			{"AWS_SECRET_ACCESS_KEY=" + val, true},
+			{"submitKeystroke=" + val, false},
+			{"authorityName=" + val, false},
+			{"keyboardLayout=" + val, false},
+		} {
+			t.Run(name+"/"+tc.input, func(t *testing.T) {
+				got := len(filterByName(runEntropyDetectorTok(t, tok, tc.input), EntropyName)) > 0
+				require.Equal(t, tc.want, got)
+			})
+		}
+	}
+}
+
+func TestEntropyProximity_CamelCaseJSONLabelStructural(t *testing.T) {
+	tok, err := tokenizer.Select(tokenizer.Structural)
+	require.NoError(t, err)
+	input := `{"sessionKey":"aB3xKp9Qm2Lr7TzWqDv"}`
+	require.NotEmpty(t, filterByName(runEntropyDetectorTok(t, tok, input), EntropyName))
+}
+
+func TestEntropyProximity_JoinedLabelsCountRegardlessOfCase(t *testing.T) {
+	const val = "aB3xKp9Qm2Lr7TzWqDv"
+	for _, tc := range []struct {
+		label string
+		want  bool
+	}{
+		{"sshkey=", true}, {"sshKey=", true}, {"SSHKEY=", true},
+		{"privkey:", true}, {"secretaccesskey=", true}, {"SECRETACCESSKEY=", true},
+		{"oauth=", true}, {"OAuth=", true}, {"OAUTH=", true},
+		{"dbpwd=", true}, {"pwd=", true},
+		{"monkey=", false}, {"turkey=", false}, {"turnkey=", false}, {"concert=", false}, {"hotkey=", false}, {"foobarkey=", false},
+		{"awssecretaccesskey=", true}, {"signingkey=", true}, {"sslcert=", true}, {"xauth=", true}, {"basicauth=", true},
+		{"keystroke=", false}, {"authority=", false}, {"keyboard=", false},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			got := len(filterByName(runEntropyDetector(t, tc.label+val), EntropyName)) > 0
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

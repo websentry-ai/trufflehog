@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/classify"
 	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors/tokenizer"
@@ -203,7 +204,11 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 		if _, denied := counterParams[neighbor]; denied {
 			continue
 		}
-		stem := matchingStem(neighbor)
+		kw := tokens[j].Raw
+		if kw == "" {
+			kw = tokens[j].Keyword
+		}
+		stem := matchingStem(kw)
 		if stem == "" {
 			continue
 		}
@@ -218,10 +223,120 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 	return words, score
 }
 
-func matchingStem(neighbor string) string {
+// suffixStems also match as the tail of a joined name ("accesstoken", "dbpwd").
+var suffixStems = map[string]bool{"password": true, "passwd": true, "pwd": true, "secret": true, "token": true, "credential": true, "apikey": true, "key": true, "auth": true, "cert": true}
+
+// prefixGatedStems collide with ordinary words ("turnkey", "concert"), so a joined name ending in
+// one counts only when everything before it is built from credentialPrefixes ("sshkey", "secretaccesskey").
+var prefixGatedStems = map[string]bool{"key": true, "auth": true, "cert": true}
+
+var credentialPrefixes = map[string]bool{
+	"ssh": true, "priv": true, "private": true, "secret": true, "access": true, "api": true, "aws": true,
+	"gpg": true, "pgp": true, "rsa": true, "sign": true, "signing": true, "enc": true, "encryption": true,
+	"session": true, "client": true, "server": true, "license": true, "master": true, "app": true,
+	"service": true, "account": true, "user": true, "db": true, "database": true, "jwt": true, "hmac": true,
+	"crypto": true, "cipher": true, "shared": true, "admin": true, "root": true, "deploy": true,
+	"webhook": true, "bearer": true, "ssl": true, "tls": true, "pem": true, "ca": true,
+}
+
+func builtFromCredentialPrefixes(s string) bool {
+	if s == "" {
+		return false
+	}
+	ok := make([]bool, len(s)+1)
+	ok[0] = true
+	for i := 1; i <= len(s); i++ {
+		for j := 0; j < i && !ok[i]; j++ {
+			ok[i] = ok[j] && credentialPrefixes[s[j:i]]
+		}
+	}
+	return ok[len(s)]
+}
+
+// tailBefore returns what precedes stem (or stem plus "s") at the end of w.
+func tailBefore(w, stem string) (string, bool) {
+	if strings.HasSuffix(w, stem) {
+		return w[:len(w)-len(stem)], true
+	}
+	if strings.HasSuffix(w, stem+"s") {
+		return w[:len(w)-len(stem)-1], true
+	}
+	return "", false
+}
+
+var compoundStems = map[string]bool{"authorization": true, "oauth": true, "xauth": true, "basicauth": true}
+
+// splitIdentifier lowercases s and splits it on non-alphanumerics, camelCase and letter/digit edges.
+func splitIdentifier(s string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(s)
+	for i, r := range rs {
+		isUp, isLow, isDig := unicode.IsUpper(r), unicode.IsLower(r), unicode.IsDigit(r)
+		if !isUp && !isLow && !isDig {
+			flush()
+			continue
+		}
+		if len(cur) > 0 {
+			prev := cur[len(cur)-1]
+			switch {
+			case isUp && unicode.IsLower(prev), unicode.IsDigit(prev) != isDig:
+				flush()
+			case isUp && unicode.IsUpper(prev) && i+1 < len(rs) && unicode.IsLower(rs[i+1]):
+				flush()
+			}
+		}
+		cur = append(cur, r)
+	}
+	flush()
+	return words
+}
+
+// matchingStem returns the credential word a keyword contains as a whole word,
+// not as a fragment of an ordinary word ("keystroke", "authority").
+func matchingStem(keyword string) string {
+	lower := strings.ToLower(keyword)
+	maybe := false
 	for _, stem := range keywordStems {
-		if strings.Contains(neighbor, stem) {
-			return stem
+		if strings.Contains(lower, stem) {
+			maybe = true
+			break
+		}
+	}
+	if !maybe {
+		return ""
+	}
+	words := splitIdentifier(keyword)
+	joined := "_" + strings.Join(words, "_") + "_"
+	for _, stem := range keywordStems {
+		if strings.Contains(stem, "_") {
+			if strings.Contains(joined, "_"+stem+"_") || strings.Contains(joined, "_"+stem+"s_") {
+				return stem
+			}
+			continue
+		}
+		for _, w := range words {
+			if w == stem || w == stem+"s" {
+				return stem
+			}
+			if !suffixStems[stem] {
+				continue
+			}
+			rem, ok := tailBefore(w, stem)
+			if ok && (!prefixGatedStems[stem] || builtFromCredentialPrefixes(rem)) {
+				return stem
+			}
+		}
+	}
+	for _, w := range words {
+		if c := strings.TrimSuffix(w, "s"); compoundStems[c] {
+			return c
 		}
 	}
 	return ""
