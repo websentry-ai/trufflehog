@@ -284,7 +284,7 @@ func matchingStem(keyword string) string {
 			continue
 		}
 		for _, w := range words {
-			if w == stem || w == stem+"s" || (suffixStems[stem] && strings.HasSuffix(w, stem)) {
+			if w == stem || w == stem+"s" || (suffixStems[stem] && (strings.HasSuffix(w, stem) || strings.HasSuffix(w, stem+"s"))) {
 				return stem
 			}
 		}

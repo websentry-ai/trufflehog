@@ -624,6 +624,9 @@ func TestEntropyProximity_CredentialWordMustBeWholeWord(t *testing.T) {
 		{"joined accesstoken", "accesstoken " + val, true},
 		{"joined secretkey", "secretkey " + val, true},
 		{"joined signingkey", "signingkey " + val, true},
+		{"joined plural accesstokens", "accesstokens " + val, true},
+		{"joined plural dbpasswords", "dbpasswords " + val, true},
+		{"tokenizer is not token", "tokenizer " + val, false},
 		{"authorization header", "authorization " + val, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
