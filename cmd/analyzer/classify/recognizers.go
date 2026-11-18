@@ -431,7 +431,7 @@ var digestHexLen = map[string]int{
 
 // revisionSlotPat is where a repository URL or pin holds a commit: a path
 // segment such as /blob/ or /-/tree/, or the revision after repo.git@.
-var revisionSlotPat = regexp.MustCompile(`(?i)(?:/(?:blob|tree|commit|commits|raw|blame|compare|archive)/|\.git@)$`)
+var revisionSlotPat = regexp.MustCompile(`(?i)(?:/(?:blob|tree|commit|commits|raw|blame|compare|archive)/|\.git@|\b(?:(?:head|base|commit|merge)[_-]?)?sha\s*[:=]\s*|\bcommit\s*[:=]\s*)$`)
 
 func IsHexDigestInContext(value, before string) bool {
 	if len(value) < 16 || !isAllHex(value) {
