@@ -15,9 +15,13 @@ const (
 	reasonVendorStructuralDigest     = "vendor_structural_digest"
 	reasonVendorStructuralEmbedded   = "vendor_structural_embedded"
 	reasonVendorStructuralNoise      = "vendor_structural_noise"
+	reasonVendorStructuralInURL      = "vendor_structural_in_url"
 )
 
-const digestContextWindow = 16
+const digestContextWindow = 48
+
+// A JSON key can arrive quoted and backslash-escaped several levels deep (\\\"sha\\\":\\\"<hex>).
+var quoteStripper = strings.NewReplacer("\\", "", "\"", "", "'", "")
 
 type vendorRule struct {
 	match  func(string) bool
@@ -79,14 +83,23 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 		}
 		return false, ""
 	}
-	if contextSuppressed(data, f.raw, func(d []byte, s int) bool {
+	digestAt := func(d []byte, s int) bool {
 		lo := s - digestContextWindow
 		if lo < 0 {
 			lo = 0
 		}
-		return classify.IsHexDigestInContext(f.raw, string(d[lo:s]))
-	}) {
+		return classify.IsHexDigestInContext(f.raw, quoteStripper.Replace(string(d[lo:s])))
+	}
+	if contextSuppressed(data, f.raw, digestAt) {
 		return true, reasonVendorStructuralDigest
+	}
+	if classify.IsUUIDish(f.raw) {
+		return true, reasonVendorStructuralUUID
+	}
+	if !strings.Contains(f.raw, "://") && !hasDistinctiveKeyPrefix(f.raw) && allOccurrences(data, f.raw, func(d []byte, s int) bool {
+		return (inHTTPURL(d, s) && !inUserinfoAt(d, s, len(f.raw))) || digestAt(d, s)
+	}) {
+		return true, reasonVendorStructuralInURL
 	}
 	if embeddedVendors[f.EntityType] && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		n := len(f.raw)
@@ -155,4 +168,57 @@ func credentialSuffixLabeled(data []byte, raw string) bool {
 		off = pos + 1
 	}
 	return false
+}
+
+// distinctiveKeyPrefixes mark keys that cannot be an ID or SHA, so a URL cannot
+// hide them: an agent sending one out in a query string is still a leak.
+var distinctiveKeyPrefixes = []string{
+	"AKIA", "ASIA", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_",
+	"xoxb-", "xoxp-", "xoxa-", "xoxs-", "sk-", "sk_live_", "rk_live_", "AIza", "glpat-", "npm_",
+}
+
+func hasDistinctiveKeyPrefix(raw string) bool {
+	for _, p := range distinctiveKeyPrefixes {
+		if strings.HasPrefix(raw, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// allOccurrences reports whether benign holds at every occurrence of raw. The
+// in-URL rule uses it, with no credential-label veto: nobody plants a secret in a URL.
+func allOccurrences(data []byte, raw string, benign func(data []byte, pos int) bool) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
+		return false
+	}
+	found := false
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		if !benign(data, pos) {
+			return false
+		}
+		found = true
+		off = pos + 1
+	}
+	return found
+}
+
+// inUserinfoAt is the credential slot of https://<token>@host, where a leaked clone token sits.
+func inUserinfoAt(data []byte, pos, n int) bool {
+	return pos+n < len(data) && data[pos+n] == '@'
+}
+
+func inHTTPURL(data []byte, pos int) bool {
+	start := pos
+	for start > 0 && !strings.ContainsRune(" \t\r\n\"'`<>()[]{},", rune(data[start-1])) {
+		start--
+	}
+	prefix := strings.ToLower(string(data[start:pos]))
+	return strings.Contains(prefix, "http://") || strings.Contains(prefix, "https://")
 }
