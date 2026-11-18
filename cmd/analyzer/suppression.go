@@ -540,6 +540,11 @@ func (s *scanner) decideAny(f analyzeResult, shapes map[string]int, data []byte)
 			return true, reason, s.mode
 		}
 	}
+	if s.vendorMode != suppressionOff && isGenericDetectorName(f.EntityType) && f.EntityType != customdetectors.DBConnectionURIName {
+		if suppress, reason := decideURLAndUUID(f, data); suppress {
+			return true, reason, s.vendorMode
+		}
+	}
 	if s.vendorMode != suppressionOff && !isGenericDetectorName(f.EntityType) {
 		if isCuratedVendor(f.EntityType) {
 			vendorFindingsEvaluatedTotal.WithLabelValues(f.EntityType, s.vendorMode.String()).Inc()

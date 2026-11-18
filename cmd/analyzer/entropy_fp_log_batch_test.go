@@ -93,10 +93,9 @@ func TestVendorVetoPrivacy(t *testing.T) {
 	// Benign identifier label -> suppressed (the corpus FP: "Jira Cloud ID: <uuid>").
 	sup, _ := decideVendorSuppression(analyzeResult{EntityType: "Privacy", raw: uuid}, []byte("- Jira Cloud ID: "+uuid))
 	require.True(t, sup)
-	// Credential-suffix label -> kept (a real Privacy key).
+	// A UUID is never a secret, even when labelled as a key.
 	supKey, _ := decideVendorSuppression(analyzeResult{EntityType: "Privacy", raw: uuid}, []byte("privacy_key="+uuid))
-	require.False(t, supKey)
-	// Standard credential assignment -> kept.
+	require.True(t, supKey)
 	supStd, _ := decideVendorSuppression(analyzeResult{EntityType: "Privacy", raw: uuid}, []byte("api_key: "+uuid))
-	require.False(t, supStd)
+	require.True(t, supStd)
 }

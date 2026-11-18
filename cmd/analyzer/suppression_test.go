@@ -207,15 +207,15 @@ func TestDecideVendorSuppression(t *testing.T) {
 		wantSup    bool
 		wantReason string
 	}{
-		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralNoise},
+		{"jira truncated uuid", "JiraToken", "a1d976ec-a095-46eb-a163-", true, reasonVendorStructuralUUID},
 		{"jira real token kept", "JiraToken", "n27p22cchdt2k3kxabcd1234", false, ""},
-		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralNoise},
+		{"atlassian uuid", "Atlassian", "0d4cd6d5-0b95-49af-9e47-2256ab8c9def", true, reasonVendorStructuralUUID},
 		{"azure code fragment with backslash", "Azure", "sameShapeToken(i))\\n\\t}\\n\\treturn", true, reasonVendorStructuralCode},
 		{"azure code fragment with space", "Azure", "map[string]string{ continue }", true, reasonVendorStructuralCode},
 		{"azure v1 punctuation secret kept", "Azure", "Abc@def*ghi;jkl:mno[pqr]stu^vwx1", false, ""},
 		{"azure dotted code identifier", "Azure", "customdetectors.GenericSecretName,", true, reasonVendorStructuralCode},
 		{"azure dotted selector no comma", "Azure", "customdetectors.GenericSecretName", true, reasonVendorStructuralCode},
-		{"non-curated vendor kept", "Github", "a1d976ec-a095-46eb-a163-", false, ""},
+		{"non-curated vendor kept", "Github", "n27p22cchdt2k3kxabcd1234", false, ""},
 		{"jdbc benign params suppressed", "JDBC", "jdbc:sqlserver://localhost:2500;databaseName=Hounds;encrypt=true", true, reasonVendorStructuralConnString},
 		{"jdbc benign params any host suppressed", "JDBC", "jdbc:sqlserver://aao-st-elydb.io.thehut.local;databaseName=Hounds;applicationName=Hounds;encrypt=true;trustServerCertificate=true", true, reasonVendorStructuralConnString},
 		{"jdbc unknown key kept", "JDBC", "jdbc:mysql://db.internal:3306/app?x=Abcd1234", false, ""},
