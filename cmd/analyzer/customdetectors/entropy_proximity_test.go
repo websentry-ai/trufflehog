@@ -668,3 +668,23 @@ func TestEntropyProximity_CamelCaseJSONLabelStructural(t *testing.T) {
 	input := `{"sessionKey":"aB3xKp9Qm2Lr7TzWqDv"}`
 	require.NotEmpty(t, filterByName(runEntropyDetectorTok(t, tok, input), EntropyName))
 }
+
+func TestEntropyProximity_JoinedLabelsCountRegardlessOfCase(t *testing.T) {
+	const val = "aB3xKp9Qm2Lr7TzWqDv"
+	for _, tc := range []struct {
+		label string
+		want  bool
+	}{
+		{"sshkey=", true}, {"sshKey=", true}, {"SSHKEY=", true},
+		{"privkey:", true}, {"secretaccesskey=", true}, {"SECRETACCESSKEY=", true},
+		{"oauth=", true}, {"OAuth=", true}, {"OAUTH=", true},
+		{"dbpwd=", true}, {"pwd=", true},
+		{"monkey=", false}, {"turkey=", false}, {"concert=", false}, {"hotkey=", false},
+		{"keystroke=", false}, {"authority=", false}, {"keyboard=", false},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			got := len(filterByName(runEntropyDetector(t, tc.label+val), EntropyName)) > 0
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

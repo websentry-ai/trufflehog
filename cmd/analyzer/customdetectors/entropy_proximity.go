@@ -223,8 +223,15 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 	return words, score
 }
 
-// suffixStems are unambiguous enough to also match as the tail of a joined word ("accesstoken").
-var suffixStems = map[string]bool{"password": true, "passwd": true, "secret": true, "token": true, "credential": true, "apikey": true}
+// suffixStems also match as the tail of a joined name ("sshkey", "SECRETACCESSKEY", "oauth", "dbpwd").
+var suffixStems = map[string]bool{"password": true, "passwd": true, "pwd": true, "secret": true, "token": true, "credential": true, "apikey": true, "key": true, "auth": true, "cert": true}
+
+// proseTails are ordinary words that end in a suffix stem and are not credential names.
+var proseTails = map[string]bool{
+	"monkey": true, "donkey": true, "turkey": true, "hockey": true, "jockey": true, "whiskey": true,
+	"lackey": true, "mickey": true, "pokey": true, "hotkey": true, "shortkey": true,
+	"concert": true, "disconcert": true,
+}
 
 var compoundStems = map[string]bool{"accesskey": true, "secretkey": true, "privatekey": true, "signingkey": true, "encryptionkey": true, "authorization": true}
 
@@ -284,7 +291,7 @@ func matchingStem(keyword string) string {
 			continue
 		}
 		for _, w := range words {
-			if w == stem || w == stem+"s" || (suffixStems[stem] && (strings.HasSuffix(w, stem) || strings.HasSuffix(w, stem+"s"))) {
+			if w == stem || w == stem+"s" || (suffixStems[stem] && !proseTails[strings.TrimSuffix(w, "s")] && (strings.HasSuffix(w, stem) || strings.HasSuffix(w, stem+"s"))) {
 				return stem
 			}
 		}
