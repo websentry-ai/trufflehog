@@ -6,8 +6,10 @@ import (
 )
 
 type Token struct {
-	Candidate        string
-	Keyword          string
+	Candidate string
+	Keyword   string
+	// Raw is the label before lowercasing; camelCase boundaries exist only here.
+	Raw              string
 	KeywordFromIdent bool
 }
 

@@ -632,3 +632,36 @@ func TestEntropyProximity_CredentialWordMustBeWholeWord(t *testing.T) {
 		})
 	}
 }
+
+func TestEntropyProximity_CamelCaseLabelsUnderBothTokenizers(t *testing.T) {
+	const val = "aB3xKp9Qm2Lr7TzWqDv"
+	for _, name := range []string{tokenizer.Whitespace, tokenizer.Structural} {
+		tok, err := tokenizer.Select(name)
+		require.NoError(t, err)
+		for _, tc := range []struct {
+			input string
+			want  bool
+		}{
+			{"databaseKey=" + val, true},
+			{"secretAccessKey: " + val, true},
+			{"sshKey=" + val, true},
+			{"authKey=" + val, true},
+			{"AWS_SECRET_ACCESS_KEY=" + val, true},
+			{"submitKeystroke=" + val, false},
+			{"authorityName=" + val, false},
+			{"keyboardLayout=" + val, false},
+		} {
+			t.Run(name+"/"+tc.input, func(t *testing.T) {
+				got := len(filterByName(runEntropyDetectorTok(t, tok, tc.input), EntropyName)) > 0
+				require.Equal(t, tc.want, got)
+			})
+		}
+	}
+}
+
+func TestEntropyProximity_CamelCaseJSONLabelStructural(t *testing.T) {
+	tok, err := tokenizer.Select(tokenizer.Structural)
+	require.NoError(t, err)
+	input := `{"sessionKey":"aB3xKp9Qm2Lr7TzWqDv"}`
+	require.NotEmpty(t, filterByName(runEntropyDetectorTok(t, tok, input), EntropyName))
+}

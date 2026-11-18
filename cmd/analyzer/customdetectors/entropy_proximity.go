@@ -204,7 +204,11 @@ func nearbyKeywords(tokens []tokenizer.Token, idx int) ([]string, float64) {
 		if _, denied := counterParams[neighbor]; denied {
 			continue
 		}
-		stem := matchingStem(tokens[j].Keyword)
+		kw := tokens[j].Raw
+		if kw == "" {
+			kw = tokens[j].Keyword
+		}
+		stem := matchingStem(kw)
 		if stem == "" {
 			continue
 		}
