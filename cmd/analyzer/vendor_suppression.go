@@ -94,6 +94,31 @@ func isIdentByte(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '_'
 }
 
+func digestAtFor(raw string) func([]byte, int) bool {
+	return func(d []byte, s int) bool {
+		lo := s - digestContextWindow
+		if lo < 0 {
+			lo = 0
+		}
+		return classify.IsHexDigestInContext(raw, quoteStripper.Replace(string(d[lo:s])))
+	}
+}
+
+// decideURLAndUUID applies to every detector: a UUID is never reported, and a value that only
+// appears inside a full http(s) URL is ignored unless it is distinctive or sits in the userinfo slot.
+func decideURLAndUUID(f analyzeResult, data []byte) (bool, string) {
+	if classify.IsUUIDish(f.raw) {
+		return true, reasonVendorStructuralUUID
+	}
+	digestAt := digestAtFor(f.raw)
+	if !strings.Contains(f.raw, "://") && !hasDistinctiveKeyPrefix(f.raw) && allOccurrences(data, f.raw, func(d []byte, s int) bool {
+		return (inHTTPURL(d, s) && !inUserinfoAt(d, s, len(f.raw))) || digestAt(d, s)
+	}) {
+		return true, reasonVendorStructuralInURL
+	}
+	return false, ""
+}
+
 func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 	// A login's password is a credential by its position, so the context rules
 	// below, written for tokens in free text, don't apply; only its own rule does.
@@ -103,24 +128,11 @@ func decideVendorSuppression(f analyzeResult, data []byte) (bool, string) {
 		}
 		return false, ""
 	}
-	digestAt := func(d []byte, s int) bool {
-		lo := s - digestContextWindow
-		if lo < 0 {
-			lo = 0
-		}
-		return classify.IsHexDigestInContext(f.raw, quoteStripper.Replace(string(d[lo:s])))
-	}
-	if contextSuppressed(data, f.raw, digestAt) {
+	if contextSuppressed(data, f.raw, digestAtFor(f.raw)) {
 		return true, reasonVendorStructuralDigest
 	}
-	// A UUID is never reported, even when labelled as a key: UUID-shaped vendor keys are deliberately not detected.
-	if classify.IsUUIDish(f.raw) {
-		return true, reasonVendorStructuralUUID
-	}
-	if !strings.Contains(f.raw, "://") && !hasDistinctiveKeyPrefix(f.raw) && allOccurrences(data, f.raw, func(d []byte, s int) bool {
-		return (inHTTPURL(d, s) && !inUserinfoAt(d, s, len(f.raw))) || digestAt(d, s)
-	}) {
-		return true, reasonVendorStructuralInURL
+	if suppress, reason := decideURLAndUUID(f, data); suppress {
+		return true, reason
 	}
 	if embeddedVendors[f.EntityType] && contextSuppressed(data, f.raw, func(d []byte, s int) bool {
 		n := len(f.raw)

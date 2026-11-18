@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/trufflesecurity/trufflehog/v3/cmd/analyzer/customdetectors"
 )
 
 func TestVendorSuppressesInURLAndUUID(t *testing.T) {
@@ -33,6 +35,27 @@ func TestVendorSuppressesInURLAndUUID(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sup, _ := decideVendorSuppression(analyzeResult{EntityType: tc.entity, raw: tc.raw}, []byte(tc.doc))
+			require.Equal(t, tc.want, sup)
+		})
+	}
+}
+
+func TestGenericDetectorsSkipInURLAndUUID(t *testing.T) {
+	s := &scanner{vendorMode: suppressionEnforce}
+	secret := "9xKq2vRt8mNpQrLwZbNhT4yUc6"
+	uuid := "0d4cd6d5-0b95-49af-9e47-0687c26f8bf7"
+	for _, tc := range []struct {
+		name, entity, raw, doc string
+		want                   bool
+	}{
+		{"entropy in url", customdetectors.EntropyName, secret, "https://example.com/x?t=" + secret, true},
+		{"generic secret in url", customdetectors.GenericSecretName, secret, "https://example.com/x?token=" + secret, true},
+		{"generic uuid", customdetectors.GenericSecretName, uuid, "token=" + uuid, true},
+		{"entropy outside url", customdetectors.EntropyName, secret, "key " + secret, false},
+		{"connection uri is the finding", customdetectors.DBConnectionURIName, "postgres://u:" + secret + "@h/db", "postgres://u:" + secret + "@h/db", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sup, _, _ := s.decideAny(analyzeResult{EntityType: tc.entity, raw: tc.raw}, nil, []byte(tc.doc))
 			require.Equal(t, tc.want, sup)
 		})
 	}
