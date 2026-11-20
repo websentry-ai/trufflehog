@@ -124,3 +124,15 @@ func TestBoxEmbeddedSuppression(t *testing.T) {
 		})
 	}
 }
+
+func TestBoxIgnoresIdentifiersMadeOfWords(t *testing.T) {
+	name := "BeforeSchedulerDispatchingTiming"
+	f := analyzeResult{EntityType: "Box", raw: name}
+
+	sup, reason := decideVendorSuppression(f, []byte("sandbox metric "+name+" rose"))
+	require.True(t, sup)
+	require.Equal(t, reasonVendorStructuralNoise, reason)
+
+	sup, _ = decideVendorSuppression(f, []byte("box_token="+name))
+	require.False(t, sup, "a value under a credential label is kept")
+}

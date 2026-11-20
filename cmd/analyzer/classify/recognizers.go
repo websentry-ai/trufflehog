@@ -896,7 +896,7 @@ var placeholderWords = map[string]bool{
 var placeholderPasswords = map[string]bool{
 	"pass": true, "password": true, "passwd": true, "secret": true, "pass123": true,
 	"admin": true, "root": true, "guest": true, "changeme": true,
-	"postgres": true, "mysql": true, "anonymous": true, "tiger": true, "default": true,
+	"postgres": true, "mysql": true, "anonymous": true, "tiger": true, "default": true, "test": true,
 }
 
 // IsAtlassianNoise matches only non-credential shapes for the Atlassian/JiraToken
@@ -913,6 +913,9 @@ func IsAtlassianNoise(v string) bool {
 	}
 	return isKebabDictionary(v) || isWordConcatToken(v)
 }
+
+// IsWordConcat reports a camelCase identifier made of dictionary-like words.
+func IsWordConcat(v string) bool { return isWordConcatToken(v) }
 
 func isKebabDictionary(v string) bool {
 	if !strings.Contains(v, "-") {
