@@ -2,7 +2,7 @@
 
 image:
   repository: 228304386839.dkr.ecr.us-west-2.amazonaws.com/k8s/trufflehog
-  tag: "3733e4bf829f6c15a151338aec412f81fda59512"
+  tag: "ea20b783f19a57808136faa693f5260e718e4294"
 
 externalSecret:
   remoteKey: staging/trufflehog
