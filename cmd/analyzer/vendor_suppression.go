@@ -37,6 +37,7 @@ type vendorRule struct {
 var vendorStructuralRules = map[string]vendorRule{
 	"JiraToken":                            {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
 	"Atlassian":                            {match: classify.IsAtlassianNoise, reason: reasonVendorStructuralNoise, vetoable: true},
+	"Box":                                  {match: classify.IsWordConcat, reason: reasonVendorStructuralNoise, vetoable: true},
 	"Privacy":                              {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
 	"Onesignal":                            {match: classify.IsUUIDish, reason: reasonVendorStructuralUUID, vetoable: true},
 	"URI":                                  {match: classify.IsPlaceholderURI, reason: reasonVendorStructuralNoise},

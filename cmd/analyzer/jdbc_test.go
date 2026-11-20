@@ -111,6 +111,7 @@ func TestJDBC_OtherVendorRulesUnaffected(t *testing.T) {
 		{"Privacy", `3f2504e0-4f89-11d3-9a0c-0305e82c3301`, `AKIASP2TPHJSQH3FJRUX`},
 		{"Onesignal", `3f2504e0-4f89-11d3-9a0c-0305e82c3301`, `AKIASP2TPHJSQH3FJRUX`},
 		{"URI", `postgres://user:password@host:5432/db`, `postgres://admin:9xKq2vRt8mNp@host:5432/db`},
+		{"Box", `BeforeSchedulerDispatchingTiming`, `aB3xKp9Qm2Lr7TzWqDvNcEd1Ff5Gg6Hh`},
 		{"Azure", `webapp.config.connectionString`, `9xKq2vRt8mNpQrLwZbNh`},
 		{"url-login-credential", `password`, `9xKq2vRt8mNp`},
 		{"Docker", `dXNlcm5hbWU6cGFzc3dvcmQ=`, `Ym90Ojl4S3EydlJ0OG1OcA==`},
@@ -124,7 +125,7 @@ func TestJDBC_OtherVendorRulesUnaffected(t *testing.T) {
 		require.False(t, rule.match(tc.reported),
 			"%s must still report %q", tc.entity, tc.reported)
 	}
-	require.Len(t, vendorStructuralRules, 10,
+	require.Len(t, vendorStructuralRules, 11,
 		"a rule was added or removed; enabling the mode affects all of them, "+
 			"so the set is part of the deploy decision")
 }
