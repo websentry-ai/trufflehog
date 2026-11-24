@@ -10,6 +10,10 @@ func TestIsStripeObjectID(t *testing.T) {
 		"cus_Oabcdefghijklmno",
 		"sub_1NabcDEfghIJKlmno",
 		"evt_1Nabcdefghijklmnop",
+		"acct_1AbCdEfGhIjKlMnO",
+		"we_1AbCdEfGhIjKlMnOpQrStUv",
+		"pm_1AbCdEfGhIjKlMnOp",
+		"si_AbCdEfGhIjKlMn",
 	}
 	for _, id := range objectIDs {
 		if !IsStripeObjectID(id) {
@@ -21,6 +25,9 @@ func TestIsStripeObjectID(t *testing.T) {
 		"sk_live_fake",
 		"rk_live_fake",
 		"pk_test_fake",
+		"sk_live_1AbCdEfGhIjKlMnOpQrSt",
+		"rk_live_1AbCdEfGhIjKlMnOpQrSt",
+		"whsec_1AbCdEfGhIjKlMnOpQrSt",
 		"ghp_0123456789abcdefghijklmnopqrstuvwxyz",
 		"n27p22cchdt2k3kx",
 		"du_short",
