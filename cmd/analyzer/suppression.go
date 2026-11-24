@@ -28,6 +28,7 @@ const (
 const (
 	reasonBulkList           = "bulk_list"
 	reasonStripeObjID        = "structural_stripe_object_id"
+	reasonSvixEndpointID     = "structural_svix_endpoint_id"
 	reasonHexHash            = "structural_hex_hash"
 	reasonHexTraceID         = "structural_hex_trace_id"
 	reasonStructural         = "structural_nonsecret"
@@ -170,6 +171,9 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 	}
 	if classify.IsStripeObjectID(f.raw) {
 		return true, reasonStripeObjID
+	}
+	if classify.IsSvixEndpointID(f.raw) {
+		return true, reasonSvixEndpointID
 	}
 	if len(f.raw) >= bulkShapeMinLen && shapes[shapeKey(f.raw)] >= bulkListMinCount {
 		return true, reasonBulkList

@@ -56,6 +56,7 @@ var (
 	schemePat      = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 	maskPat        = regexp.MustCompile(strings.Join(maskPatternStrings, "|"))
 	stripeObjPat   = regexp.MustCompile(`^(?:du|dp|pi|ch|in|re|txn|cus|sub|evt|po|tr|seti|price|prod|card|ba|src|tok|il|inv|cs|qt|cn|cr|or|py|ipi|rcpt|acct|we|pm|si)_[A-Za-z0-9]{12,}$`)
+	svixEpPat      = regexp.MustCompile(`^ep_[A-Za-z0-9]{27}$`)
 	secretCharPat  = regexp.MustCompile(`^[A-Za-z0-9._\-+/=~@]+$`)
 	codeDelimPat   = regexp.MustCompile("[\\s\\\\(){}<>,\"'" + "`" + "]")
 	// The optional trailing ":" or "-" is the grep -A/-B line prefix
@@ -765,6 +766,8 @@ func IsStructuralNonSecret(v string) bool {
 }
 
 func IsStripeObjectID(s string) bool { return stripeObjPat.MatchString(s) }
+
+func IsSvixEndpointID(s string) bool { return svixEpPat.MatchString(s) }
 
 func IsHex32(s string) bool { return hex32Pat.MatchString(s) }
 
