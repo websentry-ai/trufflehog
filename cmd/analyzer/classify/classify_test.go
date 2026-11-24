@@ -23,6 +23,13 @@ func TestRecognizerShapes(t *testing.T) {
 	}{
 		{IsStripeObjectID, "stripe", "du_1TIUcBBrSQGfJTjiR3r4WQh4", true},
 		{IsStripeObjectID, "stripe-no", "ghp_0123456789abcdef", false},
+		{IsSvixEndpointID, "svix-ep", "ep_1srOrx2ZWZBpBUvZwXKQmoEYga2", true},
+		{IsSvixEndpointID, "svix-ep-2", "ep_33ZIBDmz66FcPG35FnsbM6Ie4X1", true},
+		{IsSvixEndpointID, "svix-ep-26", "ep_1srOrx2ZWZBpBUvZwXKQmoEYga", false},
+		{IsSvixEndpointID, "svix-ep-28", "ep_1srOrx2ZWZBpBUvZwXKQmoEYga22", false},
+		{IsSvixEndpointID, "svix-whsec", "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", false},
+		{IsSvixEndpointID, "svix-app", "app_1srOrx2ZWZBpBUvZwXKQmoEYga2", false},
+		{IsSvixEndpointID, "svix-msg", "msg_1srOrx2ZWZBpBUvZwXKQmoEYga2", false},
 		{IsHex32, "hex32", "9e107d9d372bb6826bd81d3542a419d6", true},
 		{IsHex32, "hex32-31", "9e107d9d372bb6826bd81d3542a419d", false},
 		{IsExcludedEntropyValue, "uuid", "a4c123b1-612d-d272-d137-1c17149d4395", true},
