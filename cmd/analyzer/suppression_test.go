@@ -323,3 +323,11 @@ func TestFastlyEmbeddedSuppression(t *testing.T) {
 		})
 	}
 }
+
+func TestScanMixedSeparatorResourceName(t *testing.T) {
+	const name = "billing2_billing-network"
+	docker := []byte("docker run --rm -i --network " + name + " --env-file tests/ci.env\nAWS_SECRET_ACCESS_KEY=test")
+	require.Empty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), docker, 0.75), "compose network name must be suppressed")
+	creds := []byte("password=" + name)
+	require.NotEmpty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), creds, 0.75), "credential-labelled value must still be reported")
+}

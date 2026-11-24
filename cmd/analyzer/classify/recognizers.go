@@ -793,7 +793,7 @@ func IsHyphenatedLabel(v string) bool {
 	if len(v) < 5 || v[0] < 'a' || v[0] > 'z' {
 		return false
 	}
-	segs := strings.Split(v, "-")
+	segs := strings.Split(strings.ReplaceAll(v, "_", "-"), "-")
 	if len(segs) < 3 {
 		return false
 	}
