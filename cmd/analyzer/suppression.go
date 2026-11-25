@@ -200,7 +200,7 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 		}
 		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) &&
 			!credentialSuffixLabeled(data, f.raw) &&
-			!(classify.IsComposeResourceName(f.raw) && credentialWordFollows(data, f.raw)) {
+			(!classify.IsComposeResourceName(f.raw) || !credentialWordFollows(data, f.raw)) {
 			return true, reasonStructuralVetoable
 		}
 		if contextSuppressed(data, f.raw, benignIDContextAt) {
@@ -277,7 +277,7 @@ func credentialWordFollows(data []byte, raw string) bool {
 		if nl := bytes.IndexByte(after, '\n'); nl >= 0 {
 			after = after[:nl]
 		}
-		if classify.IsCredentialContext(string(after)) {
+		if classify.IsTrailingCredentialWord(string(after)) {
 			return true
 		}
 		off += i + 1

@@ -331,6 +331,8 @@ func TestScanMixedSeparatorResourceName(t *testing.T) {
 	for _, line := range []string{
 		"staging deploy key is " + name,
 		name + " password",
+		name + " token",
+		name + " pwd",
 		"use " + name + " as the password for staging",
 		"the admin token is rejzeq_Wotsy7_quhxyb ok",
 		"Staging secret notes\nDB_PASS=maple_River7_stone",

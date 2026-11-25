@@ -502,6 +502,13 @@ func IsCredentialContext(before string) bool {
 	return credentialContextPat.MatchString(before)
 }
 
+// trailingCredentialPat mirrors the entropy detector's keyword stems; the short ones need a word boundary.
+var trailingCredentialPat = regexp.MustCompile("(?i)(?:password|passwd|secret|token|credential|bearer|api[_-]?key|signing)|(?:^|[^a-z0-9])(?:pwd|key|auth|cert)s?(?:[^a-z0-9]|$)")
+
+func IsTrailingCredentialWord(after string) bool {
+	return trailingCredentialPat.MatchString(after)
+}
+
 func IsHexIDInContext(value, before string) bool {
 	if len(value) < 16 || !isAllHex(value) {
 		return false
