@@ -777,7 +777,7 @@ func IsSecretAlphabet(s string) bool { return secretCharPat.MatchString(s) }
 
 func IsVetoableStructural(v string) bool {
 	return cuidPat.MatchString(v) || orgDigestPat.MatchString(v) ||
-		affixedUUIDPat.MatchString(v) || IsHyphenatedLabel(v)
+		affixedUUIDPat.MatchString(v) || IsHyphenatedLabel(v) || IsComposeResourceName(v)
 }
 
 func isAlnumASCII(c byte) bool {
@@ -793,7 +793,24 @@ func IsHyphenatedLabel(v string) bool {
 	if len(v) < 5 || v[0] < 'a' || v[0] > 'z' {
 		return false
 	}
-	segs := strings.Split(strings.ReplaceAll(v, "_", "-"), "-")
+	return isShortLabelSegs(strings.Split(v, "-"))
+}
+
+// IsComposeResourceName matches lowercase docker compose names (<project>_<name>) that mix _ and -.
+func IsComposeResourceName(v string) bool {
+	if !strings.Contains(v, "_") || !strings.Contains(v, "-") {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return isShortLabelSegs(strings.Split(strings.ReplaceAll(v, "_", "-"), "-"))
+}
+
+func isShortLabelSegs(segs []string) bool {
 	if len(segs) < 3 {
 		return false
 	}

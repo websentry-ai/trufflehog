@@ -328,6 +328,11 @@ func TestScanMixedSeparatorResourceName(t *testing.T) {
 	const name = "billing2_billing-network"
 	docker := []byte("docker run --rm -i --network " + name + " --env-file tests/ci.env\nAWS_SECRET_ACCESS_KEY=test")
 	require.Empty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), docker, 0.75), "compose network name must be suppressed")
-	creds := []byte("password=" + name)
-	require.NotEmpty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), creds, 0.75), "credential-labelled value must still be reported")
+	for _, line := range []string{
+		"staging deploy key is " + name,
+		"the admin token is rejzeq_Wotsy7_quhxyb ok",
+		"DB_PASSWORD=maple_River7_stone",
+	} {
+		require.NotEmpty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), []byte(line), 0.75), "must still be reported: %s", line)
+	}
 }
