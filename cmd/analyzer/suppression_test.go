@@ -333,6 +333,7 @@ func TestScanMixedSeparatorResourceName(t *testing.T) {
 		name + " password",
 		name + " token",
 		name + " pwd",
+		name + " privatekey",
 		"use " + name + " as the password for staging",
 		"the admin token is rejzeq_Wotsy7_quhxyb ok",
 		"Staging secret notes\nDB_PASS=maple_River7_stone",
