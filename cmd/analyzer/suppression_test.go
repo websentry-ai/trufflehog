@@ -331,7 +331,7 @@ func TestScanMixedSeparatorResourceName(t *testing.T) {
 	for _, line := range []string{
 		"staging deploy key is " + name,
 		"the admin token is rejzeq_Wotsy7_quhxyb ok",
-		"DB_PASSWORD=maple_River7_stone",
+		"Staging secret notes\nDB_PASS=maple_River7_stone",
 	} {
 		require.NotEmpty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), []byte(line), 0.75), "must still be reported: %s", line)
 	}
