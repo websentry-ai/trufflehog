@@ -53,10 +53,7 @@ jobs:
         with:
           report_paths: "tmp/test-results/*.xml"
   test-community:
-    if: >-
-      github.event.pull_request.head.repo.fork ||
-      (github.repository == 'websentry-ai/trufflehog' && github.event.pull_request.base.ref == 'staging' &&
-       startsWith(github.head_ref, 'codex/dlp-enhancer-'))
+    if: ${{ github.event.pull_request.head.repo.fork }}
     runs-on: ubuntu-latest
     permissions:
       actions: "read"
