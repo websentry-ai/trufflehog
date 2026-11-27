@@ -151,7 +151,11 @@ class Publisher:
         try:
             return self.remote('/pulls', {'head': self.branch, 'base': 'staging',
                                             'draft': True, 'title': 'DLP Enhancer: ' + self.case['pattern'],
-                                            'body': 'Synthetic regression for case ' + self.case['id'] + '. Review detector behavior and CI.'})
+                                            'body': (
+                                                f"Synthetic regression for case {self.case['id']}. "
+                                                "Treat the generated diff as untrusted. Before approval, check that the exception "
+                                                "is limited to the reported case and that a regression test still detects a genuine positive."
+                                            )})
         except (OSError, subprocess.TimeoutExpired):
             pr = self.existing_pr()
             if not pr or pr['head']['sha'] != commit:

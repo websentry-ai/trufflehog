@@ -23,6 +23,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s .github/dlp-enhancer -v
+      - run: bash .github/dlp-enhancer/install-codex.sh
       - run: GO111MODULE=off GOTOOLCHAIN=local go test ./.github/dlp-enhancer
 
   claim:
@@ -70,7 +71,7 @@ jobs:
           ref: ${{ fromJSON(needs.claim.outputs.case).base_sha }}
           path: detector
           persist-credentials: false
-      - run: npm install --global @openai/codex@0.169.1
+      - run: bash .github/dlp-enhancer/install-codex.sh
       - name: Refresh eligible evidence before sending it to Codex
         id: refresh
         env:
