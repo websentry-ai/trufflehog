@@ -51,7 +51,7 @@ def generate(case, root, destination):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=900)
         proposal = json.loads(destination.read_text())
         if proposal['status'] == 'changed':
-            checker = Path(__file__).resolve().with_name('check_test.go')
+            checker = Path(__file__).resolve().with_name('proposal_check.go')
             subprocess.run(['go', 'run', str(checker), UUID(case['id']).hex], input=proposal['test'], text=True,
                            cwd=directory, env={'PATH': env['PATH'], 'HOME': env['HOME'], 'GO111MODULE': 'off',
                                               'GOTOOLCHAIN': 'local', 'GOPROXY': 'off'}, check=True, timeout=90)
