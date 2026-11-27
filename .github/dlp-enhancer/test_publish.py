@@ -110,6 +110,7 @@ class RecoveryTests(unittest.TestCase):
     def test_closed_draft_is_reported_as_closed_and_never_reopened(self):
         self.pub.open(self.artifact)
         self.pr['state'] = 'closed'
+        self.ref = self.pr['head']['sha'] = 'amended'
         with patch('publish.output') as output:
             report_publication(self.pub.open(self.artifact))
             output.assert_called_once_with('closed_pr', 7)
@@ -119,6 +120,9 @@ class RecoveryTests(unittest.TestCase):
             handoff.outcome()
         request.assert_called_once_with('outcome', {'case_id': env['CASE_ID'], 'pr_number': 7, 'status': 'closed'})
         self.pr['merged_at'] = '2026-11-27T00:00:00Z'
+        with self.assertRaisesRegex(ValueError, 'original'):
+            self.pub.open(self.artifact)
+        self.pr['head']['sha'] = 'commit'
         with patch('publish.output') as output:
             report_publication(self.pub.open(self.artifact))
             output.assert_any_call('pr', 7)

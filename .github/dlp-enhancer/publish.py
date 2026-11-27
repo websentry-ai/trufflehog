@@ -98,13 +98,14 @@ class Publisher:
                 raise
             return None
 
-    def require_original_head(self, commit):
+    def original_head(self):
         ref = 'refs/heads/' + self.branch
         query = urlencode({'ref': ref, 'activity_type': 'branch_creation', 'per_page': 2})
         creations = self.remote('/activity?' + query)
-        if (len(creations) != 1 or creations[0]['ref'] != ref or creations[0]['after'] != commit
+        if (len(creations) != 1 or creations[0]['ref'] != ref
                 or creations[0]['actor']['id'] != api(self.token, 'user')['id']):
             raise ValueError('Cannot verify the original publisher-created branch head')
+        return creations[0]['after']
 
     def verified_branch(self, commit, original):
         change = self.remote('/commits/' + commit)
@@ -137,12 +138,16 @@ class Publisher:
             raise ValueError('Expected an existing detector and new test')
         original = subprocess.check_output(['git', '-C', 'detector', 'show', self.sha + ':' + self.source], text=True)
         if pr:
-            self.require_original_head(pr['head']['sha'])
-            self.verified_branch(pr['head']['sha'], original)
+            commit = self.original_head()
+            declined = pr['state'] == 'closed' and not pr.get('merged_at')
+            if not declined and pr['head']['sha'] != commit:
+                raise ValueError('Pull request head differs from the original generated commit')
+            self.verified_branch(commit, original)
             return pr
         commit = self.ref()
         if commit:
-            self.require_original_head(commit)
+            if commit != self.original_head():
+                raise ValueError('Branch no longer points to the original generated commit')
         else:
             files = candidate(self.case, original, artifact)
             if files is None:
