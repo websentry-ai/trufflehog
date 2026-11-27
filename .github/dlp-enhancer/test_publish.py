@@ -29,9 +29,11 @@ class RecoveryTests(unittest.TestCase):
         self.status = {self.pub.source: 'modified', self.pub.test: 'added'}
         self.baseline_files = {self.pub.source}
         self.ref = self.pr = None
+        self.creations = [{'ref': 'refs/heads/' + self.pub.branch, 'after': 'commit', 'actor': {'id': 17}}]
         self.mode = '100644'
         self.creates = 0
         stack.enter_context(patch.object(self.pub, 'remote', side_effect=self.github))
+        stack.enter_context(patch('publish.api', return_value={'id': 17}))
         stack.enter_context(patch.object(subprocess, 'check_output', side_effect=self.git))
         self.artifact = Path(self.temp, 'proposal.json')
         self.artifact.write_text('{"status":"changed","edits":[{"before":"before","after":"after"}],"test":"synthetic example"}')
@@ -45,6 +47,8 @@ class RecoveryTests(unittest.TestCase):
     def github(self, path, data=None):
         if path.startswith('/pulls?'):
             return [self.pr] if self.pr else []
+        if path.startswith('/activity?'):
+            return self.creations
         if path.startswith('/git/ref/heads/'):
             if self.ref:
                 return {'object': {'sha': self.ref}}
@@ -61,7 +65,7 @@ class RecoveryTests(unittest.TestCase):
         if path == '/git/refs':
             self.ref = data['sha']
             raise TimeoutError('response lost after ref creation')
-        if path == '/commits/commit':
+        if path in ('/commits/commit', '/commits/amended'):
             return {'parents': [{'sha': self.pub.sha}], 'commit': {'tree': {'sha': 'tree'}},
                     'files': [{'filename': p, 'status': s} for p, s in self.status.items()]}
         if path.startswith('/git/trees/tree?'):
@@ -92,6 +96,16 @@ class RecoveryTests(unittest.TestCase):
         self.artifact.unlink()
         with self.assertRaises(FileNotFoundError):
             self.pub.open(self.artifact)
+
+    def test_recovery_rejects_amended_head_with_valid_parent_and_files(self):
+        self.pub.open(self.artifact)
+        self.ref = self.pr['head']['sha'] = 'amended'
+        with self.assertRaisesRegex(ValueError, 'original'):
+            self.pub.open(self.artifact)
+        self.pr = None
+        with self.assertRaisesRegex(ValueError, 'original'):
+            self.pub.open(self.artifact)
+        self.assertEqual(self.creates, 1)
 
     def test_closed_draft_is_reported_as_closed_and_never_reopened(self):
         self.pub.open(self.artifact)

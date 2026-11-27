@@ -98,6 +98,14 @@ class Publisher:
                 raise
             return None
 
+    def require_original_head(self, commit):
+        ref = 'refs/heads/' + self.branch
+        query = urlencode({'ref': ref, 'activity_type': 'branch_creation', 'per_page': 2})
+        creations = self.remote('/activity?' + query)
+        if (len(creations) != 1 or creations[0]['ref'] != ref or creations[0]['after'] != commit
+                or creations[0]['actor']['id'] != api(self.token, 'user')['id']):
+            raise ValueError('Cannot verify the original publisher-created branch head')
+
     def verified_branch(self, commit, original):
         change = self.remote('/commits/' + commit)
         if [p['sha'] for p in change['parents']] != [self.sha]:
@@ -129,10 +137,13 @@ class Publisher:
             raise ValueError('Expected an existing detector and new test')
         original = subprocess.check_output(['git', '-C', 'detector', 'show', self.sha + ':' + self.source], text=True)
         if pr:
+            self.require_original_head(pr['head']['sha'])
             self.verified_branch(pr['head']['sha'], original)
             return pr
         commit = self.ref()
-        if not commit:
+        if commit:
+            self.require_original_head(commit)
+        else:
             files = candidate(self.case, original, artifact)
             if files is None:
                 return None
@@ -146,10 +157,12 @@ class Publisher:
             except (OSError, subprocess.TimeoutExpired):
                 if not self.ref():
                     raise
-            commit = self.ref()
+            commit = result['sha']
+            if self.ref() != commit:
+                raise ValueError('Branch no longer points to the original generated commit')
         self.verified_branch(commit, original)
         try:
-            return self.remote('/pulls', {'head': self.branch, 'base': 'staging',
+            pr = self.remote('/pulls', {'head': self.branch, 'base': 'staging',
                                             'draft': True, 'title': 'DLP Enhancer: ' + self.case['pattern'],
                                             'body': (
                                                 f"Synthetic regression for case {self.case['id']}. "
@@ -158,9 +171,11 @@ class Publisher:
                                             )})
         except (OSError, subprocess.TimeoutExpired):
             pr = self.existing_pr()
-            if not pr or pr['head']['sha'] != commit:
+            if not pr:
                 raise
-            return pr
+        if pr['head']['sha'] != commit:
+            raise ValueError('Pull request head differs from the original generated commit')
+        return pr
 
 
 def confirm_ci():
