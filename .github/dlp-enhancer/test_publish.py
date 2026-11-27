@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
+import handoff
 from publish import Publisher
 from target import TARGETS
 
@@ -21,9 +22,9 @@ class RecoveryTests(unittest.TestCase):
         stack.enter_context(patch.dict(os.environ, {'PR_TOKEN': 'github_pat_test_fixture'}))
         self.temp = stack.enter_context(tempfile.TemporaryDirectory())
         detector, pattern = next(iter(TARGETS))
-        self.pub = Publisher({'detector': detector, 'pattern': pattern, 'id': 'fixture', 'base_sha': 'a' * 40,
+        self.pub = Publisher({'detector': detector, 'pattern': pattern, 'id': '12345678-1234-1234-1234-123456789abc', 'base_sha': 'a' * 40,
                               'examples': ['synthetic example']})
-        self.files = {self.pub.source: 'before\n'.encode(), self.pub.test: b'synthetic example\n'}
+        self.files = {self.pub.source: b'after\n', self.pub.test: b'synthetic example\n'}
         self.status = {self.pub.source: 'modified', self.pub.test: 'added'}
         self.ref = self.pr = None
         self.mode = '100644'
@@ -80,6 +81,37 @@ class RecoveryTests(unittest.TestCase):
         self.artifact.unlink()
         self.assertEqual(self.pub.open(self.artifact)['number'], 7)
         self.assertEqual(self.creates, 1)
+
+    def test_unchanged_creates_nothing_but_an_absent_artifact_fails(self):
+        self.artifact.write_text('{"status":"unchanged","edits":[],"test":""}')
+        self.assertIsNone(self.pub.open(self.artifact))
+        self.assertEqual(self.creates, 0)
+        self.artifact.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.pub.open(self.artifact)
+
+    def test_second_case_can_publish_after_the_first_test_has_merged(self):
+        first_path = self.pub.test
+        next_case = {**self.pub.case, 'id': 'abcdef12-1234-1234-1234-123456789abc'}
+        self.pub = Publisher(next_case)
+        self.assertNotEqual(first_path, self.pub.test)
+        self.assertEqual(Publisher(next_case).test, self.pub.test)
+        self.status = {self.pub.source: 'modified', self.pub.test: 'added'}
+        with patch.object(self.pub, 'remote', side_effect=self.github):
+            self.assertEqual(self.pub.open(self.artifact)['number'], 7)
+
+    def test_failed_confirmation_reports_retry_even_when_a_pr_exists(self):
+        env = {'CASE_ID': self.pub.case['id'], 'PUBLISH_RESULT': 'failure', 'PR_NUMBER': '7', 'UNCHANGED': ''}
+        with patch.dict(os.environ, env), patch.object(handoff, 'request') as request:
+            handoff.outcome()
+        request.assert_called_once_with('outcome', {'case_id': env['CASE_ID'], 'pr_number': None, 'status': 'retry'})
+
+    def test_recovers_a_branch_created_with_the_legacy_filename(self):
+        legacy = TARGETS[self.pub.case['detector'], self.pub.case['pattern']][1]
+        self.status[legacy] = self.status.pop(self.pub.test)
+        self.files[legacy] = self.files.pop(self.pub.test)
+        self.ref = 'commit'
+        self.assertEqual(self.pub.open(self.artifact)['number'], 7)
 
     def test_rejects_extra_path_and_symlink_on_recovered_branch(self):
         self.ref = 'commit'

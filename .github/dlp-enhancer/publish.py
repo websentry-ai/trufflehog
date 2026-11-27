@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 
 from handoff import output
-from target import REPO, TARGETS
+from target import REPO, TARGETS, paths_for
 
 
 def api(token, path, data=None):
@@ -64,7 +64,7 @@ class Publisher:
         self.base = 'websentry-ai/' + REPO
         self.branch = 'codex/dlp-enhancer-' + case['id']
         self.sha = case['base_sha']
-        self.source, self.test = TARGETS[case['detector'], case['pattern']]
+        self.source, self.test = paths_for(case)
         self.token = os.environ.get('PR_TOKEN')
         # User tokens create pull_request events; the built-in workflow token suppresses downstream runs.
         if os.getenv('GITHUB_ACTIONS') == 'true' and not (self.token or '').startswith(('ghp_', 'github_pat_')):
@@ -94,14 +94,18 @@ class Publisher:
         change = self.remote('/commits/' + commit)
         if [p['sha'] for p in change['parents']] != [self.sha]:
             raise ValueError
-        if {f['filename']: f['status'] for f in change['files']} != {self.source: 'modified', self.test: 'added'}:
+        changed = {f['filename']: f['status'] for f in change['files']}
+        legacy_test = TARGETS[self.case['detector'], self.case['pattern']][1]
+        # Interrupted runs from the first workflow version used a fixed regression filename.
+        test = legacy_test if legacy_test in changed else self.test
+        if changed != {self.source: 'modified', test: 'added'}:
             raise ValueError('Unexpected detector or test path')
         tree = self.remote('/git/trees/' + change['commit']['tree']['sha'] + '?recursive=1')
-        selected = {e['path']: e for e in tree['tree'] if e['path'] in (self.source, self.test)}
+        selected = {e['path']: e for e in tree['tree'] if e['path'] in (self.source, test)}
         contents = []
-        for path in (self.source, self.test):
+        for path in (self.source, test):
             entry = selected[path]
-            max_size = 16000 if path == self.test else len(original.encode()) + 16000
+            max_size = 16000 if path == test else len(original.encode()) + 16000
             if entry['type'] != 'blob' or entry['mode'] != '100644' or entry['size'] > max_size:
                 raise ValueError
             blob = self.remote('/git/blobs/' + entry['sha'])
@@ -122,8 +126,8 @@ class Publisher:
         commit = self.ref()
         if not commit:
             files = candidate(self.case, original, artifact)
-            if not files:
-                raise ValueError('No verified detector change')
+            if files is None:
+                return None
             base_tree = self.remote('/git/commits/' + self.sha)['tree']['sha']
             tree = self.remote('/git/trees', {'base_tree': base_tree, 'tree': [
                 {'path': p, 'mode': '100644', 'type': 'blob', 'content': content}

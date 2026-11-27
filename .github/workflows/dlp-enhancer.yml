@@ -164,5 +164,6 @@ jobs:
           BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
           BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
           PR_NUMBER: ${{ needs.publish.outputs.pr }}
-          STATUS: ${{ needs.publish.outputs.unchanged == 'true' && 'no_change' || 'retry' }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          UNCHANGED: ${{ needs.publish.outputs.unchanged }}
         run: python3 .github/dlp-enhancer/handoff.py outcome

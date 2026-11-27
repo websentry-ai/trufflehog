@@ -57,14 +57,22 @@ def claim():
     output('case', case)
 
 
+def outcome():
+    status, number = 'retry', None
+    if os.environ['PUBLISH_RESULT'] == 'success':
+        if os.environ.get('PR_NUMBER'):
+            status, number = 'published', int(os.environ['PR_NUMBER'])
+        elif os.environ.get('UNCHANGED') == 'true':
+            status = 'no_change'
+    request('outcome', {'case_id': os.environ['CASE_ID'], 'pr_number': number, 'status': status})
+
+
 if __name__ == '__main__':
     try:
         if sys.argv[1] == 'claim':
             claim()
         elif sys.argv[1] == 'outcome':
-            pr = os.environ.get('PR_NUMBER')
-            request('outcome', {'case_id': os.environ['CASE_ID'], 'pr_number': int(pr) if pr else None,
-                                'status': 'published' if pr else os.environ.get('STATUS') or 'retry'})
+            outcome()
         else:
             raise ValueError
     except Exception:
