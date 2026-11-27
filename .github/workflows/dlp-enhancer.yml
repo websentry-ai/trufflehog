@@ -23,6 +23,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s .github/dlp-enhancer -v
+      - run: GO111MODULE=off GOTOOLCHAIN=local go test ./.github/dlp-enhancer
 
   claim:
     if: >-
