@@ -199,7 +199,8 @@ func decideSuppression(f analyzeResult, shapes map[string]int, data []byte) (boo
 			return true, reasonGPGKeyID
 		}
 		if classify.IsVetoableStructural(f.raw) && contextSuppressed(data, f.raw, alwaysBenignAt) &&
-			!credentialSuffixLabeled(data, f.raw) {
+			!credentialSuffixLabeled(data, f.raw) &&
+			(!classify.IsComposeResourceName(f.raw) || !credentialWordFollows(data, f.raw)) {
 			return true, reasonStructuralVetoable
 		}
 		if contextSuppressed(data, f.raw, benignIDContextAt) {
@@ -255,6 +256,34 @@ func benignIDContextAt(data []byte, start int) bool {
 }
 
 func alwaysBenignAt(_ []byte, _ int) bool { return true }
+
+// credentialWordFollows reports whether a credential keyword follows any occurrence of raw on its line.
+func credentialWordFollows(data []byte, raw string) bool {
+	rb := []byte(raw)
+	if len(rb) == 0 {
+		return false
+	}
+	for off := 0; off+len(rb) <= len(data); {
+		i := bytes.Index(data[off:], rb)
+		if i < 0 {
+			break
+		}
+		end := off + i + len(rb)
+		hi := end + credentialContextWindow
+		if hi > len(data) {
+			hi = len(data)
+		}
+		after := data[end:hi]
+		if nl := bytes.IndexByte(after, '\n'); nl >= 0 {
+			after = after[:nl]
+		}
+		if classify.IsTrailingCredentialWord(string(after)) {
+			return true
+		}
+		off += i + 1
+	}
+	return false
+}
 
 // insidePublicPEMBlock reports whether raw is a base64 body line of a public PEM
 // armor (CERTIFICATE / PUBLIC KEY) and never a PRIVATE KEY. To avoid a stray or

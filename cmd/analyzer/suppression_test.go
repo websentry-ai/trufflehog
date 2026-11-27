@@ -323,3 +323,21 @@ func TestFastlyEmbeddedSuppression(t *testing.T) {
 		})
 	}
 }
+
+func TestScanMixedSeparatorResourceName(t *testing.T) {
+	const name = "billing2_billing-network"
+	docker := []byte("docker run --rm -i --network " + name + " --env-file tests/ci.env\nAWS_SECRET_ACCESS_KEY=test")
+	require.Empty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), docker, 0.75), "compose network name must be suppressed")
+	for _, line := range []string{
+		"staging deploy key is " + name,
+		name + " password",
+		name + " token",
+		name + " pwd",
+		name + " privatekey",
+		"use " + name + " as the password for staging",
+		"the admin token is rejzeq_Wotsy7_quhxyb ok",
+		"Staging secret notes\nDB_PASS=maple_River7_stone",
+	} {
+		require.NotEmpty(t, heuristicScanner(t, suppressionEnforce).scan(context.Background(), []byte(line), 0.75), "must still be reported: %s", line)
+	}
+}
