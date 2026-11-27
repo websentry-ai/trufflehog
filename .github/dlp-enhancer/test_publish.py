@@ -116,6 +116,11 @@ class RecoveryTests(unittest.TestCase):
         self.artifact.write_text(json.dumps(result))
         self.assertEqual(self.pub.open(self.artifact)['number'], 7)
 
+    def test_hosted_publisher_requires_a_fine_grained_token(self):
+        with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'PR_TOKEN': 'ghp_test_fixture'}):
+            with self.assertRaisesRegex(ValueError, 'fine-grained'):
+                Publisher(self.pub.case)
+
     def test_withdrawn_batch_never_reports_an_unchanged_proposal(self):
         self.pub.case['examples'] = []
         self.artifact.write_text('{"status":"unchanged","edits":[],"test":""}')

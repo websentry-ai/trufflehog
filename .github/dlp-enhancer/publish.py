@@ -71,8 +71,8 @@ class Publisher:
         self.source, self.test = paths_for(case)
         self.token = os.environ.get('PR_TOKEN')
         # User tokens create pull_request events; the built-in workflow token suppresses downstream runs.
-        if os.getenv('GITHUB_ACTIONS') == 'true' and not (self.token or '').startswith(('ghp_', 'github_pat_')):
-            raise ValueError('Expected a repository-scoped PAT')
+        if os.getenv('GITHUB_ACTIONS') == 'true' and not (self.token or '').startswith('github_pat_'):
+            raise ValueError('Expected a fine-grained PAT for this repository')
 
     def remote(self, path, data=None):
         return api(self.token, 'repos/' + self.base + path, data)
