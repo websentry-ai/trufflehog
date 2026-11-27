@@ -760,7 +760,8 @@ func exposedMetadata(extra map[string]string) map[string]string {
 func isGenericDetectorName(name string) bool {
 	return name == customdetectors.GenericSecretName ||
 		name == customdetectors.DBConnectionURIName ||
-		name == customdetectors.EntropyName
+		name == customdetectors.EntropyName ||
+		name == customdetectors.StrongLabelSecretName
 }
 
 var placeholderMarkers = classify.PlaceholderMarkers()
