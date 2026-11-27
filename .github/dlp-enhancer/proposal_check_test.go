@@ -18,6 +18,8 @@ func TestCaseScopedDeclaration(t *testing.T) {
 		{"var shared = 1\nfunc TestDLPEnhancer_abc() {}", false},
 		{"func TestDLPEnhancer_abc() {}\nfunc helper() {}", false},
 		{"import \"testing\"", false},
+		{"import \"C\"\nfunc TestDLPEnhancer_abc() {}", false},
+		{"import `C`\nfunc TestDLPEnhancer_abc() {}", false},
 	} {
 		file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", "package main\n"+tc.source, 0)
 		if err != nil {

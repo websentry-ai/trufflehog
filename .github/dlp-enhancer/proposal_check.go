@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"strconv"
 )
 
 func main() {
@@ -21,6 +22,12 @@ func main() {
 func validDeclarations(file *ast.File, key string) bool {
 	if file.Name.Name != "main" {
 		return false
+	}
+	for _, imp := range file.Imports {
+		name, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || name == "C" {
+			return false
+		}
 	}
 	for _, group := range file.Comments {
 		for _, comment := range group.List {
