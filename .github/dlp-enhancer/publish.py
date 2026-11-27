@@ -15,6 +15,10 @@ from handoff import output
 from target import REPO, TARGETS, paths_for
 
 
+class EvidenceWithdrawn(Exception):
+    """There is no eligible input or existing PR to report."""
+
+
 def api(token, path, data=None):
     env = os.environ.copy()
     if token:
@@ -115,7 +119,7 @@ class Publisher:
     def open(self, artifact):
         pr = self.existing_pr()
         if not pr and not self.case['examples']:
-            return None
+            raise EvidenceWithdrawn
         baseline = subprocess.check_output(['git', '-C', 'detector', 'ls-tree', self.sha, '--', self.source, self.test], text=True)
         if len(baseline.splitlines()) != 1 or not baseline.startswith('100644 blob ') or not baseline.rstrip().endswith('\t' + self.source):
             raise ValueError('Expected an existing detector and new test')
@@ -175,5 +179,8 @@ if __name__ == '__main__':
                 output('sha', pr['head']['sha'])
             else:
                 output('unchanged', True)
+    except EvidenceWithdrawn:
+        # No PR or unchanged output makes the reporting job release the case for retry.
+        pass
     except Exception:
         sys.exit('Detector CI run unconfirmed.' if sys.argv[1] == 'confirm-ci' else 'Draft publication failed.')

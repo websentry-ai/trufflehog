@@ -45,6 +45,7 @@ def request(operation, data):
 
 
 def claim():
+    # The backend uses STAGING_SHA only for a new case; retries return the original case ID and base SHA.
     case = request('claim', {'base_sha': os.environ['STAGING_SHA'], 'synthetic_trial': os.environ['TRIAL'] == 'true'})['case']
     if case:
         if set(case) != {'id', 'base_sha', 'examples', 'detector', 'pattern', 'repo', 'expected'}:
@@ -54,6 +55,12 @@ def claim():
                 case['expected'] != 'No match for the target detector.' or not isinstance(case['examples'], list) or
                 len(case['examples']) > 3 or not all(isinstance(e, str) and 0 < len(e) <= 256 for e in case['examples'])):
             raise ValueError
+    if os.environ.get('EXPECTED_CASE') and case:
+        original = json.loads(os.environ['EXPECTED_CASE'])
+        if any(case[key] != original[key] for key in ('id', 'repo', 'base_sha', 'detector', 'pattern')):
+            raise ValueError('Refresh changed the identity of the leased case')
+        if case['examples'] and case['examples'] != original['examples']:
+            raise ValueError('Refresh replaced the leased evidence')
     output('case', case)
 
 

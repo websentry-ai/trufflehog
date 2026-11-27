@@ -73,6 +73,7 @@ jobs:
       - name: Refresh eligible evidence before sending it to Codex
         id: refresh
         env:
+          EXPECTED_CASE: ${{ needs.claim.outputs.case }}
           RUN_KEY: ${{ needs.claim.outputs.key }}
           BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
           BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
@@ -126,6 +127,7 @@ jobs:
       - name: Recheck the lease and source eligibility
         id: refresh
         env:
+          EXPECTED_CASE: ${{ needs.claim.outputs.case }}
           RUN_KEY: ${{ needs.claim.outputs.key }}
           BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
           BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}

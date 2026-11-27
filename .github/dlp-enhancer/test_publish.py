@@ -1,6 +1,7 @@
 """Exercise the publishing entry point with the GitHub transport replaced at its IO boundary."""
 
 import base64
+import json
 from contextlib import ExitStack
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 import handoff
-from publish import Publisher
+from publish import EvidenceWithdrawn, Publisher
 from target import TARGETS
 
 
@@ -26,6 +27,7 @@ class RecoveryTests(unittest.TestCase):
                               'examples': ['synthetic example']})
         self.files = {self.pub.source: b'after\n', self.pub.test: b'synthetic example\n'}
         self.status = {self.pub.source: 'modified', self.pub.test: 'added'}
+        self.baseline_files = {self.pub.source}
         self.ref = self.pr = None
         self.mode = '100644'
         self.creates = 0
@@ -36,7 +38,8 @@ class RecoveryTests(unittest.TestCase):
 
     def git(self, args, **kwargs):
         if 'ls-tree' in args:
-            return '100644 blob abc\t' + self.pub.source + '\n'
+            paths = args[args.index('--') + 1:]
+            return ''.join(f'100644 blob abc\t{path}\n' for path in paths if path in self.baseline_files)
         return 'before\n'
 
     def github(self, path, data=None):
@@ -90,8 +93,27 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.pub.open(self.artifact)
 
+    def test_withdrawn_batch_never_reports_an_unchanged_proposal(self):
+        self.pub.case['examples'] = []
+        self.artifact.write_text('{"status":"unchanged","edits":[],"test":""}')
+        with self.assertRaises(EvidenceWithdrawn):
+            self.pub.open(self.artifact)
+        self.assertEqual(self.creates, 0)
+
+    def test_refresh_checks_the_original_base_but_allows_evidence_withdrawal(self):
+        case = {**self.pub.case, 'repo': handoff.REPO, 'expected': 'No match for the target detector.'}
+        env = {'EXPECTED_CASE': json.dumps(case), 'STAGING_SHA': 'b' * 40, 'TRIAL': 'false'}
+        with patch.dict(os.environ, env), patch.object(handoff, 'request') as request, patch.object(handoff, 'output') as output:
+            request.return_value = {'case': {**case, 'examples': []}}
+            handoff.claim()
+            output.assert_called_once_with('case', request.return_value['case'])
+            request.return_value = {'case': {**case, 'base_sha': 'b' * 40}}
+            with self.assertRaises(ValueError):
+                handoff.claim()
+
     def test_second_case_can_publish_after_the_first_test_has_merged(self):
         first_path = self.pub.test
+        self.baseline_files.add(first_path)
         next_case = {**self.pub.case, 'id': 'abcdef12-1234-1234-1234-123456789abc'}
         self.pub = Publisher(next_case)
         self.assertNotEqual(first_path, self.pub.test)
