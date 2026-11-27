@@ -55,15 +55,75 @@ jobs:
   test-community:
     if: ${{ github.event.pull_request.head.repo.fork }}
     runs-on: ubuntu-latest
+    env:
+      ENHANCER_PR: ${{ startsWith(github.head_ref, 'codex/dlp-enhancer-') || startsWith(github.head_ref, 'codex/web-6913-') }}
     permissions:
       actions: "read"
       contents: "read"
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
       - name: Install Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: "1.27"
+          cache: ${{ env.ENHANCER_PR != 'true' }}
       - name: Test
+        if: env.ENHANCER_PR != 'true'
         run: make test-community
+      - name: Prepare the analyzer and run the unaffected community suites from the trusted base
+        if: env.ENHANCER_PR == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CGO_ENABLED: "0"
+          GOPROXY: https://proxy.golang.org
+          GONOPROXY: none
+          GOMODCACHE: ${{ runner.temp }}/enhancer-modules
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          allowed = {'.github/workflows/test.yml'}
+          if os.environ['GITHUB_HEAD_REF'].startswith('codex/dlp-enhancer-'):
+              allowed = {
+                  'cmd/analyzer/customdetectors/entropy_proximity.go',
+                  'cmd/analyzer/dlp_enhancer_fixture_filename_test.go',
+              }
+          diff = subprocess.check_output(['git', 'diff', '--name-only', '-z', '--no-renames', os.environ['BASE_SHA'], 'HEAD'])
+          changed = set(os.fsdecode(name) for name in diff.split(b'\0') if name)
+          if not changed or not changed <= allowed:
+              raise SystemExit('Changes outside the allowed Enhancer paths require the ordinary regression workflow.')
+          for name in changed:
+              entry = subprocess.check_output(['git', 'ls-tree', 'HEAD', '--', name])
+              if not entry.startswith(b'100644 blob '):
+                  raise SystemExit('Enhancer changes must be regular files.')
+          PY
+          mkdir -m 755 "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/base"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/candidate"
+          git archive "$BASE_SHA" | tar -x -C "$RUNNER_TEMP/base"
+          cd "$RUNNER_TEMP/base"
+          go list -deps -test ./cmd/analyzer/... >/dev/null
+          # Use the same community package selection, with analyzer tests run separately on the PR tree below.
+          go list ./... | grep -v /vendor/ | grep -v pkg/sources | grep -v pkg/analyzer/analyzers \
+            | grep -v /cmd/analyzer > "$RUNNER_TEMP/community-packages"
+          xargs go test -timeout=5m < "$RUNNER_TEMP/community-packages"
+      - name: Run the candidate analyzer regressions offline
+        if: env.ENHANCER_PR == 'true'
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --user 65534:65534 --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 512 --log-driver none \
+            --mount "type=bind,src=$RUNNER_TEMP/candidate,dst=/source,readonly" \
+            --mount "type=bind,src=$(go env GOROOT),dst=/sdk,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/enhancer-modules,dst=/modules,readonly" \
+            --workdir /source --env HOME=/tmp --env GOROOT=/sdk --env GOMODCACHE=/modules \
+            --env PATH=/sdk/bin:/usr/bin:/bin --env GOCACHE=/tmp/build-cache --env GOPROXY=off --env GOSUMDB=off \
+            --env CGO_ENABLED=0 --env GOTOOLCHAIN=local debian:bookworm-slim \
+            /sdk/bin/go test -count=1 -buildvcs=false -mod=readonly -p=2 ./cmd/analyzer/... >/dev/null 2>&1
+          echo 'Isolated analyzer regression tests passed.'
