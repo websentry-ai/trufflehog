@@ -12,7 +12,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 import handoff
-from publish import EvidenceWithdrawn, Publisher
+from publish import EvidenceWithdrawn, Publisher, report_publication
 from target import TARGETS
 
 
@@ -74,7 +74,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(data['base'], 'staging')
             self.creates += 1
             repo = {'full_name': self.pub.base}
-            self.pr = {'number': 7, 'head': {'sha': self.ref, 'ref': self.pub.branch, 'repo': repo},
+            self.pr = {'number': 7, 'state': 'open', 'merged_at': None, 'head': {'sha': self.ref, 'ref': self.pub.branch, 'repo': repo},
                        'base': {'ref': 'staging', 'repo': repo}}
             raise TimeoutError('response lost after PR creation')
         self.fail(path)
@@ -92,6 +92,29 @@ class RecoveryTests(unittest.TestCase):
         self.artifact.unlink()
         with self.assertRaises(FileNotFoundError):
             self.pub.open(self.artifact)
+
+    def test_closed_draft_is_reported_as_closed_and_never_reopened(self):
+        self.pub.open(self.artifact)
+        self.pr['state'] = 'closed'
+        with patch('publish.output') as output:
+            report_publication(self.pub.open(self.artifact))
+            output.assert_called_once_with('closed_pr', 7)
+        self.assertEqual(self.creates, 1)
+        env = {'CASE_ID': self.pub.case['id'], 'PUBLISH_RESULT': 'success', 'PR_NUMBER': '', 'CLOSED_PR_NUMBER': '7'}
+        with patch.dict(os.environ, env), patch.object(handoff, 'request') as request:
+            handoff.outcome()
+        request.assert_called_once_with('outcome', {'case_id': env['CASE_ID'], 'pr_number': 7, 'status': 'closed'})
+        self.pr['merged_at'] = '2026-11-27T00:00:00Z'
+        with patch('publish.output') as output:
+            report_publication(self.pub.open(self.artifact))
+            output.assert_any_call('pr', 7)
+
+    def test_go_quoted_example_is_accepted_in_generated_regression(self):
+        self.pub.case['examples'] = ['secret fixture: "example.json"']
+        result = json.loads(self.artifact.read_text())
+        result['test'] = 'var example = ' + json.dumps(self.pub.case['examples'][0])
+        self.artifact.write_text(json.dumps(result))
+        self.assertEqual(self.pub.open(self.artifact)['number'], 7)
 
     def test_withdrawn_batch_never_reports_an_unchanged_proposal(self):
         self.pub.case['examples'] = []

@@ -40,7 +40,7 @@ def validate(original, source, test, examples):
     count = sum(max(b - a, d - c) for op, a, b, c, d in lines.get_opcodes() if op != 'equal')
     if not 0 < count <= 80 or not 0 < len(test.encode()) <= 16000 or len(source.encode()) > len(original.encode()) + 16000:
         raise ValueError('Invalid change size')
-    if (examples and not any(e in test for e in examples)) or '\x00' in source + test:
+    if (examples and not any(e in test or json.dumps(e, ensure_ascii=False) in test for e in examples)) or '\x00' in source + test:
         raise ValueError('Missing synthetic regression')
 
 
@@ -79,12 +79,16 @@ class Publisher:
 
     def existing_pr(self):
         query = urlencode({'state': 'all', 'base': 'staging', 'head': 'websentry-ai:' + self.branch})
+        closed = None
         for pr in self.remote('/pulls?' + query):
             head = pr['head']
             if (head['ref'] == self.branch and (head.get('repo') or {}).get('full_name', '').lower() == self.base.lower()
                     and pr['base']['ref'] == 'staging' and pr['base']['repo']['full_name'] == self.base):
-                return pr
-        return None
+                if pr['state'] == 'open' or pr.get('merged_at'):
+                    return pr
+                if closed is None and pr['state'] == 'closed':
+                    closed = pr
+        return closed
 
     def ref(self):
         try:
@@ -168,17 +172,23 @@ def confirm_ci():
     raise ValueError
 
 
+def report_publication(pr):
+    if pr is None:
+        output('unchanged', True)
+    elif pr['state'] == 'closed' and not pr.get('merged_at'):
+        output('closed_pr', pr['number'])
+    else:
+        output('pr', pr['number'])
+        output('sha', pr['head']['sha'])
+
+
 if __name__ == '__main__':
     try:
         if sys.argv[1] == 'confirm-ci':
             confirm_ci()
         else:
             pr = Publisher(json.loads(os.environ['CASE'])).open(Path(sys.argv[1]))
-            if pr:
-                output('pr', pr['number'])
-                output('sha', pr['head']['sha'])
-            else:
-                output('unchanged', True)
+            report_publication(pr)
     except EvidenceWithdrawn:
         # No PR or unchanged output makes the reporting job release the case for retry.
         pass

@@ -108,6 +108,7 @@ jobs:
     outputs:
       pr: ${{ steps.publish.outputs.pr }}
       unchanged: ${{ steps.publish.outputs.unchanged }}
+      closed_pr: ${{ steps.publish.outputs.closed_pr }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
@@ -166,6 +167,7 @@ jobs:
           BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
           BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
           PR_NUMBER: ${{ needs.publish.outputs.pr }}
+          CLOSED_PR_NUMBER: ${{ needs.publish.outputs.closed_pr }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
           UNCHANGED: ${{ needs.publish.outputs.unchanged }}
         run: python3 .github/dlp-enhancer/handoff.py outcome

@@ -69,6 +69,8 @@ def outcome():
     if os.environ['PUBLISH_RESULT'] == 'success':
         if os.environ.get('PR_NUMBER'):
             status, number = 'published', int(os.environ['PR_NUMBER'])
+        elif os.environ.get('CLOSED_PR_NUMBER'):
+            status, number = 'closed', int(os.environ['CLOSED_PR_NUMBER'])
         elif os.environ.get('UNCHANGED') == 'true':
             status = 'no_change'
     request('outcome', {'case_id': os.environ['CASE_ID'], 'pr_number': number, 'status': status})
