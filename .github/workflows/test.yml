@@ -86,14 +86,22 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import os
+          import re
           import subprocess
 
           allowed = {'.github/workflows/test.yml'}
           if os.environ['GITHUB_HEAD_REF'].startswith('codex/dlp-enhancer-'):
               allowed = {
                   'cmd/analyzer/customdetectors/entropy_proximity.go',
+              }
+              legacy_tests = {
                   'cmd/analyzer/dlp_enhancer_fixture_filename_test.go',
               }
+              allowed.update(legacy_tests)
+              case_id = os.environ['GITHUB_HEAD_REF'].removeprefix('codex/dlp-enhancer-')
+              if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', case_id):
+                  case_key = case_id.replace('-', '')
+                  allowed.update(path.removesuffix('_test.go') + '_' + case_key + '_test.go' for path in legacy_tests)
           diff = subprocess.check_output(['git', 'diff', '--name-only', '-z', '--no-renames', os.environ['BASE_SHA'], 'HEAD'])
           changed = set(os.fsdecode(name) for name in diff.split(b'\0') if name)
           if not changed or not changed <= allowed:

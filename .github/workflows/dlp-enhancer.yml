@@ -1,0 +1,175 @@
+name: DLP Enhancer staging
+on:
+  pull_request:
+    paths:
+      - '.github/dlp-enhancer/**'
+      - '.github/workflows/dlp-enhancer.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '37 3 * * *'
+
+permissions:
+  contents: read
+concurrency:
+  group: dlp-enhancer-${{ github.event_name == 'pull_request' && github.ref || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  publisher-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s .github/dlp-enhancer -v
+      - run: bash .github/dlp-enhancer/install-codex.sh
+      - run: GO111MODULE=off GOTOOLCHAIN=local go test ./.github/dlp-enhancer
+
+  claim:
+    if: >-
+      github.repository == 'websentry-ai/trufflehog' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/staging') ||
+       (github.event_name == 'schedule' && vars.DLP_ENHANCER_DAILY == 'true'))
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+    outputs:
+      key: ${{ github.run_id }}.${{ github.run_attempt }}
+      driver: ${{ steps.checkout.outputs.commit }}
+      case: ${{ steps.claim.outputs.case }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        id: checkout
+        with:
+          ref: staging
+          persist-credentials: false
+      - id: claim
+        env:
+          RUN_KEY: ${{ github.run_id }}.${{ github.run_attempt }}
+          BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
+          BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
+          STAGING_SHA: ${{ steps.checkout.outputs.commit }}
+          TRIAL: 'false'
+        run: python3 .github/dlp-enhancer/handoff.py claim
+
+  generate:
+    needs: claim
+    if: needs.claim.outputs.case != 'null' && fromJSON(needs.claim.outputs.case).examples[0] != null
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    timeout-minutes: 23
+    environment: staging
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ needs.claim.outputs.driver }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ fromJSON(needs.claim.outputs.case).base_sha }}
+          path: detector
+          persist-credentials: false
+      - run: bash .github/dlp-enhancer/install-codex.sh
+      - name: Refresh eligible evidence before sending it to Codex
+        id: refresh
+        env:
+          EXPECTED_CASE: ${{ needs.claim.outputs.case }}
+          RUN_KEY: ${{ needs.claim.outputs.key }}
+          BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
+          BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
+          STAGING_SHA: ${{ needs.claim.outputs.driver }}
+          TRIAL: 'false'
+        run: python3 .github/dlp-enhancer/handoff.py claim
+      - name: Generate a proposal
+        if: steps.refresh.outputs.case != 'null' && fromJSON(steps.refresh.outputs.case).examples[0] != null
+        env:
+          CASE: ${{ steps.refresh.outputs.case }}
+          CODEX_API_KEY: ${{ secrets.DLP_ENHANCER_OPENAI_KEY }}
+        run: python3 .github/dlp-enhancer/generate.py detector "$RUNNER_TEMP/proposal.json"
+      - id: upload
+        if: steps.refresh.outputs.case != 'null' && fromJSON(steps.refresh.outputs.case).examples[0] != null
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: proposal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/proposal.json
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: [claim, generate]
+    if: >-
+      always() && !cancelled() && needs.claim.result == 'success' && needs.claim.outputs.case != 'null'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      pr: ${{ steps.publish.outputs.pr }}
+      unchanged: ${{ steps.publish.outputs.unchanged }}
+      closed_pr: ${{ steps.publish.outputs.closed_pr }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ needs.claim.outputs.driver }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ fromJSON(needs.claim.outputs.case).base_sha }}
+          path: detector
+          persist-credentials: false
+      - if: needs.generate.outputs.artifact != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.generate.outputs.artifact }}
+          path: ${{ runner.temp }}/proposal
+          merge-multiple: true
+      - name: Recheck the lease and source eligibility
+        id: refresh
+        env:
+          EXPECTED_CASE: ${{ needs.claim.outputs.case }}
+          RUN_KEY: ${{ needs.claim.outputs.key }}
+          BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
+          BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
+          STAGING_SHA: ${{ needs.claim.outputs.driver }}
+          TRIAL: 'false'
+        run: python3 .github/dlp-enhancer/handoff.py claim
+      - name: Create or recover the draft
+        id: publish
+        if: steps.refresh.outputs.case != 'null'
+        env:
+          CASE: ${{ steps.refresh.outputs.case }}
+          PR_TOKEN: ${{ secrets.DLP_ENHANCER_PR_PAT }}
+        run: python3 .github/dlp-enhancer/publish.py "$RUNNER_TEMP/proposal/proposal.json"
+      - name: Confirm the detector pull request workflow was registered
+        if: steps.publish.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BRANCH: codex/dlp-enhancer-${{ fromJSON(needs.claim.outputs.case).id }}
+          PR_SHA: ${{ fromJSON(steps.publish.outputs.sha) }}
+        run: python3 .github/dlp-enhancer/publish.py confirm-ci
+
+  report:
+    needs: [claim, publish]
+    if: always() && needs.claim.result == 'success' && needs.claim.outputs.case != 'null'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ needs.claim.outputs.driver }}
+          persist-credentials: false
+      - env:
+          CASE_ID: ${{ fromJSON(needs.claim.outputs.case).id }}
+          RUN_KEY: ${{ needs.claim.outputs.key }}
+          BACKEND_ORIGIN: ${{ vars.DLP_ENHANCER_BACKEND_ORIGIN }}
+          BACKEND_TOKEN: ${{ secrets.DLP_ENHANCER_BACKEND_TOKEN }}
+          PR_NUMBER: ${{ needs.publish.outputs.pr }}
+          CLOSED_PR_NUMBER: ${{ needs.publish.outputs.closed_pr }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          UNCHANGED: ${{ needs.publish.outputs.unchanged }}
+        run: python3 .github/dlp-enhancer/handoff.py outcome
